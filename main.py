@@ -1,5 +1,6 @@
 import threading
 import time
+import ctypes
 import webview
 from pynput import keyboard as kb
 import app as server
@@ -64,9 +65,16 @@ def _start_listener(hotkey_cfg):
 
 class Api:
     def set_on_top(self, on_top):
-        if _window:
-            # Must not block the js_api thread — run in a new thread
-            threading.Thread(target=setattr, args=(_window, 'on_top', on_top), daemon=True).start()
+        # Use Win32 SetWindowPos directly — avoids pywebview GUI thread deadlock
+        HWND_TOPMOST   = -1
+        HWND_NOTOPMOST = -2
+        SWP_NOMOVE     = 0x0002
+        SWP_NOSIZE     = 0x0001
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, "VoiceCode - Speech to Text")
+        if hwnd:
+            insert_after = HWND_TOPMOST if on_top else HWND_NOTOPMOST
+            user32.SetWindowPos(hwnd, insert_after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 
     def update_hotkey(self, hotkey_cfg):
         global _listener
