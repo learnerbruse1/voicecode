@@ -65,7 +65,8 @@ def _start_listener(hotkey_cfg):
 class Api:
     def set_on_top(self, on_top):
         if _window:
-            _window.on_top = on_top
+            # Must not block the js_api thread — run in a new thread
+            threading.Thread(target=setattr, args=(_window, 'on_top', on_top), daemon=True).start()
 
     def update_hotkey(self, hotkey_cfg):
         global _listener
