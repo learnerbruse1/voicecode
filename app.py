@@ -60,8 +60,11 @@ def post_config():
     save_config(cfg)
     return jsonify(cfg)
 
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+@app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.route("/status")
