@@ -138,15 +138,9 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
 // AudioWorklet processor source — injected as a Blob URL so no extra file is needed
 const WORKLET_SRC = `
 class PcmProcessor extends AudioWorkletProcessor {
-  constructor() { super(); this._buf = []; }
   process(inputs) {
     const ch = inputs[0]?.[0];
-    if (ch) for (let i = 0; i < ch.length; i++) this._buf.push(ch[i]);
-    // send in 4096-sample chunks
-    while (this._buf.length >= 4096) {
-      const chunk = new Float32Array(this._buf.splice(0, 4096));
-      this.port.postMessage(chunk, [chunk.buffer]);
-    }
+    if (ch) this.port.postMessage(ch, [ch.buffer]);
     return true;
   }
 }
