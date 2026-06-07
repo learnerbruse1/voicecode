@@ -28,10 +28,16 @@ _device, _compute_type, _cpu_threads = _best_device()
 
 print(f"Device: {_device} ({_compute_type})")
 print(f"Loading Whisper '{MODEL_SIZE}' model...")
-model = WhisperModel(MODEL_SIZE, device=_device, compute_type=_compute_type,
-                     cpu_threads=_cpu_threads)
+try:
+    model = WhisperModel(MODEL_SIZE, device=_device, compute_type=_compute_type,
+                         cpu_threads=_cpu_threads)
+except Exception as e:
+    print(f"WARNING: {_device} failed ({e}), falling back to CPU int8")
+    _device, _compute_type = "cpu", "int8"
+    model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8",
+                         cpu_threads=_cpu_threads)
 model_lock = threading.Lock()
-print("Model ready.")
+print(f"Model ready. ({_device}/{_compute_type})")
 
 _executor = ThreadPoolExecutor(max_workers=1)
 atexit.register(lambda: _executor.shutdown(wait=False))
@@ -183,13 +189,31 @@ def record_cancel():
 def _transcribe_audio(audio: np.ndarray, language=None) -> dict:
     prompt = "以下是普通话的语音识别结果。" if language == "zh" else None
     with model_lock:
-        segments, info = model.transcribe(
-            audio, language=language, task="transcribe",
-            beam_size=1, best_of=1, condition_on_previous_text=False,
-            initial_prompt=prompt, vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 500}, temperature=0.0,
-        )
-        text = " ".join(s.text for s in segments).strip()
+        try:
+            segments, info = model.transcribe(
+                audio, language=language, task="transcribe",
+                beam_size=1, best_of=1, condition_on_previous_text=False,
+                initial_prompt=prompt, vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 500}, temperature=0.0,
+            )
+            text = " ".join(s.text for s in segments).strip()
+        except RuntimeError as e:
+            if "cublas" in str(e).lower() or "cuda" in str(e).lower():
+                # CUDA runtime missing — reload model on CPU and retry
+                print(f"WARNING: GPU error ({e}), reloading on CPU", flush=True)
+                global model, _device, _compute_type
+                _device, _compute_type = "cpu", "int8"
+                model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8",
+                                     cpu_threads=_cpu_threads)
+                segments, info = model.transcribe(
+                    audio, language=language, task="transcribe",
+                    beam_size=1, best_of=1, condition_on_previous_text=False,
+                    initial_prompt=prompt, vad_filter=True,
+                    vad_parameters={"min_silence_duration_ms": 500}, temperature=0.0,
+                )
+                text = " ".join(s.text for s in segments).strip()
+            else:
+                raise
     return {"text": text, "language": info.language}
 
 def start_server():
