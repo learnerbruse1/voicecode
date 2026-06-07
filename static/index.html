@@ -135,20 +135,8 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
 </div>
 
 <script>
-// AudioWorklet processor source — injected as a Blob URL so no extra file is needed
-const WORKLET_SRC = `
-class PcmProcessor extends AudioWorkletProcessor {
-  process(inputs) {
-    const ch = inputs[0]?.[0];
-    if (ch && ch.length > 0) {
-      // Do NOT transfer buffer — postMessage with transferable detaches it on the sending side
-      this.port.postMessage(new Float32Array(ch));
-    }
-    return true;
-  }
-}
-registerProcessor('pcm-processor', PcmProcessor);
-`;
+// AudioWorklet Blob URL approach is unreliable in pywebview WebView2.
+// Use ScriptProcessor (deprecated but universally supported in embedded WebViews).
 
 const $ = id => document.getElementById(id);
 const dot=$('dot'),slabel=$('slabel'),transcriptEl=$('transcript'),interimEl=$('interim');
@@ -162,7 +150,7 @@ const WS_URL  = `ws://localhost:${WS_PORT}/ws`;
 
 let ws, wsRetryDelay = 1000, wsConnecting = false;
 let recording = false, text = '';
-let audioCtx, workletNode, source, stream;
+let audioCtx, processor, source, stream;
 let currentHotkey = {modifiers:['alt'], key:'z'};
 
 // ---- Config ----
@@ -285,8 +273,7 @@ function renderText(){
   else transcriptEl.innerHTML='<span class="placeholder">录音结果将显示在这里...</span>';
 }
 
-// ---- AudioWorklet recording (replaces deprecated ScriptProcessor) ----
-// Resamples from browser's native rate to 16kHz using linear interpolation
+// ---- Recording (ScriptProcessor — reliable in pywebview WebView2) ----
 function resampleTo16k(float32, fromRate) {
   if (!float32 || float32.length === 0) return new Float32Array(0);
   if (fromRate === 16000) return float32;
@@ -294,12 +281,8 @@ function resampleTo16k(float32, fromRate) {
   const outLen = Math.floor(float32.length / ratio);
   const out = new Float32Array(outLen);
   for (let i = 0; i < outLen; i++) {
-    const pos = i * ratio;
-    const idx = Math.floor(pos);
-    const frac = pos - idx;
-    const a = float32[idx] ?? 0;
-    const b = float32[idx+1] ?? a;
-    out[i] = a + frac*(b-a); // linear interpolation
+    const pos = i * ratio, idx = Math.floor(pos), frac = pos - idx;
+    out[i] = (float32[idx] ?? 0) + frac * ((float32[idx+1] ?? float32[idx] ?? 0) - (float32[idx] ?? 0));
   }
   return out;
 }
@@ -315,30 +298,18 @@ async function startRec(){
   if(recording) return;
   if(!ws||ws.readyState!==1){ connect(); return; }
   try{
-    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,sampleRate:16000}});
-    // Use browser's native rate; we'll resample if needed
+    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
     audioCtx = new AudioContext();
     const nativeRate = audioCtx.sampleRate;
-
-    // Register and load worklet from Blob URL
-    const blob = new Blob([WORKLET_SRC], {type:'application/javascript'});
-    const blobUrl = URL.createObjectURL(blob);
-    try {
-      await audioCtx.audioWorklet.addModule(blobUrl);
-    } finally {
-      URL.revokeObjectURL(blobUrl);
-    }
-
     source = audioCtx.createMediaStreamSource(stream);
-    workletNode = new AudioWorkletNode(audioCtx, 'pcm-processor');
-    workletNode.port.onmessage = e => {
-      if(!recording||ws.readyState!==1) return;
-      const resampled = resampleTo16k(e.data, nativeRate);
-      ws.send(floatTo16bit(resampled).buffer);
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = e => {
+      if(!recording || ws.readyState!==1) return;
+      const pcm = floatTo16bit(resampleTo16k(e.inputBuffer.getChannelData(0), nativeRate));
+      ws.send(pcm.buffer);
     };
-    source.connect(workletNode);
-    workletNode.connect(audioCtx.destination);
-
+    source.connect(processor);
+    processor.connect(audioCtx.destination);
     recording=true;
     recBtn.classList.add('recording');
     recLabel.textContent='录音中... 松开停止';
@@ -352,11 +323,9 @@ function stopRec(){
   recording=false;
   recBtn.classList.remove('recording');
   recLabel.textContent='按住 Space 开始录音';
-  // Send stop FIRST so the server gets it after all audio frames
   if(ws?.readyState===1){ ws.send(JSON.stringify({type:'stop'})); setStatus('processing','识别中...'); }
   else setStatus('connected','已连接');
-  // Then release audio resources
-  workletNode?.disconnect(); workletNode=null;
+  processor?.disconnect(); processor=null;
   source?.disconnect(); source=null;
   stream?.getTracks().forEach(t=>t.stop()); stream=null;
   audioCtx?.close(); audioCtx=null;

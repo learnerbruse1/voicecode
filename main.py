@@ -133,4 +133,4 @@ if __name__ == "__main__":
         resizable=True,
         js_api=Api(),
     )
-    webview.start(func=_hide_console)
+    webview.start(func=_hide_console, debug=True)
