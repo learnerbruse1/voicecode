@@ -97,14 +97,20 @@ def reload_model():
 # Hook set by main.py — called after each transcription
 on_transcription = None
 
+@app.route("/log", methods=["POST"])
+def client_log():
+    print("[JS]", request.json.get("msg",""), flush=True)
+    return "", 204
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
-    """Receive raw Int16 PCM at 16kHz, return transcription."""
     lang = request.args.get("language") or None
     pcm = request.data
+    print(f"[transcribe] lang={lang} bytes={len(pcm)}", flush=True)
     if not pcm:
         return jsonify({"text": "", "language": lang or "zh"})
     result = _transcribe(pcm, lang)
+    print(f"[transcribe] result={result}", flush=True)
     if on_transcription and result["text"]:
         on_transcription(result["text"])
     return jsonify(result)

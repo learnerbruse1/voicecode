@@ -258,6 +258,8 @@ async function startRec(){
   }catch(err){alert('麦克风错误: '+err.message);}
 }
 
+let currentAbort = null;
+
 async function stopRec(){
   if(!recording)return;
   recording=false;
@@ -272,14 +274,22 @@ async function stopRec(){
 
   setStatus('processing','识别中...');cancelBtn.style.display='';
   const lang=langSel.value==='auto'?'':langSel.value;
+  const abortCtrl=new AbortController();
+  currentAbort=abortCtrl;
+  const timer=setTimeout(()=>abortCtrl.abort(),30000);
   try{
     const resp=await fetch('/transcribe?language='+lang,{
       method:'POST',headers:{'Content-Type':'application/octet-stream'},
-      body:toInt16(new Float32Array(buf)).buffer
+      body:toInt16(new Float32Array(buf)).buffer,
+      signal:abortCtrl.signal
     });
     const d=await resp.json();
     if(d.text){text=appendSel.value==='append'?(text?text+'\n'+d.text:d.text):d.text;renderText();}
-  }catch(e){setStatus('connected','错误: '+e.message);}
+  }catch(e){
+    if(e.name!=='AbortError') fetch('/log',{method:'POST',body:JSON.stringify({msg:String(e)}),headers:{'Content-Type':'application/json'}}).catch(()=>{});
+  }finally{
+    clearTimeout(timer);currentAbort=null;
+  }
   cancelBtn.style.display='none';setStatus('connected','已连接');
 }
 
@@ -302,7 +312,7 @@ copyBtn.onclick=()=>{
   });
 };
 $('clear-btn').onclick=()=>{text='';renderText();};
-cancelBtn.onclick=()=>{cancelled=true;cancelBtn.style.display='none';};
+cancelBtn.onclick=()=>{cancelled=true;cancelBtn.style.display='none';currentAbort?.abort();};
 
 // Mic permission on startup
 navigator.mediaDevices.getUserMedia({audio:true})
