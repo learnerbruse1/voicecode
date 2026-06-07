@@ -99,6 +99,12 @@ def _on_transcription(text: str):
         _window.evaluate_js(f"window._appendText && window._appendText(`{safe}`)")
 
 
+def _hide_console():
+    """Hide the cmd window once the GUI is ready. Closing the GUI exits the process."""
+    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    if hwnd:
+        ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE = 0
+
 if __name__ == "__main__":
     server.on_transcription = _on_transcription
 
@@ -117,5 +123,5 @@ if __name__ == "__main__":
         resizable=True,
         js_api=Api(),
     )
-    webview.start()
+    webview.start(func=_hide_console)
 
