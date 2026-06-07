@@ -299,7 +299,7 @@ async function stopRec(){
   try {
     const d = await xhr('POST', '/record/stop', {language: lang});
     dbg('result: ' + JSON.stringify(d.text));
-    if(d.text){ text = appendSel.value==='append' ? (text ? text+'\n'+d.text : d.text) : d.text; renderText(); }
+    // text is updated by _appendText via on_transcription callback in main.py
   } finally {
     currentAbort = null;
     cancelBtn.style.display = 'none';
