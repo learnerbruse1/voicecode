@@ -131,13 +131,24 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
     </div>
   </div>
   <div id="transcript"><span class="placeholder">录音结果将显示在这里...</span></div>
+  <div id="dbg" style="font-size:.72rem;color:#f59e0b;margin-top:6px;white-space:pre-wrap"></div>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
-const dot=$('dot'), slabel=$('slabel'), transcriptEl=$('transcript');
+const dot=$('dot'), slabel=$('slabel'), transcriptEl=$('transcript'), dbgEl=$('dbg');
 const recBtn=$('rec-btn'), copyBtn=$('copy-btn'), recLabel=$('rec-label'), cancelBtn=$('cancel-btn');
 const modelSel=$('model'), langSel=$('lang'), fsizeSel=$('fsize'), appendSel=$('appendmode'), topBtn=$('topbtn');
+
+let _dbgLines=[];
+function dbg(msg){
+  const t=new Date().toLocaleTimeString('zh',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  _dbgLines.push(t+' '+msg);
+  if(_dbgLines.length>12)_dbgLines.shift();
+  dbgEl.textContent=_dbgLines.join('\n');
+  // also send to backend log
+  fetch('/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg})}).catch(()=>{});
+}
 const hkDisplay=$('hk-display'), hkRecordBtn=$('hk-record-btn');
 
 let recording=false, text='', cancelled=false;
@@ -239,25 +250,29 @@ function renderText(){
 // ---- Recording: capture into buffer, POST on stop ----
 async function startRec(){
   if(recording)return;
-  // Reset state before try so failures don't leave stale values
   pcmBuf=[];cancelled=false;
   try{
+    dbg('getUserMedia...');
     stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+    dbg('got stream, creating AudioContext...');
     audioCtx=new AudioContext();
-    // WinForms WebView may create AudioContext in suspended state — must resume explicitly
+    dbg('AudioContext state='+audioCtx.state+' rate='+audioCtx.sampleRate);
     if(audioCtx.state==='suspended') await audioCtx.resume();
+    dbg('AudioContext after resume: '+audioCtx.state);
     const rate=audioCtx.sampleRate;
     source=audioCtx.createMediaStreamSource(stream);
     processor=audioCtx.createScriptProcessor(4096,1,1);
+    let frameCount=0;
     processor.onaudioprocess=e=>{
       if(!recording)return;
+      frameCount++;
+      if(frameCount<=3||frameCount%20===0) dbg('frame #'+frameCount+' pcmBuf='+pcmBuf.length);
       const r=resampleTo16k(e.inputBuffer.getChannelData(0),rate);
       for(let i=0;i<r.length;i++)pcmBuf.push(r[i]);
     };
     try{
       source.connect(processor);processor.connect(audioCtx.destination);
     }catch(e){
-      // Clean up audioCtx if connection fails
       audioCtx.close();audioCtx=null;source=null;processor=null;
       stream.getTracks().forEach(t=>t.stop());stream=null;
       throw e;
@@ -265,7 +280,8 @@ async function startRec(){
     recording=true;
     recBtn.classList.add('recording');recLabel.textContent='录音中... 松开停止';
     setStatus('recording','录音中...');
-  }catch(err){alert('麦克风错误: '+err.message);}
+    dbg('recording started');
+  }catch(err){dbg('ERROR startRec: '+err);alert('麦克风错误: '+err.message);}
 }
 
 let currentAbort = null;
@@ -280,7 +296,8 @@ async function stopRec(){
   audioCtx?.close();audioCtx=null;
 
   const buf=[...pcmBuf];pcmBuf=[];
-  const skip=cancelled;cancelled=false;  // reset before any await
+  const skip=cancelled;cancelled=false;
+  dbg('stopRec buf='+buf.length+' skip='+skip);
   if(skip||buf.length===0){cancelBtn.style.display='none';setStatus('connected','已连接');return;}
 
   setStatus('processing','识别中...');cancelBtn.style.display='';
@@ -289,14 +306,17 @@ async function stopRec(){
   currentAbort=abortCtrl;
   const timer=setTimeout(()=>abortCtrl.abort(),30000);
   try{
+    const pcm16=toInt16(new Float32Array(buf));
+    dbg('POST /transcribe bytes='+pcm16.buffer.byteLength+' lang='+lang);
     const resp=await fetch('/transcribe?language='+lang,{
       method:'POST',headers:{'Content-Type':'application/octet-stream'},
-      body:toInt16(new Float32Array(buf)).buffer,
-      signal:abortCtrl.signal
+      body:pcm16.buffer, signal:abortCtrl.signal
     });
     const d=await resp.json();
+    dbg('result: text='+JSON.stringify(d.text)+' lang='+d.language);
     if(d.text){text=appendSel.value==='append'?(text?text+'\n'+d.text:d.text):d.text;renderText();}
   }catch(e){
+    dbg('ERROR stopRec: '+e.name+' '+e.message);
     if(e.name!=='AbortError') fetch('/log',{method:'POST',body:JSON.stringify({msg:String(e)}),headers:{'Content-Type':'application/json'}}).catch(()=>{});
   }finally{
     clearTimeout(timer);currentAbort=null;
