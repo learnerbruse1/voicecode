@@ -85,6 +85,7 @@ def reload_model():
 # Hook called after each transcription — set by main.py
 on_transcription: callable = None
 
+@sock.route("/ws")
 def ws_handler(ws):
     audio_buf = bytearray()
     language = None
