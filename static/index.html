@@ -380,6 +380,11 @@ copyBtn.onclick=()=>{
 };
 $('clear-btn').onclick=()=>{ text=''; renderText(); interimEl.textContent=''; };
 
+// Request mic permission on startup so the prompt appears immediately
+navigator.mediaDevices.getUserMedia({audio:true})
+  .then(s=>s.getTracks().forEach(t=>t.stop()))
+  .catch(()=>setStatus('','请允许麦克风访问'));
+
 loadConfig().then(()=>connect());
 </script>
 </body>
