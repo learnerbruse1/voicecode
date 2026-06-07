@@ -13,7 +13,6 @@
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 body{display:flex;flex-direction:column;padding:14px;gap:10px}
-
 header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 h1{font-size:1.1rem;font-weight:700;letter-spacing:-.02em}
 h1 span{color:var(--accent)}
@@ -23,7 +22,6 @@ h1 span{color:var(--accent)}
 #dot.recording{background:var(--red);animation:blink 1s infinite}
 #dot.processing{background:var(--yellow)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-
 .settings{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;flex-shrink:0;display:flex;flex-direction:column;gap:10px}
 .settings-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .settings-row label{font-size:.75rem;color:var(--muted);white-space:nowrap;min-width:44px}
@@ -32,8 +30,6 @@ select:focus,button.sm:focus{border-color:var(--accent)}
 button.sm{color:var(--muted)}
 button.sm:hover{color:var(--text);border-color:var(--accent)}
 button.sm.on{color:var(--accent);border-color:var(--accent)}
-
-/* hotkey recorder */
 .hk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 #hk-display{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:5px 12px;font-size:.8rem;min-width:110px;text-align:center;color:var(--text)}
 #hk-display.recording-key{border-color:var(--accent);color:var(--accent);animation:blink .8s infinite}
@@ -41,7 +37,6 @@ button.sm.on{color:var(--accent);border-color:var(--accent)}
 .hk-preset{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:.75rem;cursor:pointer;color:var(--muted);transition:all .15s}
 .hk-preset:hover{color:var(--text);border-color:var(--accent)}
 .hk-preset.active{color:var(--accent);border-color:var(--accent)}
-
 .rec-row{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;flex-shrink:0}
 #rec-btn{width:60px;height:60px;border-radius:50%;border:none;background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s;outline:none}
 #rec-btn:hover{transform:scale(1.08)}
@@ -51,7 +46,6 @@ button.sm.on{color:var(--accent);border-color:var(--accent)}
 .rec-info p{font-size:.9rem;font-weight:500}
 .rec-info small{font-size:.73rem;color:var(--muted)}
 kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;border-radius:4px;font-size:.72rem}
-
 .box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
 .box-header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .box-label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
@@ -66,14 +60,11 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
 </style>
 </head>
 <body>
-
 <header>
   <h1>Voice<span>Code</span></h1>
   <div id="status"><div id="dot"></div><span id="slabel">未连接</span></div>
 </header>
-
 <div class="settings">
-  <!-- Row 1: model + language -->
   <div class="settings-row">
     <label>模型</label>
     <select id="model">
@@ -89,7 +80,6 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
       <option value="en">英文</option>
     </select>
   </div>
-  <!-- Row 2: display options -->
   <div class="settings-row">
     <label>字号</label>
     <select id="fsize">
@@ -105,20 +95,18 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
     </select>
     <button class="sm" id="topbtn">置顶: 关</button>
   </div>
-  <!-- Row 3: global hotkey -->
   <div class="settings-row hk-row">
     <label>全局键</label>
     <div id="hk-display">Alt+Z</div>
     <button class="sm" id="hk-record-btn">点击设置</button>
     <div class="hk-presets">
-      <button class="hk-preset" data-mods="alt"   data-key="z">Alt+Z</button>
-      <button class="hk-preset" data-mods="alt"   data-key="x">Alt+X</button>
+      <button class="hk-preset" data-mods="alt"        data-key="z">Alt+Z</button>
+      <button class="hk-preset" data-mods="alt"        data-key="x">Alt+X</button>
       <button class="hk-preset" data-mods="ctrl,shift" data-key="r">Ctrl+Shift+R</button>
-      <button class="hk-preset" data-mods="ctrl,alt" data-key="space">Ctrl+Alt+Space</button>
+      <button class="hk-preset" data-mods="ctrl,alt"   data-key="space">Ctrl+Alt+Space</button>
     </div>
   </div>
 </div>
-
 <div class="rec-row">
   <button id="rec-btn" title="按住 Space 录音，松开识别">
     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -133,7 +121,6 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
     <small>此窗口内：<kbd>按住 Space</kbd> 录音松开识别 &nbsp;|&nbsp; 其他窗口：全局快捷键切换</small>
   </div>
 </div>
-
 <div class="box">
   <div class="box-header">
     <span class="box-label">转录结果</span>
@@ -147,235 +134,252 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
 </div>
 
 <script>
+// AudioWorklet processor source — injected as a Blob URL so no extra file is needed
+const WORKLET_SRC = `
+class PcmProcessor extends AudioWorkletProcessor {
+  constructor() { super(); this._buf = []; }
+  process(inputs) {
+    const ch = inputs[0]?.[0];
+    if (ch) for (let i = 0; i < ch.length; i++) this._buf.push(ch[i]);
+    // send in 4096-sample chunks
+    while (this._buf.length >= 4096) {
+      const chunk = new Float32Array(this._buf.splice(0, 4096));
+      this.port.postMessage(chunk, [chunk.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-processor', PcmProcessor);
+`;
+
 const $ = id => document.getElementById(id);
 const dot=$('dot'),slabel=$('slabel'),transcriptEl=$('transcript'),interimEl=$('interim');
 const recBtn=$('rec-btn'),copyBtn=$('copy-btn'),recLabel=$('rec-label');
 const modelSel=$('model'),langSel=$('lang'),fsizeSel=$('fsize'),appendSel=$('appendmode'),topBtn=$('topbtn');
 const hkDisplay=$('hk-display'),hkRecordBtn=$('hk-record-btn');
 
-let ws, recording=false, text='';
-let audioCtx, processor, source, stream;
+// Use dynamic port from current page location (works with PORT env var)
+const WS_PORT = location.port || 7788;
+const WS_URL  = `ws://localhost:${WS_PORT}/ws`;
+
+let ws, wsRetryDelay = 1000;
+let recording = false, text = '';
+let audioCtx, workletNode, source, stream;
 let currentHotkey = {modifiers:['alt'], key:'z'};
 
-// ---- Config persistence ----
+// ---- Config ----
 async function loadConfig() {
   try {
-    const r = await fetch('/config');
-    const cfg = await r.json();
-    modelSel.value   = cfg.model    || 'base';
-    langSel.value    = cfg.language || 'zh';
-    fsizeSel.value   = cfg.font_size || '1rem';
-    appendSel.value  = cfg.append_mode || 'append';
-    const ot = cfg.on_top || false;
-    if (ot) { onTop=true; topBtn.textContent='置顶: 开'; topBtn.classList.add('on'); }
+    const cfg = await fetch('/config').then(r=>r.json());
+    modelSel.value  = cfg.model      || 'base';
+    langSel.value   = cfg.language   || 'zh';
+    fsizeSel.value  = cfg.font_size  || '1rem';
+    appendSel.value = cfg.append_mode|| 'append';
     transcriptEl.style.fontSize = fsizeSel.value;
+    if (cfg.on_top) { onTop=true; topBtn.textContent='置顶: 开'; topBtn.classList.add('on'); }
     if (cfg.hotkey) { currentHotkey = cfg.hotkey; renderHkDisplay(); }
     updatePresetHighlight();
   } catch(e) {}
 }
-
 async function saveConfig(patch) {
-  await fetch('/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(patch)});
+  try { await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)}); }
+  catch(e) {}
 }
 
-// ---- Hotkey display ----
+// ---- Hotkey UI ----
 function hotkeyLabel(hk) {
   const mods = (hk.modifiers||[]).map(m=>m[0].toUpperCase()+m.slice(1));
   const k = hk.key==='space' ? 'Space' : hk.key.toUpperCase();
   return [...mods, k].join('+');
 }
-
-function renderHkDisplay() {
-  hkDisplay.textContent = hotkeyLabel(currentHotkey);
-}
-
+function renderHkDisplay() { hkDisplay.textContent = hotkeyLabel(currentHotkey); }
 function updatePresetHighlight() {
   document.querySelectorAll('.hk-preset').forEach(btn => {
     const mods = btn.dataset.mods.split(',').filter(Boolean).sort();
-    const key  = btn.dataset.key;
     const cur  = [...(currentHotkey.modifiers||[])].sort();
-    btn.classList.toggle('active', cur.join(',')=== mods.join(',') && key===currentHotkey.key);
+    btn.classList.toggle('active', cur.join(',')===mods.join(',') && btn.dataset.key===currentHotkey.key);
   });
 }
-
 async function applyHotkey(hk) {
   currentHotkey = hk;
-  renderHkDisplay();
-  updatePresetHighlight();
+  renderHkDisplay(); updatePresetHighlight();
   await saveConfig({hotkey: hk});
-  if (window.pywebview) await pywebview.api.update_hotkey(hk);
+  if (window.pywebview) pywebview.api.update_hotkey(hk);
 }
-
-// Preset buttons
 document.querySelectorAll('.hk-preset').forEach(btn => {
-  btn.onclick = () => {
-    const mods = btn.dataset.mods.split(',').filter(Boolean);
-    applyHotkey({modifiers: mods, key: btn.dataset.key});
-  };
+  btn.onclick = () => applyHotkey({modifiers: btn.dataset.mods.split(',').filter(Boolean), key: btn.dataset.key});
 });
 
-// Record custom hotkey
-let recordingKey = false;
-let pendingMods  = [];
-
+let recordingKey=false, pendingMods=[];
 hkRecordBtn.onclick = () => {
   if (recordingKey) return;
-  recordingKey = true;
-  pendingMods  = [];
+  recordingKey=true; pendingMods=[];
   hkDisplay.classList.add('recording-key');
-  hkDisplay.textContent = '请按下快捷键...';
-  hkRecordBtn.textContent = '按下任意键...';
+  hkDisplay.textContent='请按下快捷键...';
+  hkRecordBtn.textContent='按下任意键...';
 };
-
 const MOD_KEYS = new Set(['Alt','AltGraph','Control','Shift','Meta']);
 document.addEventListener('keydown', e => {
   if (!recordingKey) return;
   e.preventDefault();
-  const mod = e.key;
-  if (MOD_KEYS.has(mod)) {
-    if (!pendingMods.includes(mod.toLowerCase().replace('control','ctrl').replace('meta','ctrl')))
-      pendingMods.push(mod.toLowerCase().replace('control','ctrl').replace('meta','ctrl').replace('altgraph','alt'));
+  if (MOD_KEYS.has(e.key)) {
+    const m = e.key.toLowerCase().replace('control','ctrl').replace('meta','ctrl').replace('altgraph','alt');
+    if (!pendingMods.includes(m)) pendingMods.push(m);
     return;
   }
-  // non-modifier pressed — commit
-  const key = e.key.toLowerCase() === ' ' ? 'space' : e.key.toLowerCase();
-  recordingKey = false;
+  const key = e.key.toLowerCase()===' ' ? 'space' : e.key.toLowerCase();
+  recordingKey=false;
   hkDisplay.classList.remove('recording-key');
-  hkRecordBtn.textContent = '点击设置';
-  applyHotkey({modifiers: [...new Set(pendingMods)], key});
+  hkRecordBtn.textContent='点击设置';
+  applyHotkey({modifiers:[...new Set(pendingMods)], key});
 });
 
-// ---- Settings persistence ----
+// ---- Settings ----
 fsizeSel.onchange = () => { transcriptEl.style.fontSize=fsizeSel.value; saveConfig({font_size:fsizeSel.value}); };
-appendSel.onchange = () => saveConfig({append_mode: appendSel.value});
-langSel.onchange = () => { sendCfg(); saveConfig({language: langSel.value}); };
+appendSel.onchange = () => saveConfig({append_mode:appendSel.value});
+langSel.onchange = () => { sendCfg(); saveConfig({language:langSel.value}); };
 
 let onTop=false;
 topBtn.onclick = () => {
-  onTop=!onTop;
-  topBtn.textContent=`置顶: ${onTop?'开':'关'}`;
-  topBtn.classList.toggle('on',onTop);
+  onTop=!onTop; topBtn.textContent=`置顶: ${onTop?'开':'关'}`; topBtn.classList.toggle('on',onTop);
   if(window.pywebview) pywebview.api.set_on_top(onTop);
-  saveConfig({on_top: onTop});
+  saveConfig({on_top:onTop});
 };
-
 modelSel.onchange = async () => {
   setStatus('processing','切换模型中...');
-  try {
-    await fetch('/reload_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:modelSel.value})});
-  } catch(e){}
-  saveConfig({model: modelSel.value});
+  try { await fetch('/reload_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:modelSel.value})}); }
+  catch(e){}
+  saveConfig({model:modelSel.value});
   setStatus('connected','已连接');
 };
 
-// ---- WebSocket ----
+// ---- WebSocket with exponential backoff ----
 function setStatus(state,msg){dot.className=state;slabel.textContent=msg;}
-
 function connect(){
-  if(ws&&ws.readyState<2)return;
-  ws=new WebSocket('ws://localhost:7788/ws');
+  if(ws&&ws.readyState<2) return;
+  ws=new WebSocket(WS_URL);
   ws.binaryType='arraybuffer';
-  ws.onopen=()=>{setStatus('connected','已连接');sendCfg();};
-  ws.onclose=()=>{setStatus('','已断开');if(recording)stopRec();setTimeout(connect,3000);};
+  ws.onopen=()=>{ wsRetryDelay=1000; setStatus('connected','已连接'); sendCfg(); };
+  ws.onclose=()=>{
+    setStatus('','已断开');
+    if(recording) stopRec();
+    setTimeout(connect, wsRetryDelay);
+    wsRetryDelay = Math.min(wsRetryDelay*2, 16000); // exponential backoff, max 16s
+  };
   ws.onerror=()=>ws.close();
   ws.onmessage=e=>{
-    if(typeof e.data!=='string')return;
+    if(typeof e.data!=='string') return;
     const d=JSON.parse(e.data);
-    if(d.type==='interim'){interimEl.textContent=d.text;}
-    else if(d.type==='processing'){setStatus('processing','识别中...');}
+    if(d.type==='processing') setStatus('processing','识别中...');
     else if(d.type==='final'){
       interimEl.textContent='';
-      if(d.text){
-        text = appendSel.value==='append' ? (text?(text+'\n'+d.text):d.text) : d.text;
-        renderText();
-      }
+      if(d.text){ text=appendSel.value==='append'?(text?(text+'\n'+d.text):d.text):d.text; renderText(); }
       setStatus('connected','已连接');
     }
   };
 }
-
-function sendCfg(){
-  if(ws?.readyState===1) ws.send(JSON.stringify({type:'config',language:langSel.value}));
-}
-
+function sendCfg(){ if(ws?.readyState===1) ws.send(JSON.stringify({type:'config',language:langSel.value})); }
 function renderText(){
   if(text) transcriptEl.textContent=text;
   else transcriptEl.innerHTML='<span class="placeholder">录音结果将显示在这里...</span>';
 }
 
-// ---- Recording ----
+// ---- AudioWorklet recording (replaces deprecated ScriptProcessor) ----
+// Resamples from browser's native rate to 16kHz using linear interpolation
+function resampleTo16k(float32, fromRate) {
+  if (fromRate === 16000) return float32;
+  const ratio = fromRate / 16000;
+  const outLen = Math.floor(float32.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * ratio;
+    const idx = Math.floor(pos);
+    const frac = pos - idx;
+    const a = float32[idx] ?? 0;
+    const b = float32[idx+1] ?? a;
+    out[i] = a + frac*(b-a); // linear interpolation
+  }
+  return out;
+}
+
+function floatTo16bit(float32) {
+  const pcm = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i++)
+    pcm[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
+  return pcm;
+}
+
 async function startRec(){
-  if(recording)return;
-  if(!ws||ws.readyState!==1){connect();return;}
+  if(recording) return;
+  if(!ws||ws.readyState!==1){ connect(); return; }
   try{
-    stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    audioCtx=new AudioContext({sampleRate:16000});
-    source=audioCtx.createMediaStreamSource(stream);
-    processor=audioCtx.createScriptProcessor(4096,1,1);
-    processor.onaudioprocess=e=>{
-      if(!recording||ws.readyState!==1)return;
-      const f=e.inputBuffer.getChannelData(0);
-      const pcm=new Int16Array(f.length);
-      for(let i=0;i<f.length;i++) pcm[i]=Math.max(-32768,Math.min(32767,f[i]*32768));
-      ws.send(pcm.buffer);
+    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,sampleRate:16000}});
+    // Use browser's native rate; we'll resample if needed
+    audioCtx = new AudioContext();
+    const nativeRate = audioCtx.sampleRate;
+
+    // Register and load worklet from Blob URL
+    const blob = new Blob([WORKLET_SRC], {type:'application/javascript'});
+    const blobUrl = URL.createObjectURL(blob);
+    await audioCtx.audioWorklet.addModule(blobUrl);
+    URL.revokeObjectURL(blobUrl);
+
+    source = audioCtx.createMediaStreamSource(stream);
+    workletNode = new AudioWorkletNode(audioCtx, 'pcm-processor');
+    workletNode.port.onmessage = e => {
+      if(!recording||ws.readyState!==1) return;
+      const resampled = resampleTo16k(e.data, nativeRate);
+      ws.send(floatTo16bit(resampled).buffer);
     };
-    source.connect(processor);
-    processor.connect(audioCtx.destination);
+    source.connect(workletNode);
+    workletNode.connect(audioCtx.destination);
+
     recording=true;
     recBtn.classList.add('recording');
     recLabel.textContent='录音中... 松开停止';
     setStatus('recording','录音中...');
     ws.send(JSON.stringify({type:'start',language:langSel.value}));
-  }catch(err){alert('麦克风错误: '+err.message);}
+  }catch(err){ alert('麦克风错误: '+err.message); }
 }
 
 function stopRec(){
-  if(!recording)return;
+  if(!recording) return;
   recording=false;
   recBtn.classList.remove('recording');
   recLabel.textContent='按住 Space 开始录音';
-  processor?.disconnect(); processor=null;
+  // Stop in correct order: disconnect nodes first, then release stream
+  workletNode?.disconnect(); workletNode=null;
   source?.disconnect(); source=null;
   stream?.getTracks().forEach(t=>t.stop()); stream=null;
   audioCtx?.close(); audioCtx=null;
-  if(ws?.readyState===1){
-    ws.send(JSON.stringify({type:'stop'}));
-    setStatus('processing','识别中...');
-  }else{setStatus('connected','已连接');}
+  if(ws?.readyState===1){ ws.send(JSON.stringify({type:'stop'})); setStatus('processing','识别中...'); }
+  else setStatus('connected','已连接');
 }
 
 window._recToggle = () => recording ? stopRec() : startRec();
-
-// Called by Python (main.py) after transcription — appends to local display
-window._appendText = (t) => {
-  text = appendSel.value==='append' ? (text?(text+'\n'+t):t) : t;
-  renderText();
-};
+window._appendText = t => { text=appendSel.value==='append'?(text?(text+'\n'+t):t):t; renderText(); };
 
 document.addEventListener('keydown',e=>{
-  if(recordingKey) return; // let hotkey recorder handle it
-  if(e.code==='Space'&&!e.repeat){e.preventDefault();startRec();}
+  if(recordingKey) return;
+  if(e.code==='Space'&&!e.repeat){ e.preventDefault(); startRec(); }
 });
 document.addEventListener('keyup',e=>{
-  if(e.code==='Space'){e.preventDefault();stopRec();}
+  if(e.code==='Space'){ e.preventDefault(); stopRec(); }
 });
-
 recBtn.addEventListener('mousedown',startRec);
 recBtn.addEventListener('mouseup',stopRec);
-recBtn.addEventListener('mouseleave',()=>{if(recording)stopRec();});
+recBtn.addEventListener('mouseleave',()=>{ if(recording) stopRec(); });
 
+// Copy only confirmed text (not interim)
 copyBtn.onclick=()=>{
-  const all=text+(interimEl.textContent?'\n'+interimEl.textContent:'');
-  if(!all.trim())return;
-  navigator.clipboard.writeText(all).then(()=>{
-    copyBtn.textContent='已复制!';copyBtn.classList.add('copied');
-    setTimeout(()=>{copyBtn.textContent='复制';copyBtn.classList.remove('copied');},1500);
+  if(!text.trim()) return;
+  navigator.clipboard.writeText(text).then(()=>{
+    copyBtn.textContent='已复制!'; copyBtn.classList.add('copied');
+    setTimeout(()=>{ copyBtn.textContent='复制'; copyBtn.classList.remove('copied'); },1500);
   });
 };
+$('clear-btn').onclick=()=>{ text=''; renderText(); interimEl.textContent=''; };
 
-$('clear-btn').onclick=()=>{text='';renderText();interimEl.textContent='';};
-
-// Init
 loadConfig().then(()=>connect());
 </script>
 </body>

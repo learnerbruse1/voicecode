@@ -140,7 +140,8 @@ def ws_handler(ws):
                     pass
 
         elif isinstance(msg, bytes) and recording:
-            audio_buf.extend(msg)
+            if len(audio_buf) < 16_000_000:  # 16MB cap (~100s audio)
+                audio_buf.extend(msg)
 
 
 def _transcribe(pcm_bytes: bytes, language=None) -> dict:
@@ -154,7 +155,7 @@ def _transcribe(pcm_bytes: bytes, language=None) -> dict:
             best_of=1,
             condition_on_previous_text=False,
             vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 300},
+            vad_parameters={"min_silence_duration_ms": 500},  # less aggressive, avoids cutting sentence endings
             temperature=0.0,
         )
         text = " ".join(s.text for s in segments).strip()

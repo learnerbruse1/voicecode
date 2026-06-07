@@ -29,6 +29,7 @@ def _start_listener(hotkey_cfg):
     mods_needed = set(hotkey_cfg.get("modifiers", []))
     key_char    = hotkey_cfg.get("key", "").lower()
     held_mods   = set()
+    _lock       = threading.Lock()
 
     def _mod_name(k):
         for name, variants in _MOD_MAP.items():
@@ -39,20 +40,22 @@ def _start_listener(hotkey_cfg):
     def on_press(k):
         name = _mod_name(k)
         if name:
-            held_mods.add(name)
+            with _lock: held_mods.add(name)
             return
         try:
             char = k.char.lower() if k.char else ""
         except AttributeError:
             char = ""
-        if char == key_char and held_mods >= mods_needed and _window:
+        with _lock:
+            triggered = char == key_char and held_mods >= mods_needed
+        if triggered and _window:
             _typing_from_global = True
             _window.evaluate_js("window._recToggle && window._recToggle()")
 
     def on_release(k):
         name = _mod_name(k)
         if name:
-            held_mods.discard(name)
+            with _lock: held_mods.discard(name)
 
     listener = kb.Listener(on_press=on_press, on_release=on_release)
     listener.start()
