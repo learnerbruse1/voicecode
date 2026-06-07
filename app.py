@@ -82,7 +82,9 @@ def reload_model():
     return jsonify({"status": "ok", "model": MODEL_SIZE})
 
 
-@sock.route("/ws")
+# Hook called after each transcription — set by main.py
+on_transcription: callable = None
+
 def ws_handler(ws):
     audio_buf = bytearray()
     language = None
@@ -110,6 +112,8 @@ def ws_handler(ws):
                         result = _transcribe(bytes(audio_buf), language)
                         audio_buf.clear()
                         ws.send(json.dumps({"type": "final", "text": result["text"], "language": result["language"]}))
+                        if on_transcription and result["text"]:
+                            on_transcription(result["text"])
             except Exception as e:
                 ws.send(json.dumps({"type": "error", "message": str(e)}))
 

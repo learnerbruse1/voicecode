@@ -6,6 +6,8 @@ import app as server
 
 _window = None
 _listener = None
+_type_controller = kb.Controller()
+_typing_from_global = False  # tracks whether current rec was triggered by global hotkey
 
 # Map modifier name -> pynput Key
 _MOD_MAP = {
@@ -14,8 +16,16 @@ _MOD_MAP = {
     "shift": (kb.Key.shift_l,kb.Key.shift_r),
 }
 
+def _type_text(text: str):
+    """Type text at the current cursor position after a short delay
+    to let the hotkey modifiers be released first."""
+    def _do():
+        time.sleep(0.15)  # wait for Alt key to be fully released
+        _type_controller.type(text)
+    threading.Thread(target=_do, daemon=True).start()
+
 def _start_listener(hotkey_cfg):
-    """Start a pynput listener for the given hotkey config. Returns the Listener."""
+    global _typing_from_global
     mods_needed = set(hotkey_cfg.get("modifiers", []))
     key_char    = hotkey_cfg.get("key", "").lower()
     held_mods   = set()
@@ -36,6 +46,7 @@ def _start_listener(hotkey_cfg):
         except AttributeError:
             char = ""
         if char == key_char and held_mods >= mods_needed and _window:
+            _typing_from_global = True
             _window.evaluate_js("window._recToggle && window._recToggle()")
 
     def on_release(k):
@@ -54,15 +65,31 @@ class Api:
             _window.on_top = on_top
 
     def update_hotkey(self, hotkey_cfg):
-        """Called from JS when user saves a new hotkey. Restarts the listener."""
         global _listener
         if _listener:
             _listener.stop()
         _listener = _start_listener(hotkey_cfg)
         return True
 
+    def rec_stopped_from_ui(self):
+        """Called by JS when recording stops from inside the window (not global hotkey)."""
+        global _typing_from_global
+        _typing_from_global = False
+
+
+def _on_transcription(text: str):
+    """Called by app.py after each successful transcription."""
+    if _typing_from_global:
+        _type_text(text)
+    # Always show in window too
+    if _window:
+        safe = text.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+        _window.evaluate_js(f"window._appendText && window._appendText(`{safe}`)")
+
 
 if __name__ == "__main__":
+    server.on_transcription = _on_transcription
+
     threading.Thread(target=server.start_server, daemon=True).start()
     time.sleep(1.2)
 
@@ -79,3 +106,4 @@ if __name__ == "__main__":
         js_api=Api(),
     )
     webview.start()
+

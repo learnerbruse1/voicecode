@@ -346,6 +346,12 @@ function stopRec(){
 
 window._recToggle = () => recording ? stopRec() : startRec();
 
+// Called by Python (main.py) after transcription — appends to local display
+window._appendText = (t) => {
+  text = appendSel.value==='append' ? (text?(text+'\n'+t):t) : t;
+  renderText();
+};
+
 document.addEventListener('keydown',e=>{
   if(recordingKey) return; // let hotkey recorder handle it
   if(e.code==='Space'&&!e.repeat){e.preventDefault();startRec();}
