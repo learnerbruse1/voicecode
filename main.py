@@ -1,6 +1,7 @@
 import threading
 import time
 import webview
+import keyboard
 import app as server
 
 _window = None
@@ -10,9 +11,20 @@ class Api:
         if _window:
             _window.on_top = on_top
 
+def _on_space_down(e):
+    if _window:
+        _window.evaluate_js('window._recStart && window._recStart()')
+
+def _on_space_up(e):
+    if _window:
+        _window.evaluate_js('window._recStop && window._recStop()')
+
 if __name__ == "__main__":
     threading.Thread(target=server.start_server, daemon=True).start()
     time.sleep(1.2)
+
+    keyboard.on_press_key('space', _on_space_down, suppress=False)
+    keyboard.on_release_key('space', _on_space_up, suppress=False)
 
     _window = webview.create_window(
         "VoiceCode - Speech to Text",

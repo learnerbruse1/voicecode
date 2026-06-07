@@ -14,7 +14,6 @@
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 body{display:flex;flex-direction:column;padding:16px;gap:12px}
 
-/* header */
 header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 h1{font-size:1.1rem;font-weight:700;letter-spacing:-.02em}
 h1 span{color:var(--accent)}
@@ -25,7 +24,6 @@ h1 span{color:var(--accent)}
 #dot.processing{background:var(--yellow)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 
-/* config bar */
 .cfg{display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0}
 select,button.sm{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:.8rem;cursor:pointer;outline:none}
 select:focus,button.sm:focus{border-color:var(--accent)}
@@ -33,7 +31,6 @@ button.sm{color:var(--muted)}
 button.sm:hover{color:var(--text);border-color:var(--accent)}
 button.sm.on{color:var(--accent);border-color:var(--accent)}
 
-/* record */
 .rec-row{display:flex;align-items:center;gap:16px;background:var(--surface);border-radius:12px;padding:14px 20px;flex-shrink:0}
 #rec-btn{width:64px;height:64px;border-radius:50%;border:none;background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s;outline:none}
 #rec-btn:hover{transform:scale(1.08)}
@@ -44,7 +41,6 @@ button.sm.on{color:var(--accent);border-color:var(--accent)}
 .rec-info small{font-size:.75rem;color:var(--muted)}
 kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;border-radius:4px;font-size:.72rem}
 
-/* transcript */
 .box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
 .box-header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .box-label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
@@ -52,8 +48,6 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
 #transcript{flex:1;overflow-y:auto;font-size:1rem;line-height:1.7;white-space:pre-wrap;word-break:break-word;min-height:0}
 #interim{color:var(--muted);font-style:italic;font-size:.9rem;flex-shrink:0}
 .placeholder{color:var(--muted)}
-
-/* copy btn */
 #copy-btn,#clear-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;transition:all .2s}
 #copy-btn:hover,#clear-btn:hover{color:var(--text);border-color:var(--accent)}
 #copy-btn.copied{color:var(--green);border-color:var(--green)}
@@ -64,7 +58,7 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
 
 <header>
   <h1>Voice<span>Code</span></h1>
-  <div id="status"><div id="dot"></div><span id="slabel">Disconnected</span></div>
+  <div id="status"><div id="dot"></div><span id="slabel">未连接</span></div>
 </header>
 
 <div class="cfg">
@@ -75,8 +69,8 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
     <option value="medium">模型: Medium (最准)</option>
   </select>
   <select id="lang" title="识别语言">
-    <option value="auto" selected>语言: 自动</option>
-    <option value="zh">语言: 中文</option>
+    <option value="auto">语言: 自动</option>
+    <option value="zh" selected>语言: 中文</option>
     <option value="en">语言: 英文</option>
   </select>
   <select id="fsize" title="字体大小">
@@ -85,11 +79,11 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
     <option value="1.2rem">字号: 大</option>
     <option value="1.5rem">字号: 特大</option>
   </select>
-  <button class="sm" id="topbtn" title="窗口置顶">置顶: 关</button>
+  <button class="sm" id="topbtn" title="窗口置顶（在其他软件上方显示）">置顶: 关</button>
 </div>
 
 <div class="rec-row">
-  <button id="rec-btn" title="Space 键切换">
+  <button id="rec-btn" title="按住 Space 键录音">
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="9" y="2" width="6" height="13" rx="3"/>
       <path d="M5 10a7 7 0 0 0 14 0"/>
@@ -98,8 +92,8 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
     </svg>
   </button>
   <div class="rec-info">
-    <p id="rec-label">点击按钮开始录音</p>
-    <small>按 <kbd>Space</kbd> 键快速切换 &nbsp;|&nbsp; 说完松开自动识别</small>
+    <p id="rec-label">按住 Space 开始录音</p>
+    <small><kbd>按住 Space</kbd> 录音，<kbd>松开</kbd> 自动识别 &nbsp;|&nbsp; 支持在其他窗口使用</small>
   </div>
 </div>
 
@@ -124,11 +118,10 @@ const modelSel = $('model'), langSel = $('lang'), fsizeSel = $('fsize');
 const topBtn = $('topbtn'), recLabel = $('rec-label');
 
 let ws, recording = false, text = '';
+let audioCtx, processor, source, stream;
 
-// --- font size ---
 fsizeSel.onchange = () => { transcriptEl.style.fontSize = fsizeSel.value; };
 
-// --- always on top (pywebview API) ---
 let onTop = false;
 topBtn.onclick = () => {
   onTop = !onTop;
@@ -137,7 +130,6 @@ topBtn.onclick = () => {
   if (window.pywebview) pywebview.api.set_on_top(onTop);
 };
 
-// --- model hot-reload ---
 modelSel.onchange = async () => {
   slabel.textContent = '切换模型中...';
   try {
@@ -150,7 +142,6 @@ modelSel.onchange = async () => {
   connect();
 };
 
-// --- WebSocket ---
 function setStatus(state, msg) { dot.className = state; slabel.textContent = msg; }
 
 function connect() {
@@ -177,7 +168,6 @@ function sendCfg() {
   if (ws?.readyState === 1)
     ws.send(JSON.stringify({type:'config', language: langSel.value}));
 }
-
 langSel.onchange = sendCfg;
 
 function renderText() {
@@ -185,9 +175,7 @@ function renderText() {
   else transcriptEl.innerHTML = '<span class="placeholder">录音结果将显示在这里...</span>';
 }
 
-// --- recording ---
-let audioCtx, processor, source, stream;
-
+// --- Hold-to-talk ---
 async function startRec() {
   if (recording) return;
   if (!ws || ws.readyState !== 1) { connect(); return; }
@@ -207,7 +195,7 @@ async function startRec() {
     processor.connect(audioCtx.destination);
     recording = true;
     recBtn.classList.add('recording');
-    recLabel.textContent = '录音中... 点击或按 Space 停止';
+    recLabel.textContent = '录音中... 松开 Space 停止';
     setStatus('recording', '录音中...');
     ws.send(JSON.stringify({type:'start', language: langSel.value}));
   } catch(err) {
@@ -219,7 +207,7 @@ function stopRec() {
   if (!recording) return;
   recording = false;
   recBtn.classList.remove('recording');
-  recLabel.textContent = '点击按钮开始录音';
+  recLabel.textContent = '按住 Space 开始录音';
   processor?.disconnect(); processor = null;
   source?.disconnect(); source = null;
   stream?.getTracks().forEach(t => t.stop()); stream = null;
@@ -232,14 +220,23 @@ function stopRec() {
   }
 }
 
-recBtn.onclick = () => recording ? stopRec() : startRec();
+// Exposed for global hotkey from Python/pywebview
+window._recStart = startRec;
+window._recStop = stopRec;
 
+// In-window Space key (hold-to-talk)
+// keydown fires repeatedly when held — guard with recording flag
 document.addEventListener('keydown', e => {
-  if (e.code === 'Space' && e.target === document.body) {
-    e.preventDefault();
-    recording ? stopRec() : startRec();
-  }
+  if (e.code === 'Space' && !e.repeat) { e.preventDefault(); startRec(); }
 });
+document.addEventListener('keyup', e => {
+  if (e.code === 'Space') { e.preventDefault(); stopRec(); }
+});
+
+// Click button: toggle (for mouse users)
+recBtn.addEventListener('mousedown', startRec);
+recBtn.addEventListener('mouseup', stopRec);
+recBtn.addEventListener('mouseleave', () => { if(recording) stopRec(); });
 
 copyBtn.onclick = () => {
   const all = text + (interimEl.textContent ? '\n' + interimEl.textContent : '');
