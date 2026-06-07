@@ -132,4 +132,4 @@ def _transcribe(pcm_bytes: bytes, language=None) -> dict:
     return {"text": text, "language": info.language}
 
 def start_server():
-    app.run(host="127.0.0.1", port=PORT, use_reloader=False)
+    app.run(host="127.0.0.1", port=PORT, use_reloader=False, threaded=True)
