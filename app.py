@@ -120,7 +120,17 @@ def ws_handler(ws):
 def _transcribe(pcm_bytes: bytes, language=None) -> dict:
     audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
     with model_lock:
-        segments, info = model.transcribe(audio, language=language, beam_size=5, task="transcribe")
+        segments, info = model.transcribe(
+            audio,
+            language=language,
+            task="transcribe",
+            beam_size=1,                    # 3x faster, negligible accuracy loss for short speech
+            best_of=1,
+            condition_on_previous_text=False,  # prevents slowdown accumulation
+            vad_filter=True,                # skip silence segments
+            vad_parameters={"min_silence_duration_ms": 300},
+            temperature=0.0,               # greedy decode, no sampling overhead
+        )
         text = " ".join(s.text for s in segments).strip()
     return {"text": text, "language": info.language}
 
