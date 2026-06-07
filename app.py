@@ -1,6 +1,10 @@
 import os
 import threading
 import json
+
+# Use HF mirror for users in China, suppress symlink warning
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 import numpy as np
 from flask import Flask, send_from_directory, jsonify, request
 from flask_sock import Sock
