@@ -5,7 +5,7 @@
     ],
     "key": "z"
   },
-  "model": "small",
+  "model": "base",
   "language": "zh",
   "font_size": "1rem",
   "append_mode": "append",

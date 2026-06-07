@@ -152,7 +152,6 @@ function dbg(msg){
 const hkDisplay=$('hk-display'), hkRecordBtn=$('hk-record-btn');
 
 let recording=false, text='', cancelled=false;
-let audioCtx, processor, source, stream, pcmBuf=[];
 let currentHotkey={modifiers:['alt'],key:'z'};
 
 function setStatus(state,msg){dot.className=state;slabel.textContent=msg;}
@@ -247,91 +246,64 @@ function renderText(){
   else transcriptEl.innerHTML='<span class="placeholder">录音结果将显示在这里...</span>';
 }
 
-// ---- Recording: capture into buffer, POST on stop ----
-async function startRec(){
-  if(recording)return;
-  pcmBuf=[];cancelled=false;
-  try{
-    dbg('getUserMedia...');
-    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
-    dbg('got stream, creating AudioContext...');
-    audioCtx=new AudioContext();
-    dbg('AudioContext state='+audioCtx.state+' rate='+audioCtx.sampleRate);
-    if(audioCtx.state==='suspended') await audioCtx.resume();
-    dbg('AudioContext after resume: '+audioCtx.state);
-    const rate=audioCtx.sampleRate;
-    source=audioCtx.createMediaStreamSource(stream);
-    processor=audioCtx.createScriptProcessor(4096,1,1);
-    let frameCount=0;
-    processor.onaudioprocess=e=>{
-      if(!recording)return;
-      frameCount++;
-      if(frameCount<=3||frameCount%20===0) dbg('frame #'+frameCount+' pcmBuf='+pcmBuf.length);
-      const r=resampleTo16k(e.inputBuffer.getChannelData(0),rate);
-      for(let i=0;i<r.length;i++)pcmBuf.push(r[i]);
-    };
-    try{
-      source.connect(processor);processor.connect(audioCtx.destination);
-    }catch(e){
-      audioCtx.close();audioCtx=null;source=null;processor=null;
-      stream.getTracks().forEach(t=>t.stop());stream=null;
-      throw e;
-    }
-    recording=true;
-    recBtn.classList.add('recording');recLabel.textContent='录音中... 松开停止';
-    setStatus('recording','录音中...');
-    dbg('recording started');
-  }catch(err){dbg('ERROR startRec: '+err);alert('麦克风错误: '+err.message);}
-}
-
+// ---- Recording: Python-side audio capture via sounddevice ----
 let currentAbort = null;
 
+function xhr(method, url, body) {
+  return new Promise(resolve => {
+    const x = new XMLHttpRequest();
+    x.open(method, url);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.timeout = 60000;
+    x.onload = () => { try { resolve(JSON.parse(x.responseText)); } catch(e) { resolve({}); } };
+    x.onerror = x.ontimeout = x.onabort = () => resolve({});
+    currentAbort = {abort: () => x.abort()};
+    x.send(body ? JSON.stringify(body) : null);
+  });
+}
+
+async function startRec(){
+  if(recording) return;
+  cancelled = false;
+  dbg('startRec: POST /record/start');
+  const lang = langSel.value === 'auto' ? '' : langSel.value;
+  const r = await xhr('POST', '/record/start', {language: lang});
+  dbg('start result: ' + JSON.stringify(r));
+  if(r.status === 'recording'){
+    recording = true;
+    recBtn.classList.add('recording');
+    recLabel.textContent = '录音中... 松开停止';
+    setStatus('recording', '录音中...');
+  }
+}
+
 async function stopRec(){
-  if(!recording)return;
-  recording=false;
-  recBtn.classList.remove('recording');recLabel.textContent='按住 Space 开始录音';
-  processor?.disconnect();processor=null;
-  source?.disconnect();source=null;
-  stream?.getTracks().forEach(t=>t.stop());stream=null;
-  audioCtx?.close();audioCtx=null;
+  if(!recording) return;
+  recording = false;
+  recBtn.classList.remove('recording');
+  recLabel.textContent = '按住 Space 开始录音';
 
-  const buf=[...pcmBuf];pcmBuf=[];
-  const skip=cancelled;cancelled=false;
-  dbg('stopRec buf='+buf.length+' skip='+skip);
-  if(skip||buf.length===0){cancelBtn.style.display='none';setStatus('connected','已连接');return;}
+  if(cancelled){
+    cancelled = false;
+    dbg('cancelled, POST /record/cancel');
+    await xhr('POST', '/record/cancel');
+    cancelBtn.style.display = 'none';
+    setStatus('connected', '已连接');
+    return;
+  }
 
-  setStatus('processing','识别中...');cancelBtn.style.display='';
-  const lang=langSel.value==='auto'?'':langSel.value;
-  try{
-    const pcm16 = toInt16(new Float32Array(buf));
-    dbg('XHR /transcribe samples='+pcm16.length+' lang='+lang);
-    const bytes = new Uint8Array(pcm16.buffer);
-    let s=''; for(let i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]);
-    const b64 = btoa(s);
-    await new Promise((resolve) => {
-      const xhr = new XMLHttpRequest();
-      currentAbort = {abort:()=>xhr.abort()};
-      xhr.open('POST','/transcribe?language='+lang);
-      xhr.setRequestHeader('Content-Type','application/json');
-      xhr.timeout = 30000;
-      xhr.onload = () => {
-        try{
-          const d=JSON.parse(xhr.responseText);
-          dbg('result: '+JSON.stringify(d.text));
-          if(d.text){text=appendSel.value==='append'?(text?text+'\n'+d.text:d.text):d.text;renderText();}
-        }catch(e){dbg('parse err: '+xhr.status+' '+xhr.responseText.slice(0,80));}
-        resolve();
-      };
-      xhr.onerror  =()=>{dbg('XHR error');  resolve();};
-      xhr.ontimeout=()=>{dbg('XHR timeout');resolve();};
-      xhr.onabort  =()=>{dbg('XHR aborted');resolve();};
-      xhr.send(JSON.stringify({audio:b64,language:lang}));
-    });
-  }catch(e){
-    dbg('ERROR: '+e.name+' '+e.message);
-  }finally{
-    currentAbort=null;
-    cancelBtn.style.display='none';setStatus('connected','已连接');
+  setStatus('processing', '识别中...');
+  cancelBtn.style.display = '';
+  const lang = langSel.value === 'auto' ? '' : langSel.value;
+  dbg('POST /record/stop lang=' + lang);
+  try {
+    const d = await xhr('POST', '/record/stop', {language: lang});
+    dbg('result: ' + JSON.stringify(d.text));
+    if(d.text){ text = appendSel.value==='append' ? (text ? text+'\n'+d.text : d.text) : d.text; renderText(); }
+  } finally {
+    currentAbort = null;
+    cancelBtn.style.display = 'none';
+    setStatus('connected', '已连接');
   }
 }
 

@@ -2,12 +2,14 @@ import os
 import threading
 import json
 import atexit
+import queue
 from concurrent.futures import ThreadPoolExecutor
 
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 import numpy as np
 import ctranslate2
+import sounddevice as sd
 from flask import Flask, send_from_directory, jsonify, request
 from faster_whisper import WhisperModel
 
@@ -68,7 +70,8 @@ def index():
 
 @app.route("/status")
 def status():
-    return jsonify({"status": "ok", "model": MODEL_SIZE})
+    return jsonify({"status": "ok", "model": MODEL_SIZE,
+                    "recording": _recorder.is_recording()})
 
 @app.route("/config", methods=["GET"])
 def get_config():
@@ -85,50 +88,99 @@ def post_config():
 def reload_model():
     size = request.json.get("model", "base")
     def _do():
-        # Build model outside lock (slow), then swap atomically
         new = WhisperModel(size, device=_device, compute_type=_compute_type,
                            cpu_threads=_cpu_threads)
         with model_lock:
             global model, MODEL_SIZE
             model = new
             MODEL_SIZE = size
-    # Submit via executor so it serialises with in-flight transcriptions
-    # and the last submitted wins (cancel any queued reload)
     _executor.submit(_do)
     return jsonify({"status": "loading", "model": size})
 
-# Hook set by main.py — called after each transcription
-on_transcription = None
-
 @app.route("/log", methods=["POST"])
 def client_log():
-    print("[JS]", request.json.get("msg",""), flush=True)
+    print("[JS]", (request.json or {}).get("msg", ""), flush=True)
     return "", 204
 
-@app.route("/transcribe", methods=["POST"])
-def transcribe():
-    import base64
-    lang = request.args.get("language") or None
-    # Accept either raw binary or JSON {"audio":"<base64>","language":"zh"}
-    ct = request.content_type or ""
-    if "json" in ct:
-        body = request.get_json(force=True, silent=True) or {}
-        lang = body.get("language") or lang
-        audio_b64 = body.get("audio", "")
-        pcm = base64.b64decode(audio_b64) if audio_b64 else b""
-    else:
-        pcm = request.data
-    print(f"[transcribe] lang={lang} bytes={len(pcm)}", flush=True)
-    if not pcm:
-        return jsonify({"text": "", "language": lang or "zh"})
-    result = _transcribe(pcm, lang)
-    print(f"[transcribe] result={result}", flush=True)
+# ---- Recorder ----
+class Recorder:
+    RATE = 16000
+
+    def __init__(self):
+        self._buf = []
+        self._lock = threading.Lock()
+        self._active = False
+        self._stream = None
+
+    def is_recording(self):
+        return self._active
+
+    def start(self):
+        if self._active:
+            return
+        with self._lock:
+            self._buf = []
+            self._active = True
+        self._stream = sd.InputStream(
+            samplerate=self.RATE, channels=1, dtype="float32",
+            blocksize=1024, callback=self._cb)
+        self._stream.start()
+        print("[recorder] started", flush=True)
+
+    def _cb(self, indata, frames, time_info, status):
+        if status:
+            print("[recorder] status:", status, flush=True)
+        with self._lock:
+            if self._active:
+                self._buf.append(indata[:, 0].copy())
+
+    def stop_and_get(self):
+        if not self._active:
+            return np.array([], dtype=np.float32)
+        self._active = False
+        if self._stream:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+        with self._lock:
+            if not self._buf:
+                return np.array([], dtype=np.float32)
+            audio = np.concatenate(self._buf)
+            self._buf = []
+        print(f"[recorder] stopped, {len(audio)} samples ({len(audio)/self.RATE:.1f}s)", flush=True)
+        return audio
+
+_recorder = Recorder()
+
+# Hook set by main.py
+on_transcription = None
+
+@app.route("/record/start", methods=["POST"])
+def record_start():
+    lang = (request.json or {}).get("language", "zh")
+    _recorder.start()
+    return jsonify({"status": "recording"})
+
+@app.route("/record/stop", methods=["POST"])
+def record_stop():
+    audio = _recorder.stop_and_get()
+    if len(audio) == 0:
+        print("[record/stop] empty audio", flush=True)
+        return jsonify({"text": "", "language": "zh"})
+    cfg = request.json or {}
+    lang = cfg.get("language") or None
+    result = _transcribe_audio(audio, lang)
+    print(f"[record/stop] result={result}", flush=True)
     if on_transcription and result["text"]:
         on_transcription(result["text"])
     return jsonify(result)
 
-def _transcribe(pcm_bytes: bytes, language=None) -> dict:
-    audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+@app.route("/record/cancel", methods=["POST"])
+def record_cancel():
+    _recorder.stop_and_get()  # discard audio
+    return jsonify({"status": "cancelled"})
+
+def _transcribe_audio(audio: np.ndarray, language=None) -> dict:
     prompt = "以下是普通话的语音识别结果。" if language == "zh" else None
     with model_lock:
         segments, info = model.transcribe(
@@ -141,4 +193,5 @@ def _transcribe(pcm_bytes: bytes, language=None) -> dict:
     return {"text": text, "language": info.language}
 
 def start_server():
-    app.run(host="127.0.0.1", port=PORT, use_reloader=False, threaded=True)
+    from waitress import serve
+    serve(app, host="127.0.0.1", port=PORT, threads=4)
