@@ -140,10 +140,9 @@ const WORKLET_SRC = `
 class PcmProcessor extends AudioWorkletProcessor {
   process(inputs) {
     const ch = inputs[0]?.[0];
-    // Copy before transfer so the data is not detached on the receiving end
-    if (ch) {
-      const copy = new Float32Array(ch);
-      this.port.postMessage(copy, [copy.buffer]);
+    if (ch && ch.length > 0) {
+      // Do NOT transfer buffer — postMessage with transferable detaches it on the sending side
+      this.port.postMessage(new Float32Array(ch));
     }
     return true;
   }
