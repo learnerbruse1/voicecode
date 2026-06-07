@@ -93,7 +93,7 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
   </button>
   <div class="rec-info">
     <p id="rec-label">按住 Space 开始录音</p>
-    <small><kbd>按住 Space</kbd> 录音，<kbd>松开</kbd> 自动识别 &nbsp;|&nbsp; 支持在其他窗口使用</small>
+    <small>窗口内：<kbd>按住 Space</kbd> 录音松开识别 &nbsp;|&nbsp; 其他窗口：<kbd>Alt+Z</kbd> 切换</small>
   </div>
 </div>
 
@@ -220,12 +220,10 @@ function stopRec() {
   }
 }
 
-// Exposed for global hotkey from Python/pywebview
-window._recStart = startRec;
-window._recStop = stopRec;
+// Exposed for global Alt+Z hotkey from Python (toggle mode)
+window._recToggle = () => recording ? stopRec() : startRec();
 
-// In-window Space key (hold-to-talk)
-// keydown fires repeatedly when held — guard with recording flag
+// In-window Space key (hold-to-talk, window focused only)
 document.addEventListener('keydown', e => {
   if (e.code === 'Space' && !e.repeat) { e.preventDefault(); startRec(); }
 });
