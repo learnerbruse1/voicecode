@@ -1,6 +1,7 @@
 import os
 import threading
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 # Use HF mirror for users in China, suppress symlink warning
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
@@ -21,6 +22,8 @@ model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 model_lock = threading.Lock()
 print("Model ready.")
 
+# Single-thread executor: transcription jobs are serialized but off the WS thread
+_executor = ThreadPoolExecutor(max_workers=1)
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.json")
 DEFAULT_CONFIG = {
@@ -37,7 +40,6 @@ def load_config():
         try:
             with open(CONFIG_FILE, encoding="utf-8") as f:
                 data = json.load(f)
-            # fill missing keys with defaults
             return {**DEFAULT_CONFIG, **data}
         except Exception:
             pass
@@ -74,12 +76,19 @@ def status():
 
 @app.route("/reload_model", methods=["POST"])
 def reload_model():
+    """Reload model in background so the HTTP thread never blocks."""
     global model, MODEL_SIZE
     size = request.json.get("model", "base")
     MODEL_SIZE = size
-    with model_lock:
-        model = WhisperModel(size, device="cpu", compute_type="int8")
-    return jsonify({"status": "ok", "model": MODEL_SIZE})
+
+    def _do():
+        new_model = WhisperModel(size, device="cpu", compute_type="int8")
+        with model_lock:
+            global model
+            model = new_model
+
+    threading.Thread(target=_do, daemon=True).start()
+    return jsonify({"status": "loading", "model": MODEL_SIZE})
 
 
 # Hook called after each transcription — set by main.py
@@ -110,13 +119,25 @@ def ws_handler(ws):
                     recording = False
                     if audio_buf:
                         ws.send(json.dumps({"type": "processing"}))
-                        result = _transcribe(bytes(audio_buf), language)
+                        pcm = bytes(audio_buf)
                         audio_buf.clear()
+                        lang_snap = language  # capture before next recording starts
+
+                        # Run transcription off the WS thread; send result back when done
+                        fut = _executor.submit(_transcribe, pcm, lang_snap)
+                        try:
+                            result = fut.result(timeout=30)
+                        except Exception as e:
+                            ws.send(json.dumps({"type": "error", "message": str(e)}))
+                            continue
                         ws.send(json.dumps({"type": "final", "text": result["text"], "language": result["language"]}))
                         if on_transcription and result["text"]:
                             on_transcription(result["text"])
             except Exception as e:
-                ws.send(json.dumps({"type": "error", "message": str(e)}))
+                try:
+                    ws.send(json.dumps({"type": "error", "message": str(e)}))
+                except Exception:
+                    pass
 
         elif isinstance(msg, bytes) and recording:
             audio_buf.extend(msg)
@@ -129,12 +150,12 @@ def _transcribe(pcm_bytes: bytes, language=None) -> dict:
             audio,
             language=language,
             task="transcribe",
-            beam_size=1,                    # 3x faster, negligible accuracy loss for short speech
+            beam_size=1,
             best_of=1,
-            condition_on_previous_text=False,  # prevents slowdown accumulation
-            vad_filter=True,                # skip silence segments
+            condition_on_previous_text=False,
+            vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300},
-            temperature=0.0,               # greedy decode, no sampling overhead
+            temperature=0.0,
         )
         text = " ".join(s.text for s in segments).strip()
     return {"text": text, "language": info.language}
