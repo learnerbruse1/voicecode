@@ -159,6 +159,10 @@ def ws_handler(ws):
                         ws.send(json.dumps({"type": "final", "text": result["text"], "language": result["language"]}))
                         if on_transcription and result["text"]:
                             on_transcription(result["text"])
+                elif t == "cancel":
+                    recording = False
+                    audio_buf.clear()
+                    ws.send(json.dumps({"type": "cancelled"}))
             except Exception as e:
                 try:
                     ws.send(json.dumps({"type": "error", "message": str(e)}))

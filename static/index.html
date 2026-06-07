@@ -125,6 +125,7 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
   <div class="box-header">
     <span class="box-label">转录结果</span>
     <div class="box-actions">
+      <button id="cancel-btn" style="display:none">取消识别</button>
       <button id="clear-btn">清空</button>
       <button id="copy-btn">复制</button>
     </div>
@@ -154,7 +155,7 @@ registerProcessor('pcm-processor', PcmProcessor);
 
 const $ = id => document.getElementById(id);
 const dot=$('dot'),slabel=$('slabel'),transcriptEl=$('transcript'),interimEl=$('interim');
-const recBtn=$('rec-btn'),copyBtn=$('copy-btn'),recLabel=$('rec-label');
+const recBtn=$('rec-btn'),copyBtn=$('copy-btn'),recLabel=$('rec-label'),cancelBtn=$('cancel-btn');
 const modelSel=$('model'),langSel=$('lang'),fsizeSel=$('fsize'),appendSel=$('appendmode'),topBtn=$('topbtn');
 const hkDisplay=$('hk-display'),hkRecordBtn=$('hk-record-btn');
 
@@ -272,10 +273,11 @@ function connect(){
   ws.onmessage=e=>{
     if(typeof e.data!=='string') return;
     const d=JSON.parse(e.data);
-    if(d.type==='processing') setStatus('processing','识别中...');
-    else if(d.type==='final'){
+    if(d.type==='processing'){ setStatus('processing','识别中...'); cancelBtn.style.display=''; }
+    else if(d.type==='cancelled'||d.type==='final'){
+      cancelBtn.style.display='none';
       interimEl.textContent='';
-      if(d.text){ text=appendSel.value==='append'?(text?(text+'\n'+d.text):d.text):d.text; renderText(); }
+      if(d.type==='final'&&d.text){ text=appendSel.value==='append'?(text?(text+'\n'+d.text):d.text):d.text; renderText(); }
       setStatus('connected','已连接');
     }
   };
@@ -387,6 +389,11 @@ copyBtn.onclick=()=>{
   });
 };
 $('clear-btn').onclick=()=>{ text=''; renderText(); interimEl.textContent=''; };
+cancelBtn.onclick=()=>{
+  if(ws?.readyState===1){ ws.send(JSON.stringify({type:'cancel'})); }
+  cancelBtn.style.display='none';
+  setStatus('connected','已连接');
+};
 
 // Request mic permission on startup so the prompt appears immediately
 navigator.mediaDevices.getUserMedia({audio:true})
