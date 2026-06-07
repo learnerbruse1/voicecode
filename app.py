@@ -85,12 +85,15 @@ def post_config():
 def reload_model():
     size = request.json.get("model", "base")
     def _do():
+        # Build model outside lock (slow), then swap atomically
         new = WhisperModel(size, device=_device, compute_type=_compute_type,
                            cpu_threads=_cpu_threads)
         with model_lock:
             global model, MODEL_SIZE
             model = new
             MODEL_SIZE = size
+    # Submit via executor so it serialises with in-flight transcriptions
+    # and the last submitted wins (cancel any queued reload)
     _executor.submit(_do)
     return jsonify({"status": "loading", "model": size})
 

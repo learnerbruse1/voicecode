@@ -239,19 +239,27 @@ function renderText(){
 // ---- Recording: capture into buffer, POST on stop ----
 async function startRec(){
   if(recording)return;
+  // Reset state before try so failures don't leave stale values
+  pcmBuf=[];cancelled=false;
   try{
     stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
     audioCtx=new AudioContext();
     const rate=audioCtx.sampleRate;
     source=audioCtx.createMediaStreamSource(stream);
     processor=audioCtx.createScriptProcessor(4096,1,1);
-    pcmBuf=[];cancelled=false;
     processor.onaudioprocess=e=>{
       if(!recording)return;
       const r=resampleTo16k(e.inputBuffer.getChannelData(0),rate);
       for(let i=0;i<r.length;i++)pcmBuf.push(r[i]);
     };
-    source.connect(processor);processor.connect(audioCtx.destination);
+    try{
+      source.connect(processor);processor.connect(audioCtx.destination);
+    }catch(e){
+      // Clean up audioCtx if connection fails
+      audioCtx.close();audioCtx=null;source=null;processor=null;
+      stream.getTracks().forEach(t=>t.stop());stream=null;
+      throw e;
+    }
     recording=true;
     recBtn.classList.add('recording');recLabel.textContent='录音中... 松开停止';
     setStatus('recording','录音中...');
@@ -270,7 +278,8 @@ async function stopRec(){
   audioCtx?.close();audioCtx=null;
 
   const buf=[...pcmBuf];pcmBuf=[];
-  if(cancelled||buf.length===0){cancelled=false;setStatus('connected','已连接');return;}
+  const skip=cancelled;cancelled=false;  // reset before any await
+  if(skip||buf.length===0){cancelBtn.style.display='none';setStatus('connected','已连接');return;}
 
   setStatus('processing','识别中...');cancelBtn.style.display='';
   const lang=langSel.value==='auto'?'':langSel.value;
@@ -289,8 +298,8 @@ async function stopRec(){
     if(e.name!=='AbortError') fetch('/log',{method:'POST',body:JSON.stringify({msg:String(e)}),headers:{'Content-Type':'application/json'}}).catch(()=>{});
   }finally{
     clearTimeout(timer);currentAbort=null;
+    cancelBtn.style.display='none';setStatus('connected','已连接');
   }
-  cancelBtn.style.display='none';setStatus('connected','已连接');
 }
 
 window._recToggle=()=>recording?stopRec():startRec();
