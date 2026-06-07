@@ -157,6 +157,8 @@ def ws_handler(ws):
 
 def _transcribe(pcm_bytes: bytes, language=None) -> dict:
     audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    # Prompt guides Whisper to output Simplified Chinese instead of Traditional
+    prompt = "以下是普通话的语音识别结果。" if language == "zh" else None
     with model_lock:
         segments, info = model.transcribe(
             audio,
@@ -165,6 +167,7 @@ def _transcribe(pcm_bytes: bytes, language=None) -> dict:
             beam_size=1,
             best_of=1,
             condition_on_previous_text=False,
+            initial_prompt=prompt,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
             temperature=0.0,
