@@ -1,6 +1,4 @@
-import io
 import os
-import queue
 import threading
 import webbrowser
 import numpy as np
@@ -84,5 +82,5 @@ def _open_browser():
 
 if __name__ == "__main__":
     threading.Thread(target=_open_browser, daemon=True).start()
-    print(f"VoiceCode → http://localhost:{PORT}  (Ctrl+C to quit)")
+    print(f"VoiceCode running at http://localhost:{PORT}  (Ctrl+C to quit)")
     app.run(host="127.0.0.1", port=PORT)
