@@ -64,6 +64,7 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
   <h1>Voice<span>Code</span></h1>
   <div id="status"><div id="dot"></div><span id="slabel">就绪</span></div>
 </header>
+<div id="perf" style="font-size:.72rem;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px 12px;flex-shrink:0;display:flex;gap:16px;flex-wrap:wrap"></div>
 <div class="settings">
   <div class="settings-row">
     <label>模型</label>
@@ -334,6 +335,27 @@ navigator.mediaDevices.getUserMedia({audio:true})
   .catch(err=>setStatus('',err.name==='NotAllowedError'?'请允许麦克风访问':'麦克风不可用'));
 
 loadConfig().then(()=>setStatus('connected','已连接'));
+
+// ---- Performance stats (every 10s) ----
+const perfEl=$('perf');
+async function updateStats(){
+  try{
+    const s=await fetch('/stats').then(r=>r.json());
+    const parts=[];
+    const devLabel=s.device==='cuda'?'GPU':'CPU';
+    parts.push(`推理: <b>${devLabel}</b> (${s.compute_type})`);
+    parts.push(`模型: ${s.model}`);
+    parts.push(`CPU: ${s.cpu_percent}%`);
+    parts.push(`内存: ${s.ram_mb}MB`);
+    if(s.gpu){
+      if(s.gpu.util>=0) parts.push(`GPU: ${s.gpu.util}% | 显存: ${s.gpu.mem_used}/${s.gpu.mem_total}MB`);
+      if(s.gpu.name) parts.push(`${s.gpu.name}`);
+    }
+    perfEl.innerHTML=parts.join(' &nbsp;·&nbsp; ');
+  }catch(e){}
+}
+updateStats();
+setInterval(updateStats,10000);
 </script>
 </body>
 </html>

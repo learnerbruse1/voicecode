@@ -219,3 +219,40 @@ def _transcribe_audio(audio: np.ndarray, language=None) -> dict:
 def start_server():
     from waitress import serve
     serve(app, host="127.0.0.1", port=PORT, threads=4)
+
+
+@app.route("/stats")
+def stats():
+    import psutil, os as _os
+    proc = psutil.Process(_os.getpid())
+    cpu = round(psutil.cpu_percent(interval=0.2), 1)
+    ram = round(proc.memory_info().rss / 1024**2, 1)
+
+    gpu_info = None
+    try:
+        import ctranslate2 as ct2
+        if ct2.get_cuda_device_count() > 0 and _device == "cuda":
+            # Try pynvml for GPU stats
+            try:
+                import pynvml
+                pynvml.nvmlInit()
+                h = pynvml.nvmlDeviceGetHandleByIndex(0)
+                gpu_util = pynvml.nvmlDeviceGetUtilizationRates(h).gpu
+                gpu_mem_used = round(pynvml.nvmlDeviceGetMemoryInfo(h).used / 1024**2)
+                gpu_mem_total = round(pynvml.nvmlDeviceGetMemoryInfo(h).total / 1024**2)
+                gpu_name = pynvml.nvmlDeviceGetName(h)
+                gpu_info = {"util": gpu_util, "mem_used": gpu_mem_used,
+                            "mem_total": gpu_mem_total, "name": gpu_name}
+            except Exception:
+                gpu_info = {"util": -1, "name": "GPU"}
+    except Exception:
+        pass
+
+    return jsonify({
+        "device": _device,
+        "compute_type": _compute_type,
+        "model": MODEL_SIZE,
+        "cpu_percent": cpu,
+        "ram_mb": ram,
+        "gpu": gpu_info,
+    })
