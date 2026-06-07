@@ -39,6 +39,14 @@ except Exception as e:
 model_lock = threading.Lock()
 print(f"Model ready. ({_device}/{_compute_type})")
 
+# Warm up model to avoid first-run latency
+def _warmup():
+    dummy = np.zeros(1600, dtype=np.float32)
+    with model_lock:
+        list(model.transcribe(dummy, language="zh", beam_size=1, temperature=0.0)[0])
+    print("Model warmed up.", flush=True)
+threading.Thread(target=_warmup, daemon=True).start()
+
 _executor = ThreadPoolExecutor(max_workers=1)
 atexit.register(lambda: _executor.shutdown(wait=False))
 _config_lock = threading.Lock()
@@ -129,7 +137,7 @@ class Recorder:
             self._active = True
         self._stream = sd.InputStream(
             samplerate=self.RATE, channels=1, dtype="float32",
-            blocksize=1024, callback=self._cb)
+            blocksize=256, callback=self._cb)  # smaller block = less tail latency
         self._stream.start()
         print("[recorder] started", flush=True)
 
@@ -145,8 +153,8 @@ class Recorder:
             return np.array([], dtype=np.float32)
         self._active = False
         if self._stream:
-            self._stream.stop()
-            self._stream.close()
+            self._stream.stop(ignore_errors=True)
+            self._stream.close(ignore_errors=True)
             self._stream = None
         with self._lock:
             if not self._buf:
