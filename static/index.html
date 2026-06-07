@@ -302,26 +302,35 @@ async function stopRec(){
 
   setStatus('processing','识别中...');cancelBtn.style.display='';
   const lang=langSel.value==='auto'?'':langSel.value;
-  const abortCtrl=new AbortController();
-  currentAbort=abortCtrl;
-  const timer=setTimeout(()=>abortCtrl.abort(),30000);
   try{
-    const pcm16=toInt16(new Float32Array(buf));
-    dbg('POST /transcribe bytes='+pcm16.buffer.byteLength+' lang='+lang);
-    // Use Blob instead of ArrayBuffer — WinForms WebView doesn't support ArrayBuffer as fetch body
-    const blob=new Blob([pcm16.buffer],{type:'application/octet-stream'});
-    const resp=await fetch('/transcribe?language='+lang,{
-      method:'POST',headers:{'Content-Type':'application/octet-stream'},
-      body:blob, signal:abortCtrl.signal
+    const pcm16 = toInt16(new Float32Array(buf));
+    dbg('XHR /transcribe samples='+pcm16.length+' lang='+lang);
+    const bytes = new Uint8Array(pcm16.buffer);
+    let s=''; for(let i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]);
+    const b64 = btoa(s);
+    await new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      currentAbort = {abort:()=>xhr.abort()};
+      xhr.open('POST','/transcribe?language='+lang);
+      xhr.setRequestHeader('Content-Type','application/json');
+      xhr.timeout = 30000;
+      xhr.onload = () => {
+        try{
+          const d=JSON.parse(xhr.responseText);
+          dbg('result: '+JSON.stringify(d.text));
+          if(d.text){text=appendSel.value==='append'?(text?text+'\n'+d.text:d.text):d.text;renderText();}
+        }catch(e){dbg('parse err: '+xhr.status+' '+xhr.responseText.slice(0,80));}
+        resolve();
+      };
+      xhr.onerror  =()=>{dbg('XHR error');  resolve();};
+      xhr.ontimeout=()=>{dbg('XHR timeout');resolve();};
+      xhr.onabort  =()=>{dbg('XHR aborted');resolve();};
+      xhr.send(JSON.stringify({audio:b64,language:lang}));
     });
-    const d=await resp.json();
-    dbg('result: text='+JSON.stringify(d.text)+' lang='+d.language);
-    if(d.text){text=appendSel.value==='append'?(text?text+'\n'+d.text:d.text):d.text;renderText();}
   }catch(e){
-    dbg('ERROR stopRec: '+e.name+' '+e.message);
-    if(e.name!=='AbortError') fetch('/log',{method:'POST',body:JSON.stringify({msg:String(e)}),headers:{'Content-Type':'application/json'}}).catch(()=>{});
+    dbg('ERROR: '+e.name+' '+e.message);
   }finally{
-    clearTimeout(timer);currentAbort=null;
+    currentAbort=null;
     cancelBtn.style.display='none';setStatus('connected','已连接');
   }
 }

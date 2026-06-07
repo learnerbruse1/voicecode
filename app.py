@@ -107,8 +107,17 @@ def client_log():
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
+    import base64
     lang = request.args.get("language") or None
-    pcm = request.data
+    # Accept either raw binary or JSON {"audio":"<base64>","language":"zh"}
+    ct = request.content_type or ""
+    if "json" in ct:
+        body = request.get_json(force=True, silent=True) or {}
+        lang = body.get("language") or lang
+        audio_b64 = body.get("audio", "")
+        pcm = base64.b64decode(audio_b64) if audio_b64 else b""
+    else:
+        pcm = request.data
     print(f"[transcribe] lang={lang} bytes={len(pcm)}", flush=True)
     if not pcm:
         return jsonify({"text": "", "language": lang or "zh"})
