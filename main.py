@@ -35,7 +35,10 @@ def _start_listener(hotkey_cfg):
                 return name
         return None
 
+    hotkey_active = False  # tracks whether hotkey is currently held down
+
     def on_press(k):
+        nonlocal hotkey_active
         name = _mod_name(k)
         if name:
             with _lock: held_mods.add(name)
@@ -46,15 +49,25 @@ def _start_listener(hotkey_cfg):
             char = ""
         with _lock:
             triggered = char == key_char and held_mods >= mods_needed
-        if triggered and _window:
+        if triggered and not hotkey_active and _window:
+            hotkey_active = True
             global _typing_from_global
             _typing_from_global = True
-            _window.evaluate_js("window._recToggle && window._recToggle()")
+            _window.evaluate_js("window._recStart && window._recStart()")
 
     def on_release(k):
+        nonlocal hotkey_active
         name = _mod_name(k)
         if name:
             with _lock: held_mods.discard(name)
+            return
+        try:
+            char = k.char.lower() if k.char else ""
+        except AttributeError:
+            char = ""
+        if char == key_char and hotkey_active and _window:
+            hotkey_active = False
+            _window.evaluate_js("window._recStop && window._recStop()")
 
     listener = kb.Listener(on_press=on_press, on_release=on_release)
     listener.start()

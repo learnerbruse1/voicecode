@@ -363,6 +363,8 @@ function stopRec(){
 }
 
 window._recToggle = () => recording ? stopRec() : startRec();
+window._recStart  = () => { if (!recording) startRec(); };
+window._recStop   = () => { if (recording)  stopRec(); };
 window._appendText = t => { text=appendSel.value==='append'?(text?(text+'\n'+t):t):t; renderText(); };
 
 document.addEventListener('keydown',e=>{
