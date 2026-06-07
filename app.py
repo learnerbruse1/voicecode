@@ -1,20 +1,18 @@
 import os
 import threading
-import webbrowser
-import numpy as np
-from flask import Flask, send_from_directory
-from flask_sock import Sock
 import json
-
+import numpy as np
+from flask import Flask, send_from_directory, jsonify, request
+from flask_sock import Sock
 from faster_whisper import WhisperModel
 
 app = Flask(__name__, static_folder="static")
 sock = Sock(app)
 
-MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base")
 PORT = int(os.environ.get("PORT", 7788))
+MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base")
 
-print(f"Loading Whisper '{MODEL_SIZE}' model (first run downloads ~150MB)...")
+print(f"Loading Whisper '{MODEL_SIZE}' model...")
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 model_lock = threading.Lock()
 print("Model ready.")
@@ -27,7 +25,17 @@ def index():
 
 @app.route("/status")
 def status():
-    return {"status": "ok", "model": MODEL_SIZE}
+    return jsonify({"status": "ok", "model": MODEL_SIZE})
+
+
+@app.route("/reload_model", methods=["POST"])
+def reload_model():
+    global model, MODEL_SIZE
+    size = request.json.get("model", "base")
+    MODEL_SIZE = size
+    with model_lock:
+        model = WhisperModel(size, device="cpu", compute_type="int8")
+    return jsonify({"status": "ok", "model": MODEL_SIZE})
 
 
 @sock.route("/ws")
@@ -41,7 +49,6 @@ def ws_handler(ws):
         if msg is None:
             break
 
-        # Control messages (JSON strings)
         if isinstance(msg, str):
             try:
                 data = json.loads(msg)
@@ -54,7 +61,7 @@ def ws_handler(ws):
                         recording = True
                 elif t == "stop":
                     recording = False
-                    if len(audio_buf) > 0:
+                    if audio_buf:
                         ws.send(json.dumps({"type": "processing"}))
                         result = _transcribe(bytes(audio_buf), language)
                         audio_buf.clear()
@@ -62,7 +69,6 @@ def ws_handler(ws):
             except Exception as e:
                 ws.send(json.dumps({"type": "error", "message": str(e)}))
 
-        # Binary audio chunks (Int16 PCM @ 16kHz)
         elif isinstance(msg, bytes) and recording:
             audio_buf.extend(msg)
 
@@ -75,12 +81,5 @@ def _transcribe(pcm_bytes: bytes, language=None) -> dict:
     return {"text": text, "language": info.language}
 
 
-def _open_browser():
-    import time; time.sleep(1.5)
-    webbrowser.open(f"http://localhost:{PORT}")
-
-
-if __name__ == "__main__":
-    threading.Thread(target=_open_browser, daemon=True).start()
-    print(f"VoiceCode running at http://localhost:{PORT}  (Ctrl+C to quit)")
-    app.run(host="127.0.0.1", port=PORT)
+def start_server():
+    app.run(host="127.0.0.1", port=PORT, use_reloader=False)
