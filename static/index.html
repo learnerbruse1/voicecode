@@ -140,7 +140,11 @@ const WORKLET_SRC = `
 class PcmProcessor extends AudioWorkletProcessor {
   process(inputs) {
     const ch = inputs[0]?.[0];
-    if (ch) this.port.postMessage(ch, [ch.buffer]);
+    // Copy before transfer so the data is not detached on the receiving end
+    if (ch) {
+      const copy = new Float32Array(ch);
+      this.port.postMessage(copy, [copy.buffer]);
+    }
     return true;
   }
 }
@@ -349,13 +353,14 @@ function stopRec(){
   recording=false;
   recBtn.classList.remove('recording');
   recLabel.textContent='按住 Space 开始录音';
-  // Stop in correct order: disconnect nodes first, then release stream
+  // Send stop FIRST so the server gets it after all audio frames
+  if(ws?.readyState===1){ ws.send(JSON.stringify({type:'stop'})); setStatus('processing','识别中...'); }
+  else setStatus('connected','已连接');
+  // Then release audio resources
   workletNode?.disconnect(); workletNode=null;
   source?.disconnect(); source=null;
   stream?.getTracks().forEach(t=>t.stop()); stream=null;
   audioCtx?.close(); audioCtx=null;
-  if(ws?.readyState===1){ ws.send(JSON.stringify({type:'stop'})); setStatus('processing','识别中...'); }
-  else setStatus('connected','已连接');
 }
 
 window._recToggle = () => recording ? stopRec() : startRec();
