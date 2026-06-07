@@ -12,7 +12,7 @@
   --red:#ef4444;--green:#22c55e;--yellow:#f59e0b;
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-body{display:flex;flex-direction:column;padding:16px;gap:12px}
+body{display:flex;flex-direction:column;padding:14px;gap:10px}
 
 header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 h1{font-size:1.1rem;font-weight:700;letter-spacing:-.02em}
@@ -24,28 +24,35 @@ h1 span{color:var(--accent)}
 #dot.processing{background:var(--yellow)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 
-.cfg{display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0}
-select,button.sm{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:.8rem;cursor:pointer;outline:none}
+/* settings panel */
+.settings{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;flex-shrink:0;display:flex;flex-direction:column;gap:10px}
+.settings-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.settings-row label{font-size:.75rem;color:var(--muted);white-space:nowrap;min-width:48px}
+select,button.sm{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:.8rem;cursor:pointer;outline:none}
 select:focus,button.sm:focus{border-color:var(--accent)}
 button.sm{color:var(--muted)}
 button.sm:hover{color:var(--text);border-color:var(--accent)}
 button.sm.on{color:var(--accent);border-color:var(--accent)}
+.hotkey-tip{font-size:.75rem;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:5px 10px;display:flex;align-items:center;gap:6px}
+.hotkey-tip kbd{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:.72rem;color:var(--text)}
 
-.rec-row{display:flex;align-items:center;gap:16px;background:var(--surface);border-radius:12px;padding:14px 20px;flex-shrink:0}
-#rec-btn{width:64px;height:64px;border-radius:50%;border:none;background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s;outline:none}
+/* record row */
+.rec-row{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;flex-shrink:0}
+#rec-btn{width:60px;height:60px;border-radius:50%;border:none;background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s;outline:none}
 #rec-btn:hover{transform:scale(1.08)}
 #rec-btn.recording{background:var(--red);animation:ring 1.5s infinite}
-@keyframes ring{0%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}70%{box-shadow:0 0 0 16px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+@keyframes ring{0%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}70%{box-shadow:0 0 0 14px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
 .rec-info{flex:1}
-.rec-info p{font-size:.95rem;font-weight:500}
-.rec-info small{font-size:.75rem;color:var(--muted)}
+.rec-info p{font-size:.9rem;font-weight:500}
+.rec-info small{font-size:.73rem;color:var(--muted)}
 kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;border-radius:4px;font-size:.72rem}
 
-.box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
+/* transcript */
+.box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
 .box-header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .box-label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
 .box-actions{display:flex;gap:6px}
-#transcript{flex:1;overflow-y:auto;font-size:1rem;line-height:1.7;white-space:pre-wrap;word-break:break-word;min-height:0}
+#transcript{flex:1;overflow-y:auto;line-height:1.7;white-space:pre-wrap;word-break:break-word;min-height:0}
 #interim{color:var(--muted);font-style:italic;font-size:.9rem;flex-shrink:0}
 .placeholder{color:var(--muted)}
 #copy-btn,#clear-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;transition:all .2s}
@@ -61,30 +68,47 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
   <div id="status"><div id="dot"></div><span id="slabel">未连接</span></div>
 </header>
 
-<div class="cfg">
-  <select id="model" title="识别模型（越大越准但越慢）">
-    <option value="tiny">模型: Tiny (快)</option>
-    <option value="base" selected>模型: Base (推荐)</option>
-    <option value="small">模型: Small (准)</option>
-    <option value="medium">模型: Medium (最准)</option>
-  </select>
-  <select id="lang" title="识别语言">
-    <option value="auto">语言: 自动</option>
-    <option value="zh" selected>语言: 中文</option>
-    <option value="en">语言: 英文</option>
-  </select>
-  <select id="fsize" title="字体大小">
-    <option value="0.9rem">字号: 小</option>
-    <option value="1rem" selected>字号: 中</option>
-    <option value="1.2rem">字号: 大</option>
-    <option value="1.5rem">字号: 特大</option>
-  </select>
-  <button class="sm" id="topbtn" title="窗口置顶（在其他软件上方显示）">置顶: 关</button>
+<div class="settings">
+  <div class="settings-row">
+    <label>模型</label>
+    <select id="model" title="越大越准但越慢，切换后自动重载">
+      <option value="tiny">Tiny（最快，~75MB）</option>
+      <option value="base" selected>Base（推荐，~150MB）</option>
+      <option value="small">Small（更准，~500MB）</option>
+      <option value="medium">Medium（最准，~1.5GB）</option>
+    </select>
+    <label>语言</label>
+    <select id="lang">
+      <option value="auto">自动检测</option>
+      <option value="zh" selected>中文</option>
+      <option value="en">英文</option>
+    </select>
+  </div>
+  <div class="settings-row">
+    <label>字号</label>
+    <select id="fsize">
+      <option value="0.85rem">小</option>
+      <option value="1rem" selected>中</option>
+      <option value="1.2rem">大</option>
+      <option value="1.5rem">特大</option>
+    </select>
+    <label>结果</label>
+    <select id="appendmode">
+      <option value="append" selected>追加</option>
+      <option value="replace">替换</option>
+    </select>
+    <button class="sm" id="topbtn" title="窗口始终在其他软件上方">置顶: 关</button>
+  </div>
+  <div class="settings-row">
+    <div class="hotkey-tip">
+      💡 在其他窗口（VS Code、浏览器等）使用：按 <kbd>Alt</kbd>+<kbd>Z</kbd> 开始/停止识别
+    </div>
+  </div>
 </div>
 
 <div class="rec-row">
-  <button id="rec-btn" title="按住 Space 键录音">
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <button id="rec-btn" title="按住 Space 录音，松开识别">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="9" y="2" width="6" height="13" rx="3"/>
       <path d="M5 10a7 7 0 0 0 14 0"/>
       <line x1="12" y1="19" x2="12" y2="23"/>
@@ -93,7 +117,7 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
   </button>
   <div class="rec-info">
     <p id="rec-label">按住 Space 开始录音</p>
-    <small>窗口内：<kbd>按住 Space</kbd> 录音松开识别 &nbsp;|&nbsp; 其他窗口：<kbd>Alt+Z</kbd> 切换</small>
+    <small>此窗口内：<kbd>按住 Space</kbd> 录音，松开自动识别</small>
   </div>
 </div>
 
@@ -111,142 +135,128 @@ kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;bo
 
 <script>
 const $ = id => document.getElementById(id);
-const dot = $('dot'), slabel = $('slabel');
-const transcriptEl = $('transcript'), interimEl = $('interim');
-const recBtn = $('rec-btn'), copyBtn = $('copy-btn');
-const modelSel = $('model'), langSel = $('lang'), fsizeSel = $('fsize');
-const topBtn = $('topbtn'), recLabel = $('rec-label');
+const dot=$('dot'),slabel=$('slabel'),transcriptEl=$('transcript'),interimEl=$('interim');
+const recBtn=$('rec-btn'),copyBtn=$('copy-btn'),recLabel=$('rec-label');
+const modelSel=$('model'),langSel=$('lang'),fsizeSel=$('fsize'),appendSel=$('appendmode'),topBtn=$('topbtn');
 
-let ws, recording = false, text = '';
+let ws, recording=false, text='';
 let audioCtx, processor, source, stream;
 
 fsizeSel.onchange = () => { transcriptEl.style.fontSize = fsizeSel.value; };
 
-let onTop = false;
+let onTop=false;
 topBtn.onclick = () => {
-  onTop = !onTop;
-  topBtn.textContent = `置顶: ${onTop ? '开' : '关'}`;
-  topBtn.classList.toggle('on', onTop);
-  if (window.pywebview) pywebview.api.set_on_top(onTop);
+  onTop=!onTop;
+  topBtn.textContent=`置顶: ${onTop?'开':'关'}`;
+  topBtn.classList.toggle('on',onTop);
+  if(window.pywebview) pywebview.api.set_on_top(onTop);
 };
 
 modelSel.onchange = async () => {
-  slabel.textContent = '切换模型中...';
+  setStatus('processing','切换模型中...');
   try {
-    await fetch('/reload_model', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({model: modelSel.value})
-    });
-  } catch(e) {}
-  connect();
+    await fetch('/reload_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:modelSel.value})});
+  } catch(e){}
+  setStatus('connected','已连接');
 };
 
-function setStatus(state, msg) { dot.className = state; slabel.textContent = msg; }
+function setStatus(state,msg){dot.className=state;slabel.textContent=msg;}
 
-function connect() {
-  if (ws && ws.readyState < 2) return;
-  ws = new WebSocket('ws://localhost:7788/ws');
-  ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { setStatus('connected', '已连接'); sendCfg(); };
-  ws.onclose = () => { setStatus('', '已断开'); if(recording) stopRec(); setTimeout(connect, 3000); };
-  ws.onerror = () => ws.close();
-  ws.onmessage = e => {
-    if (typeof e.data !== 'string') return;
-    const d = JSON.parse(e.data);
-    if (d.type === 'interim') { interimEl.textContent = d.text; }
-    else if (d.type === 'processing') { setStatus('processing', '识别中...'); }
-    else if (d.type === 'final') {
-      interimEl.textContent = '';
-      if (d.text) { text += (text ? '\n' : '') + d.text; renderText(); }
-      setStatus('connected', '已连接');
+function connect(){
+  if(ws&&ws.readyState<2)return;
+  ws=new WebSocket('ws://localhost:7788/ws');
+  ws.binaryType='arraybuffer';
+  ws.onopen=()=>{setStatus('connected','已连接');sendCfg();};
+  ws.onclose=()=>{setStatus('','已断开');if(recording)stopRec();setTimeout(connect,3000);};
+  ws.onerror=()=>ws.close();
+  ws.onmessage=e=>{
+    if(typeof e.data!=='string')return;
+    const d=JSON.parse(e.data);
+    if(d.type==='interim'){interimEl.textContent=d.text;}
+    else if(d.type==='processing'){setStatus('processing','识别中...');}
+    else if(d.type==='final'){
+      interimEl.textContent='';
+      if(d.text){
+        text = appendSel.value==='append' ? (text?(text+'\n'+d.text):d.text) : d.text;
+        renderText();
+      }
+      setStatus('connected','已连接');
     }
   };
 }
 
-function sendCfg() {
-  if (ws?.readyState === 1)
-    ws.send(JSON.stringify({type:'config', language: langSel.value}));
+function sendCfg(){
+  if(ws?.readyState===1) ws.send(JSON.stringify({type:'config',language:langSel.value}));
 }
-langSel.onchange = sendCfg;
+langSel.onchange=sendCfg;
 
-function renderText() {
-  if (text) transcriptEl.textContent = text;
-  else transcriptEl.innerHTML = '<span class="placeholder">录音结果将显示在这里...</span>';
+function renderText(){
+  if(text) transcriptEl.textContent=text;
+  else transcriptEl.innerHTML='<span class="placeholder">录音结果将显示在这里...</span>';
 }
 
-// --- Hold-to-talk ---
-async function startRec() {
-  if (recording) return;
-  if (!ws || ws.readyState !== 1) { connect(); return; }
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({audio:true});
-    audioCtx = new AudioContext({sampleRate:16000});
-    source = audioCtx.createMediaStreamSource(stream);
-    processor = audioCtx.createScriptProcessor(4096, 1, 1);
-    processor.onaudioprocess = e => {
-      if (!recording || ws.readyState !== 1) return;
-      const f = e.inputBuffer.getChannelData(0);
-      const pcm = new Int16Array(f.length);
-      for (let i = 0; i < f.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, f[i]*32768));
+async function startRec(){
+  if(recording)return;
+  if(!ws||ws.readyState!==1){connect();return;}
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    audioCtx=new AudioContext({sampleRate:16000});
+    source=audioCtx.createMediaStreamSource(stream);
+    processor=audioCtx.createScriptProcessor(4096,1,1);
+    processor.onaudioprocess=e=>{
+      if(!recording||ws.readyState!==1)return;
+      const f=e.inputBuffer.getChannelData(0);
+      const pcm=new Int16Array(f.length);
+      for(let i=0;i<f.length;i++) pcm[i]=Math.max(-32768,Math.min(32767,f[i]*32768));
       ws.send(pcm.buffer);
     };
     source.connect(processor);
     processor.connect(audioCtx.destination);
-    recording = true;
+    recording=true;
     recBtn.classList.add('recording');
-    recLabel.textContent = '录音中... 松开 Space 停止';
-    setStatus('recording', '录音中...');
-    ws.send(JSON.stringify({type:'start', language: langSel.value}));
-  } catch(err) {
-    alert('麦克风错误: ' + err.message);
-  }
+    recLabel.textContent='录音中... 松开停止';
+    setStatus('recording','录音中...');
+    ws.send(JSON.stringify({type:'start',language:langSel.value}));
+  }catch(err){alert('麦克风错误: '+err.message);}
 }
 
-function stopRec() {
-  if (!recording) return;
-  recording = false;
+function stopRec(){
+  if(!recording)return;
+  recording=false;
   recBtn.classList.remove('recording');
-  recLabel.textContent = '按住 Space 开始录音';
-  processor?.disconnect(); processor = null;
-  source?.disconnect(); source = null;
-  stream?.getTracks().forEach(t => t.stop()); stream = null;
-  audioCtx?.close(); audioCtx = null;
-  if (ws?.readyState === 1) {
+  recLabel.textContent='按住 Space 开始录音';
+  processor?.disconnect(); processor=null;
+  source?.disconnect(); source=null;
+  stream?.getTracks().forEach(t=>t.stop()); stream=null;
+  audioCtx?.close(); audioCtx=null;
+  if(ws?.readyState===1){
     ws.send(JSON.stringify({type:'stop'}));
-    setStatus('processing', '识别中...');
-  } else {
-    setStatus('connected', '已连接');
-  }
+    setStatus('processing','识别中...');
+  }else{setStatus('connected','已连接');}
 }
 
-// Exposed for global Alt+Z hotkey from Python (toggle mode)
+// Global hotkey callback (called by Python via evaluate_js)
 window._recToggle = () => recording ? stopRec() : startRec();
 
-// In-window Space key (hold-to-talk, window focused only)
-document.addEventListener('keydown', e => {
-  if (e.code === 'Space' && !e.repeat) { e.preventDefault(); startRec(); }
-});
-document.addEventListener('keyup', e => {
-  if (e.code === 'Space') { e.preventDefault(); stopRec(); }
-});
+// In-window Space: hold-to-talk
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat){e.preventDefault();startRec();}});
+document.addEventListener('keyup',e=>{if(e.code==='Space'){e.preventDefault();stopRec();}});
 
-// Click button: toggle (for mouse users)
-recBtn.addEventListener('mousedown', startRec);
-recBtn.addEventListener('mouseup', stopRec);
-recBtn.addEventListener('mouseleave', () => { if(recording) stopRec(); });
+// Mouse: hold button
+recBtn.addEventListener('mousedown',startRec);
+recBtn.addEventListener('mouseup',stopRec);
+recBtn.addEventListener('mouseleave',()=>{if(recording)stopRec();});
 
-copyBtn.onclick = () => {
-  const all = text + (interimEl.textContent ? '\n' + interimEl.textContent : '');
-  if (!all.trim()) return;
-  navigator.clipboard.writeText(all).then(() => {
-    copyBtn.textContent = '已复制!';
-    copyBtn.classList.add('copied');
-    setTimeout(() => { copyBtn.textContent = '复制'; copyBtn.classList.remove('copied'); }, 1500);
+copyBtn.onclick=()=>{
+  const all=text+(interimEl.textContent?'\n'+interimEl.textContent:'');
+  if(!all.trim())return;
+  navigator.clipboard.writeText(all).then(()=>{
+    copyBtn.textContent='已复制!';copyBtn.classList.add('copied');
+    setTimeout(()=>{copyBtn.textContent='复制';copyBtn.classList.remove('copied');},1500);
   });
 };
 
-$('clear-btn').onclick = () => { text = ''; renderText(); interimEl.textContent = ''; };
+$('clear-btn').onclick=()=>{text='';renderText();interimEl.textContent='';};
 
 connect();
 </script>
