@@ -162,7 +162,7 @@ const hkDisplay=$('hk-display'),hkRecordBtn=$('hk-record-btn');
 const WS_PORT = location.port || 7788;
 const WS_URL  = `ws://localhost:${WS_PORT}/ws`;
 
-let ws, wsRetryDelay = 1000;
+let ws, wsRetryDelay = 1000, wsConnecting = false;
 let recording = false, text = '';
 let audioCtx, workletNode, source, stream;
 let currentHotkey = {modifiers:['alt'], key:'z'};
@@ -256,17 +256,19 @@ modelSel.onchange = async () => {
 // ---- WebSocket with exponential backoff ----
 function setStatus(state,msg){dot.className=state;slabel.textContent=msg;}
 function connect(){
-  if(ws&&ws.readyState<2) return;
+  if(wsConnecting||(ws&&ws.readyState<2)) return;
+  wsConnecting=true;
   ws=new WebSocket(WS_URL);
   ws.binaryType='arraybuffer';
-  ws.onopen=()=>{ wsRetryDelay=1000; setStatus('connected','已连接'); sendCfg(); };
+  ws.onopen=()=>{ wsConnecting=false; wsRetryDelay=1000; setStatus('connected','已连接'); sendCfg(); };
   ws.onclose=()=>{
+    wsConnecting=false;
     setStatus('','已断开');
     if(recording) stopRec();
     setTimeout(connect, wsRetryDelay);
-    wsRetryDelay = Math.min(wsRetryDelay*2, 16000); // exponential backoff, max 16s
+    wsRetryDelay = Math.min(wsRetryDelay*2, 16000);
   };
-  ws.onerror=()=>ws.close();
+  ws.onerror=()=>{ wsConnecting=false; ws.close(); };
   ws.onmessage=e=>{
     if(typeof e.data!=='string') return;
     const d=JSON.parse(e.data);
@@ -287,6 +289,7 @@ function renderText(){
 // ---- AudioWorklet recording (replaces deprecated ScriptProcessor) ----
 // Resamples from browser's native rate to 16kHz using linear interpolation
 function resampleTo16k(float32, fromRate) {
+  if (!float32 || float32.length === 0) return new Float32Array(0);
   if (fromRate === 16000) return float32;
   const ratio = fromRate / 16000;
   const outLen = Math.floor(float32.length / ratio);
@@ -321,8 +324,11 @@ async function startRec(){
     // Register and load worklet from Blob URL
     const blob = new Blob([WORKLET_SRC], {type:'application/javascript'});
     const blobUrl = URL.createObjectURL(blob);
-    await audioCtx.audioWorklet.addModule(blobUrl);
-    URL.revokeObjectURL(blobUrl);
+    try {
+      await audioCtx.audioWorklet.addModule(blobUrl);
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
 
     source = audioCtx.createMediaStreamSource(stream);
     workletNode = new AudioWorkletNode(audioCtx, 'pcm-processor');
@@ -383,7 +389,7 @@ $('clear-btn').onclick=()=>{ text=''; renderText(); interimEl.textContent=''; };
 // Request mic permission on startup so the prompt appears immediately
 navigator.mediaDevices.getUserMedia({audio:true})
   .then(s=>s.getTracks().forEach(t=>t.stop()))
-  .catch(()=>setStatus('','请允许麦克风访问'));
+  .catch(err=>setStatus('', err.name==='NotAllowedError'?'请允许麦克风访问':'麦克风不可用'));
 
 loadConfig().then(()=>connect());
 </script>

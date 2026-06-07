@@ -1,6 +1,7 @@
 import os
 import threading
 import json
+import atexit
 from concurrent.futures import ThreadPoolExecutor
 
 # Use HF mirror for users in China, suppress symlink warning
@@ -22,8 +23,12 @@ model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 model_lock = threading.Lock()
 print("Model ready.")
 
-# Single-thread executor: transcription jobs are serialized but off the WS thread
+# Executor: serialises transcription jobs off the WS thread
 _executor = ThreadPoolExecutor(max_workers=1)
+atexit.register(lambda: _executor.shutdown(wait=False))
+
+# Config file lock: prevents concurrent read/write corruption
+_config_lock = threading.Lock()
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.json")
 DEFAULT_CONFIG = {
@@ -36,18 +41,20 @@ DEFAULT_CONFIG = {
 }
 
 def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, encoding="utf-8") as f:
-                data = json.load(f)
-            return {**DEFAULT_CONFIG, **data}
-        except Exception:
-            pass
-    return dict(DEFAULT_CONFIG)
+    with _config_lock:
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, encoding="utf-8") as f:
+                    data = json.load(f)
+                return {**DEFAULT_CONFIG, **data}
+            except Exception:
+                pass
+        return dict(DEFAULT_CONFIG)
 
 def save_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    with _config_lock:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 
 @app.route("/config", methods=["GET"])
@@ -76,19 +83,18 @@ def status():
 
 @app.route("/reload_model", methods=["POST"])
 def reload_model():
-    """Reload model in background so the HTTP thread never blocks."""
-    global model, MODEL_SIZE
+    """Queue model reload through the executor so it serialises with transcriptions."""
     size = request.json.get("model", "base")
-    MODEL_SIZE = size
 
     def _do():
+        global model, MODEL_SIZE
         new_model = WhisperModel(size, device="cpu", compute_type="int8")
         with model_lock:
-            global model
             model = new_model
+            MODEL_SIZE = size
 
-    threading.Thread(target=_do, daemon=True).start()
-    return jsonify({"status": "loading", "model": MODEL_SIZE})
+    _executor.submit(_do)
+    return jsonify({"status": "loading", "model": size})
 
 
 # Hook called after each transcription — set by main.py
@@ -101,7 +107,10 @@ def ws_handler(ws):
     recording = False
 
     while True:
-        msg = ws.receive()
+        try:
+            msg = ws.receive(timeout=60)
+        except Exception:
+            break
         if msg is None:
             break
 
@@ -121,9 +130,8 @@ def ws_handler(ws):
                         ws.send(json.dumps({"type": "processing"}))
                         pcm = bytes(audio_buf)
                         audio_buf.clear()
-                        lang_snap = language  # capture before next recording starts
+                        lang_snap = language
 
-                        # Run transcription off the WS thread; send result back when done
                         fut = _executor.submit(_transcribe, pcm, lang_snap)
                         try:
                             result = fut.result(timeout=30)
@@ -140,8 +148,11 @@ def ws_handler(ws):
                     pass
 
         elif isinstance(msg, bytes) and recording:
-            if len(audio_buf) < 16_000_000:  # 16MB cap (~100s audio)
-                audio_buf.extend(msg)
+            if len(audio_buf) < 16_000_000:
+                # Only append 2-byte-aligned (int16) data to avoid sample corruption
+                avail = len(msg) - (len(msg) % 2)
+                if avail > 0:
+                    audio_buf.extend(msg[:avail])
 
 
 def _transcribe(pcm_bytes: bytes, language=None) -> dict:
@@ -155,7 +166,7 @@ def _transcribe(pcm_bytes: bytes, language=None) -> dict:
             best_of=1,
             condition_on_previous_text=False,
             vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 500},  # less aggressive, avoids cutting sentence endings
+            vad_parameters={"min_silence_duration_ms": 500},
             temperature=0.0,
         )
         text = " ".join(s.text for s in segments).strip()

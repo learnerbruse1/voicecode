@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import ctypes
@@ -8,9 +9,8 @@ import app as server
 _window = None
 _listener = None
 _type_controller = kb.Controller()
-_typing_from_global = False  # tracks whether current rec was triggered by global hotkey
+_typing_from_global = False
 
-# Map modifier name -> pynput Key
 _MOD_MAP = {
     "alt":   (kb.Key.alt_l,  kb.Key.alt_r),
     "ctrl":  (kb.Key.ctrl_l, kb.Key.ctrl_r),
@@ -18,15 +18,12 @@ _MOD_MAP = {
 }
 
 def _type_text(text: str):
-    """Type text at the current cursor position after a short delay
-    to let the hotkey modifiers be released first."""
     def _do():
-        time.sleep(0.15)  # wait for Alt key to be fully released
+        time.sleep(0.15)
         _type_controller.type(text)
     threading.Thread(target=_do, daemon=True).start()
 
 def _start_listener(hotkey_cfg):
-    global _typing_from_global
     mods_needed = set(hotkey_cfg.get("modifiers", []))
     key_char    = hotkey_cfg.get("key", "").lower()
     held_mods   = set()
@@ -50,6 +47,7 @@ def _start_listener(hotkey_cfg):
         with _lock:
             triggered = char == key_char and held_mods >= mods_needed
         if triggered and _window:
+            global _typing_from_global
             _typing_from_global = True
             _window.evaluate_js("window._recToggle && window._recToggle()")
 
@@ -65,7 +63,6 @@ def _start_listener(hotkey_cfg):
 
 class Api:
     def set_on_top(self, on_top):
-        # Use Win32 SetWindowPos directly — avoids pywebview GUI thread deadlock
         HWND_TOPMOST   = -1
         HWND_NOTOPMOST = -2
         SWP_NOMOVE     = 0x0002
@@ -80,30 +77,30 @@ class Api:
         global _listener
         if _listener:
             _listener.stop()
+            _listener.join(timeout=0.5)
         _listener = _start_listener(hotkey_cfg)
         return True
 
     def rec_stopped_from_ui(self):
-        """Called by JS when recording stops from inside the window (not global hotkey)."""
         global _typing_from_global
         _typing_from_global = False
 
 
 def _on_transcription(text: str):
-    """Called by app.py after each successful transcription."""
-    if _typing_from_global:
+    global _typing_from_global
+    should_type = _typing_from_global
+    _typing_from_global = False  # reset immediately, before any async work
+    if should_type:
         _type_text(text)
-    # Always show in window too
     if _window:
-        safe = text.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-        _window.evaluate_js(f"window._appendText && window._appendText(`{safe}`)")
+        # Use json.dumps for safe JS string serialization (handles all special chars)
+        _window.evaluate_js(f"window._appendText && window._appendText({json.dumps(text)})")
 
 
 def _hide_console():
-    """Hide the cmd window once the GUI is ready. Closing the GUI exits the process."""
     hwnd = ctypes.windll.kernel32.GetConsoleWindow()
     if hwnd:
-        ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE = 0
+        ctypes.windll.user32.ShowWindow(hwnd, 0)
 
 if __name__ == "__main__":
     server.on_transcription = _on_transcription
@@ -124,4 +121,3 @@ if __name__ == "__main__":
         js_api=Api(),
     )
     webview.start(func=_hide_console)
-

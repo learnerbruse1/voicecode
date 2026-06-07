@@ -1,0 +1,13 @@
+{
+  "hotkey": {
+    "modifiers": [
+      "alt"
+    ],
+    "key": "z"
+  },
+  "model": "small",
+  "language": "zh",
+  "font_size": "1rem",
+  "append_mode": "append",
+  "on_top": false
+}
