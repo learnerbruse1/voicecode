@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 import numpy as np
+import ctranslate2
 from flask import Flask, send_from_directory, jsonify, request
 from flask_sock import Sock
 from faster_whisper import WhisperModel
@@ -18,8 +19,24 @@ sock = Sock(app)
 PORT = int(os.environ.get("PORT", 7788))
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base")
 
+# Auto-select best device and precision
+def _best_device_and_precision():
+    if ctranslate2.get_cuda_device_count() > 0:
+        return "cuda", "float16"
+    import multiprocessing
+    # Use half the CPU cores, minimum 2
+    cpu_threads = max(2, multiprocessing.cpu_count() // 2)
+    return "cpu", "int8", cpu_threads
+
+_dev_cfg = _best_device_and_precision()
+_device       = _dev_cfg[0]
+_compute_type = _dev_cfg[1]
+_cpu_threads  = _dev_cfg[2] if len(_dev_cfg) > 2 else 4
+
+print(f"Device: {_device} ({_compute_type})")
 print(f"Loading Whisper '{MODEL_SIZE}' model...")
-model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
+model = WhisperModel(MODEL_SIZE, device=_device, compute_type=_compute_type,
+                     cpu_threads=_cpu_threads)
 model_lock = threading.Lock()
 print("Model ready.")
 
@@ -88,7 +105,8 @@ def reload_model():
 
     def _do():
         global model, MODEL_SIZE
-        new_model = WhisperModel(size, device="cpu", compute_type="int8")
+        new_model = WhisperModel(size, device=_device, compute_type=_compute_type,
+                                  cpu_threads=_cpu_threads)
         with model_lock:
             model = new_model
             MODEL_SIZE = size
