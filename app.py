@@ -22,7 +22,44 @@ model_lock = threading.Lock()
 print("Model ready.")
 
 
-@app.route("/")
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.json")
+DEFAULT_CONFIG = {
+    "hotkey": {"modifiers": ["alt"], "key": "z"},
+    "model": "base",
+    "language": "zh",
+    "font_size": "1rem",
+    "append_mode": "append",
+    "on_top": False,
+}
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            # fill missing keys with defaults
+            return {**DEFAULT_CONFIG, **data}
+        except Exception:
+            pass
+    return dict(DEFAULT_CONFIG)
+
+def save_config(cfg):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+@app.route("/config", methods=["GET"])
+def get_config():
+    return jsonify(load_config())
+
+
+@app.route("/config", methods=["POST"])
+def post_config():
+    cfg = load_config()
+    cfg.update(request.json)
+    save_config(cfg)
+    return jsonify(cfg)
+
 def index():
     return send_from_directory("static", "index.html")
 
