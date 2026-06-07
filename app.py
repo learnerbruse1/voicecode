@@ -187,6 +187,7 @@ def record_cancel():
     return jsonify({"status": "cancelled"})
 
 def _transcribe_audio(audio: np.ndarray, language=None) -> dict:
+    global model, _device, _compute_type
     prompt = "以下是普通话的语音识别结果。" if language == "zh" else None
     with model_lock:
         try:
@@ -201,7 +202,6 @@ def _transcribe_audio(audio: np.ndarray, language=None) -> dict:
             if "cublas" in str(e).lower() or "cuda" in str(e).lower():
                 # CUDA runtime missing — reload model on CPU and retry
                 print(f"WARNING: GPU error ({e}), reloading on CPU", flush=True)
-                global model, _device, _compute_type
                 _device, _compute_type = "cpu", "int8"
                 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8",
                                      cpu_threads=_cpu_threads)
