@@ -308,9 +308,11 @@ async function stopRec(){
   try{
     const pcm16=toInt16(new Float32Array(buf));
     dbg('POST /transcribe bytes='+pcm16.buffer.byteLength+' lang='+lang);
+    // Use Blob instead of ArrayBuffer — WinForms WebView doesn't support ArrayBuffer as fetch body
+    const blob=new Blob([pcm16.buffer],{type:'application/octet-stream'});
     const resp=await fetch('/transcribe?language='+lang,{
       method:'POST',headers:{'Content-Type':'application/octet-stream'},
-      body:pcm16.buffer, signal:abortCtrl.signal
+      body:blob, signal:abortCtrl.signal
     });
     const d=await resp.json();
     dbg('result: text='+JSON.stringify(d.text)+' lang='+d.language);
