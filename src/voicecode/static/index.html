@@ -1,375 +1,131 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VoiceCode</title>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;--border:#2e3347;
-  --text:#e2e8f0;--muted:#64748b;--accent:#6366f1;
-  --red:#ef4444;--green:#22c55e;--yellow:#f59e0b;
-}
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-body{display:flex;flex-direction:column;padding:14px;gap:10px}
-header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-h1{font-size:1.1rem;font-weight:700;letter-spacing:-.02em}
-h1 span{color:var(--accent)}
-#status{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--muted)}
-#dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s}
-#dot.connected{background:var(--green)}
-#dot.recording{background:var(--red);animation:blink 1s infinite}
-#dot.processing{background:var(--yellow)}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-.settings{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;flex-shrink:0;display:flex;flex-direction:column;gap:10px}
-.settings-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.settings-row label{font-size:.75rem;color:var(--muted);white-space:nowrap;min-width:44px}
-select,button.sm{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:.8rem;cursor:pointer;outline:none}
-select:focus,button.sm:focus{border-color:var(--accent)}
-button.sm{color:var(--muted)}
-button.sm:hover{color:var(--text);border-color:var(--accent)}
-button.sm.on{color:var(--accent);border-color:var(--accent)}
-.hk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-#hk-display{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:5px 12px;font-size:.8rem;min-width:110px;text-align:center;color:var(--text)}
-#hk-display.recording-key{border-color:var(--accent);color:var(--accent);animation:blink .8s infinite}
-.hk-presets{display:flex;gap:5px;flex-wrap:wrap}
-.hk-preset{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:.75rem;cursor:pointer;color:var(--muted);transition:all .15s}
-.hk-preset:hover{color:var(--text);border-color:var(--accent)}
-.hk-preset.active{color:var(--accent);border-color:var(--accent)}
-.rec-row{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;flex-shrink:0}
-#rec-btn{width:60px;height:60px;border-radius:50%;border:none;background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .15s;outline:none}
-#rec-btn:hover{transform:scale(1.08)}
-#rec-btn.recording{background:var(--red);animation:ring 1.5s infinite}
-@keyframes ring{0%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}70%{box-shadow:0 0 0 14px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
-.rec-info{flex:1}
-.rec-info p{font-size:.9rem;font-weight:500}
-.rec-info small{font-size:.73rem;color:var(--muted)}
-kbd{background:var(--surface2);border:1px solid var(--border);padding:1px 5px;border-radius:4px;font-size:.72rem}
-.box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
-.box-header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.box-label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
-.box-actions{display:flex;gap:6px}
-#transcript{flex:1;overflow-y:auto;line-height:1.7;white-space:pre-wrap;word-break:break-word;min-height:0}
-.placeholder{color:var(--muted)}
-#copy-btn,#clear-btn,#cancel-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;transition:all .2s}
-#copy-btn:hover,#clear-btn:hover{color:var(--text);border-color:var(--accent)}
-#copy-btn.copied{color:var(--green);border-color:var(--green)}
-#clear-btn:hover{color:var(--red)}
-#cancel-btn{color:var(--yellow);border-color:var(--yellow)}
-</style>
+<link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
 <header>
   <h1>Voice<span>Code</span></h1>
-  <div id="status"><div id="dot"></div><span id="slabel">就绪</span></div>
+  <div id="status"><div id="dot"></div><span id="slabel" data-i18n="status_ready">Ready</span></div>
 </header>
-<div id="perf" style="font-size:.72rem;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px 12px;flex-shrink:0;display:flex;gap:16px;flex-wrap:wrap"></div>
+<div id="perf"></div>
 <div class="settings">
   <div class="settings-row">
-    <label>模型</label>
+    <label for="model" data-i18n="label_model">Model</label>
     <select id="model">
-      <option value="tiny">Tiny（最快，~75MB）</option>
-      <option value="base">Base（推荐，~150MB）</option>
-      <option value="small">Small（更准，~500MB）</option>
-      <option value="medium">Medium（最准，~1.5GB）</option>
+      <option value="tiny" data-i18n="model_tiny">Tiny (fast, ~75 MB)</option>
+      <option value="base" data-i18n="model_base">Base (recommended, ~150 MB)</option>
+      <option value="small" data-i18n="model_small">Small (more accurate, ~500 MB)</option>
+      <option value="medium" data-i18n="model_medium">Medium (most accurate, ~1.5 GB)</option>
     </select>
-    <label>语言</label>
+    <label for="lang" data-i18n="label_transcription_language">Transcription language</label>
     <select id="lang">
-      <option value="auto">自动检测</option>
-      <option value="zh">中文</option>
-      <option value="en">英文</option>
+      <option value="auto" data-i18n="lang_auto">Auto detect</option>
+      <option value="zh" data-i18n="lang_zh">Chinese</option>
+      <option value="en" data-i18n="lang_en">English</option>
+      <option value="ja" data-i18n="lang_ja">Japanese</option>
+    </select>
+    <label for="uilang" data-i18n="label_ui_language">UI language</label>
+    <select id="uilang">
+      <option value="en">English</option>
+      <option value="zh">&#20013;&#25991;</option>
+      <option value="ja">&#26085;&#26412;&#35486;</option>
     </select>
   </div>
   <div class="settings-row">
-    <label>字号</label>
+    <label for="audio-device" data-i18n="label_audio_device">Microphone</label>
+    <select id="audio-device">
+      <option value="" data-i18n="audio_default">System default</option>
+    </select>
+    <label for="text-mode" data-i18n="label_text_mode">Text mode</label>
+    <select id="text-mode">
+      <option value="plain" data-i18n="text_plain">Plain</option>
+      <option value="coding" data-i18n="text_coding">Coding</option>
+      <option value="markdown" data-i18n="text_markdown">Markdown</option>
+      <option value="prompt" data-i18n="text_prompt">Prompt</option>
+    </select>
+    <label for="history-enabled" data-i18n="label_history">History</label>
+    <select id="history-enabled">
+      <option value="true" data-i18n="history_on">On</option>
+      <option value="false" data-i18n="history_off">Off</option>
+    </select>
+    <button class="sm" id="history-btn" type="button" data-i18n="history">History</button>
+    <button class="sm" id="clear-history-btn" type="button" data-i18n="clear_history">Clear history</button>
+    <button class="sm" id="diagnostics-btn" type="button" data-i18n="diagnostics">Diagnostics</button>
+  </div>
+  <div class="settings-row">
+    <label for="fsize" data-i18n="label_font_size">Font size</label>
     <select id="fsize">
-      <option value="0.85rem">小</option>
-      <option value="1rem">中</option>
-      <option value="1.2rem">大</option>
-      <option value="1.5rem">特大</option>
+      <option value="0.85rem" data-i18n="font_small">Small</option>
+      <option value="1rem" data-i18n="font_medium">Medium</option>
+      <option value="1.2rem" data-i18n="font_large">Large</option>
+      <option value="1.5rem" data-i18n="font_xlarge">Extra large</option>
     </select>
-    <label>结果</label>
+    <label for="appendmode" data-i18n="label_result_mode">Result</label>
     <select id="appendmode">
-      <option value="append">追加</option>
-      <option value="replace">替换</option>
+      <option value="append" data-i18n="mode_append">Append</option>
+      <option value="replace" data-i18n="mode_replace">Replace</option>
     </select>
-    <button class="sm" id="topbtn">置顶: 关</button>
+    <button class="sm" id="topbtn" type="button"></button>
   </div>
   <div class="settings-row hk-row">
-    <label>全局键</label>
+    <label data-i18n="label_global_hotkey">Global hotkey</label>
     <div id="hk-display">Alt+Z</div>
-    <button class="sm" id="hk-record-btn">点击设置</button>
+    <button class="sm" id="hk-record-btn" type="button" data-i18n="set_hotkey">Set hotkey</button>
     <div class="hk-presets">
-      <button class="hk-preset" data-mods="alt"        data-key="z">Alt+Z</button>
-      <button class="hk-preset" data-mods="alt"        data-key="x">Alt+X</button>
-      <button class="hk-preset" data-mods="ctrl,shift" data-key="r">Ctrl+Shift+R</button>
-      <button class="hk-preset" data-mods="ctrl,alt"   data-key="space">Ctrl+Alt+Space</button>
+      <button class="hk-preset" type="button" data-mods="alt" data-key="z">Alt+Z</button>
+      <button class="hk-preset" type="button" data-mods="alt" data-key="x">Alt+X</button>
+      <button class="hk-preset" type="button" data-mods="ctrl,shift" data-key="r">Ctrl+Shift+R</button>
+      <button class="hk-preset" type="button" data-mods="ctrl,alt" data-key="space">Ctrl+Alt+Space</button>
     </div>
   </div>
 </div>
 <div class="rec-row">
-  <button id="rec-btn" title="按住 Space 录音，松开识别">
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="9" y="2" width="6" height="13" rx="3"/>
-      <path d="M5 10a7 7 0 0 0 14 0"/>
-      <line x1="12" y1="19" x2="12" y2="23"/>
-      <line x1="8" y1="23" x2="16" y2="23"/>
+  <button id="rec-btn" type="button" data-i18n-title="record_button_title" title="Hold Space to record, release to transcribe">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="9" y="2" width="6" height="13" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line>
     </svg>
   </button>
   <div class="rec-info">
-    <p id="rec-label">按住 Space 开始录音</p>
-    <small>此窗口内：<kbd>按住 Space</kbd> 录音松开识别 &nbsp;|&nbsp; 其他窗口：全局快捷键</small>
+    <p id="rec-label" data-i18n="record_idle">Hold Space to record</p>
+    <small data-i18n="record_help">In this window: hold Space and release to transcribe | Other windows: use the global hotkey</small>
   </div>
 </div>
 <div class="box">
   <div class="box-header">
-    <span class="box-label">转录结果</span>
+    <span class="box-label" data-i18n="transcript_label">Transcript</span>
     <div class="box-actions">
-      <button id="cancel-btn" style="display:none">取消</button>
-      <button id="clear-btn">清空</button>
-      <button id="copy-btn">复制</button>
+      <button id="cancel-btn" type="button" style="display:none" data-i18n="cancel">Cancel</button>
+      <button id="clear-btn" type="button" data-i18n="clear">Clear</button>
+      <button id="copy-btn" type="button" data-i18n="copy">Copy</button>
     </div>
   </div>
-  <div id="transcript"><span class="placeholder">录音结果将显示在这里...</span></div>
-  <div id="dbg" style="font-size:.72rem;color:#f59e0b;margin-top:6px;white-space:pre-wrap"></div>
+  <div id="transcript"><span class="placeholder" data-i18n="transcript_placeholder">Transcription results will appear here...</span></div>
+  <div id="dbg" class="debug"></div>
 </div>
-
-<script>
-const $ = id => document.getElementById(id);
-const dot=$('dot'), slabel=$('slabel'), transcriptEl=$('transcript'), dbgEl=$('dbg');
-const recBtn=$('rec-btn'), copyBtn=$('copy-btn'), recLabel=$('rec-label'), cancelBtn=$('cancel-btn');
-const modelSel=$('model'), langSel=$('lang'), fsizeSel=$('fsize'), appendSel=$('appendmode'), topBtn=$('topbtn');
-
-let _dbgLines=[];
-function dbg(msg){
-  const t=new Date().toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  _dbgLines.push(t+' '+msg);
-  if(_dbgLines.length>12)_dbgLines.shift();
-  dbgEl.textContent=_dbgLines.join('\n');
-  // also send to backend log
-  fetch('/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg})}).catch(()=>{});
-}
-const hkDisplay=$('hk-display'), hkRecordBtn=$('hk-record-btn');
-
-let recording=false, text='', cancelled=false;
-let currentHotkey={modifiers:['alt'],key:'z'};
-
-function setStatus(state,msg){dot.className=state;slabel.textContent=msg;}
-
-// ---- Config ----
-async function loadConfig(){
-  try{
-    const cfg=await fetch('/config').then(r=>r.json());
-    modelSel.value=cfg.model||'base';
-    langSel.value=cfg.language||'zh';
-    fsizeSel.value=cfg.font_size||'1rem';
-    appendSel.value=cfg.append_mode||'append';
-    transcriptEl.style.fontSize=fsizeSel.value;
-    if(cfg.on_top){onTop=true;topBtn.textContent='On top: On';topBtn.classList.add('on');}
-    if(cfg.hotkey){currentHotkey=cfg.hotkey;renderHkDisplay();}
-    updatePresetHighlight();
-  }catch(e){}
-}
-async function saveConfig(p){try{await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});}catch(e){}}
-
-// ---- Hotkey UI ----
-function hotkeyLabel(hk){
-  const mods=(hk.modifiers||[]).map(m=>m[0].toUpperCase()+m.slice(1));
-  return [...mods, hk.key==='space'?'Space':hk.key.toUpperCase()].join('+');
-}
-function renderHkDisplay(){hkDisplay.textContent=hotkeyLabel(currentHotkey);}
-function updatePresetHighlight(){
-  document.querySelectorAll('.hk-preset').forEach(btn=>{
-    const mods=btn.dataset.mods.split(',').filter(Boolean).sort();
-    const cur=[...(currentHotkey.modifiers||[])].sort();
-    btn.classList.toggle('active',cur.join(',')=== mods.join(',')&&btn.dataset.key===currentHotkey.key);
-  });
-}
-async function applyHotkey(hk){
-  currentHotkey=hk;renderHkDisplay();updatePresetHighlight();
-  await saveConfig({hotkey:hk});
-  if(window.pywebview) pywebview.api.update_hotkey(hk);
-}
-document.querySelectorAll('.hk-preset').forEach(btn=>{
-  btn.onclick=()=>applyHotkey({modifiers:btn.dataset.mods.split(',').filter(Boolean),key:btn.dataset.key});
-});
-let recordingKey=false,pendingMods=[];
-hkRecordBtn.onclick=()=>{
-  if(recordingKey)return;
-  recordingKey=true;pendingMods=[];
-  hkDisplay.classList.add('recording-key');hkDisplay.textContent='Press shortcut...';hkRecordBtn.textContent='Press any key...';
-};
-const MOD_KEYS=new Set(['Alt','AltGraph','Control','Shift','Meta']);
-document.addEventListener('keydown',e=>{
-  if(!recordingKey)return;
-  e.preventDefault();
-  if(MOD_KEYS.has(e.key)){
-    const m=e.key.toLowerCase().replace('control','ctrl').replace('meta','ctrl').replace('altgraph','alt');
-    if(!pendingMods.includes(m))pendingMods.push(m);return;
-  }
-  const key=e.key.toLowerCase()===' '?'space':e.key.toLowerCase();
-  recordingKey=false;hkDisplay.classList.remove('recording-key');hkRecordBtn.textContent='Set hotkey';
-  applyHotkey({modifiers:[...new Set(pendingMods)],key});
-});
-
-// ---- Settings ----
-fsizeSel.onchange=()=>{transcriptEl.style.fontSize=fsizeSel.value;saveConfig({font_size:fsizeSel.value});};
-appendSel.onchange=()=>saveConfig({append_mode:appendSel.value});
-langSel.onchange=()=>saveConfig({language:langSel.value});
-let onTop=false;
-topBtn.onclick=()=>{
-  onTop=!onTop;topBtn.textContent=`On top: ${onTop?'On':'Off'}`;topBtn.classList.toggle('on',onTop);
-  if(window.pywebview)pywebview.api.set_on_top(onTop);
-  saveConfig({on_top:onTop});
-};
-modelSel.onchange=async()=>{
-  setStatus('processing','Reloading model...');
-  try{await fetch('/reload_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:modelSel.value})});}catch(e){}
-  saveConfig({model:modelSel.value});setStatus('connected','Connected');
-};
-
-// ---- Audio helpers ----
-function resampleTo16k(f32,fromRate){
-  if(fromRate===16000)return f32;
-  const ratio=fromRate/16000;
-  const out=new Float32Array(Math.floor(f32.length/ratio));
-  for(let i=0;i<out.length;i++){const p=i*ratio,lo=Math.floor(p);out[i]=f32[lo]+(p-lo)*((f32[lo+1]??f32[lo])-f32[lo]);}
-  return out;
-}
-function toInt16(f32){
-  const pcm=new Int16Array(f32.length);
-  for(let i=0;i<f32.length;i++)pcm[i]=Math.max(-32768,Math.min(32767,f32[i]*32768));
-  return pcm;
-}
-function renderText(){
-  if(text)transcriptEl.textContent=text;
-  else transcriptEl.innerHTML='<span class="placeholder">录音结果将显示在这里...</span>';
-}
-
-// ---- Recording: Python-side audio capture via sounddevice ----
-let currentAbort = null;
-
-function xhr(method, url, body) {
-  return new Promise(resolve => {
-    const x = new XMLHttpRequest();
-    x.open(method, url);
-    x.setRequestHeader('Content-Type', 'application/json');
-    x.timeout = 60000;
-    x.onload = () => {
-      let data = {};
-      try { data = x.responseText ? JSON.parse(x.responseText) : {}; } catch(e) { data = {}; }
-      if (x.status >= 400) {
-        resolve({ok:false, status:x.status, error:data.error || x.statusText || 'Request failed'});
-      } else {
-        resolve({...data, ok:true, status:x.status});
-      }
-    };
-    x.onerror = () => resolve({ok:false, error:'Network error'});
-    x.ontimeout = () => resolve({ok:false, error:'Request timed out'});
-    x.onabort = () => resolve({ok:false, aborted:true, error:'Request aborted'});
-    currentAbort = {abort: () => x.abort()};
-    x.send(body ? JSON.stringify(body) : '{}');
-  });
-}
-
-async function startRec(){
-  if(recording) return;
-  cancelled = false;
-  dbg('start recording: POST /record/start');
-  const lang = langSel.value === 'auto' ? '' : langSel.value;
-  const r = await xhr('POST', '/record/start', {language: lang});
-  dbg('start response: ' + JSON.stringify(r));
-  if(r.status === 'recording'){
-    recording = true;
-    recBtn.classList.add('recording');
-    recLabel.textContent = 'Recording... release to stop';
-    setStatus('recording', 'Recording...');
-  } else {
-    setStatus('', r.error || 'Failed to start recording');
-  }
-}
-
-async function stopRec(){
-  if(!recording) return;
-  recording = false;
-  recBtn.classList.remove('recording');
-  recLabel.textContent = 'Hold Space to record';
-
-  if(cancelled){
-    cancelled = false;
-    dbg('cancel requested: POST /record/cancel');
-    await xhr('POST', '/record/cancel');
-    cancelBtn.style.display = 'none';
-    setStatus('connected', 'Connected');
-    return;
-  }
-
-  setStatus('processing', 'Transcribing...');
-  cancelBtn.style.display = '';
-  const lang = langSel.value === 'auto' ? '' : langSel.value;
-  dbg('stop recording: POST /record/stop lang=' + lang);
-  try {
-    const d = await xhr('POST', '/record/stop', {language: lang});
-    dbg('transcription response: ' + JSON.stringify(d));
-    if(d.error && !d.aborted) setStatus('', d.error);
-    if(d.text && !window.pywebview) window._appendText(d.text);
-    // In pywebview, text is pushed by the Python callback.
-  } finally {
-    currentAbort = null;
-    cancelBtn.style.display = 'none';
-    setStatus('connected', 'Connected');
-  }
-}
-
-window._recToggle=()=>recording?stopRec():startRec();
-window._recStart=()=>{if(!recording)startRec();};
-window._recStop=()=>{if(recording)stopRec();};
-window._appendText=t=>{text=appendSel.value==='append'?(text?text+'\n'+t:t):t;renderText();};
-
-document.addEventListener('keydown',e=>{if(recordingKey)return;if(e.code==='Space'&&!e.repeat){e.preventDefault();startRec();}});
-document.addEventListener('keyup',e=>{if(e.code==='Space'){e.preventDefault();stopRec();}});
-recBtn.addEventListener('mousedown',startRec);
-recBtn.addEventListener('mouseup',stopRec);
-recBtn.addEventListener('mouseleave',()=>{if(recording)stopRec();});
-
-copyBtn.onclick=()=>{
-  if(!text.trim())return;
-  navigator.clipboard.writeText(text).then(()=>{
-    copyBtn.textContent='Copied!';copyBtn.classList.add('copied');
-    setTimeout(()=>{copyBtn.textContent='Copy';copyBtn.classList.remove('copied');},1500);
-  });
-};
-$('clear-btn').onclick=()=>{text='';renderText();};
-cancelBtn.onclick=()=>{cancelled=true;cancelBtn.style.display='none';currentAbort?.abort();xhr('POST','/record/cancel');};
-
-// Mic permission on startup
-navigator.mediaDevices.getUserMedia({audio:true})
-  .then(s=>s.getTracks().forEach(t=>t.stop()))
-  .catch(err=>setStatus('',err.name==='NotAllowedError'?'Microphone permission is required':'Microphone is unavailable'));
-
-loadConfig().then(()=>setStatus('connected','Connected'));
-
-// ---- Performance stats (every 10s) ----
-const perfEl=$('perf');
-async function updateStats(){
-  try{
-    const s=await fetch('/stats').then(r=>r.json());
-    const parts=[];
-    const devLabel=s.device==='cuda'?'GPU':'CPU';
-    parts.push(`Inference: <b>${devLabel}</b> (${s.compute_type})`);
-    parts.push(`Model: ${s.model}`);
-    parts.push(`CPU: ${s.cpu_percent}%`);
-    parts.push(`RAM: ${s.ram_mb}MB`);
-    if(s.gpu){
-      if(s.gpu.util>=0) parts.push(`GPU: ${s.gpu.util}% | VRAM: ${s.gpu.mem_used}/${s.gpu.mem_total}MB`);
-      if(s.gpu.name) parts.push(`${s.gpu.name}`);
-    }
-    perfEl.innerHTML=parts.join(' &nbsp;·&nbsp; ');
-  }catch(e){}
-}
-updateStats();
-setInterval(updateStats,10000);
-</script>
+<div id="error-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="error-title" aria-hidden="true">
+  <div class="modal">
+    <h2 id="error-title" data-i18n="operation_failed">Operation failed</h2>
+    <p id="error-message">An unexpected error occurred.</p>
+    <div class="modal-actions">
+      <button class="secondary" id="error-copy" type="button" data-i18n="copy_details">Copy details</button>
+      <button id="error-close" type="button" data-i18n="ok">OK</button>
+    </div>
+  </div>
+</div>
+<script src="/js/i18n.js"></script>
+<script src="/js/dom.js"></script>
+<script src="/js/modal.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/config.js"></script>
+<script src="/js/hotkey.js"></script>
+<script src="/js/settings.js"></script>
+<script src="/js/recorder.js"></script>
+<script src="/js/history.js"></script>
+<script src="/js/status.js"></script>
+<script src="/js/app.js"></script>
 </body>
 </html>

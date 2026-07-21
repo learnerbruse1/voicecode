@@ -43,6 +43,13 @@ dev = [
   "pre-commit>=4.0.0",
   "types-psutil",
 ]
+tray = [
+  "pystray>=0.19.5",
+  "Pillow>=10.0.0",
+]
+build = [
+  "pyinstaller>=6.0.0",
+]
 
 [project.scripts]
 voicecode = "voicecode.__main__:main"
@@ -54,7 +61,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-voicecode = ["static/index.html"]
+voicecode = ["static/index.html", "static/css/*.css", "static/js/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

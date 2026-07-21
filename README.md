@@ -1,5 +1,7 @@
 # VoiceCode
 
+[English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
+
 Offline speech-to-text desktop app for vibe coding. VoiceCode records audio locally, transcribes it with Whisper, and can type the recognized text into the active application through a global hotkey.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
@@ -12,6 +14,14 @@ Offline speech-to-text desktop app for vibe coding. VoiceCode records audio loca
 - Windows desktop UI powered by `pywebview`
 - Local Flask/Waitress API bound to `127.0.0.1`
 - Global push-to-talk hotkey support
+- English, Simplified Chinese, and Japanese UI language switching
+- Transcription language options: auto detect, Chinese, English, and Japanese
+- No-model preview mode via `VOICECODE_SKIP_MODEL_LOAD=1`
+- Split frontend assets for easier maintenance
+- Optional tray support via the `.[tray]` extra and `VOICECODE_ENABLE_TRAY=1`
+- Text post-processing modes for plain text, coding, Markdown, and prompts
+- Optional transcript history stored locally
+- Microphone device selection and local diagnostics panel
 - UTF-8-safe console output for PowerShell and cmd
 - English logs and error messages for release diagnostics
 - User-writable config directory with environment-variable overrides
@@ -93,7 +103,7 @@ Useful environment variables:
 - `POST /record/start`, `POST /record/stop`, and `POST /record/cancel` control recording.
 - `GET /stats` returns best-effort CPU/RAM/GPU telemetry.
 
-See `docs/API.md` and `docs/ARCHITECTURE.md` for more detail.
+See `docs/API.md`, `docs/ARCHITECTURE.md`, and [docs/FAQ.md](docs/FAQ.md) for more detail.
 
 ## Privacy
 

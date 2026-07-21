@@ -28,7 +28,7 @@ This repository is a compact VoiceCode desktop app:
 - Tests: `tests/test_app_smoke.py`
 - Release metadata: `pyproject.toml`, `MANIFEST.in`, CI workflow, docs, contribution/security files
 
-The root runtime files and packaged copies must stay synchronized. The smoke test `test_distribution_sources_stay_synchronized` enforces this.
+The installable package under `src/voicecode` is authoritative. Root `app.py` and `main.py` are compatibility wrappers, while static assets are mirrored for source-tree and packaged execution.
 
 ## Runtime Model
 

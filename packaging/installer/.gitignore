@@ -1,0 +1,9 @@
+# Generated package outputs
+/dist/
+/build/
+/Output/
+*.exe
+*.msi
+*.zip
+*.7z
+*.log

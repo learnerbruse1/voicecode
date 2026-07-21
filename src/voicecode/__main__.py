@@ -5,12 +5,16 @@ from pathlib import Path
 
 
 def main() -> None:
+    from .runtime import configure_runtime_paths
+
+    configure_runtime_paths()
+
     package_root = Path(__file__).resolve().parent
     package_static = package_root / "static"
     if package_static.is_dir():
         os.environ.setdefault("VOICECODE_STATIC_DIR", str(package_static))
 
-    from .main import main as run_main
+    from .main import run as run_main
 
     run_main()
 

@@ -1,4 +1,5 @@
 import ctypes
+import importlib
 import json
 import logging
 import os
@@ -44,6 +45,10 @@ _MOD_MAP = {
     "ctrl": (kb.Key.ctrl_l, kb.Key.ctrl_r),
     "shift": (kb.Key.shift_l, kb.Key.shift_r),
 }
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _set_typing_from_global(value: bool) -> None:
@@ -181,6 +186,65 @@ def _on_transcription(text: str) -> None:
     _eval_js_safe(f"window._appendText && window._appendText({json.dumps(text)})")
 
 
+def _start_tray_icon() -> None:
+    if not _env_flag("VOICECODE_ENABLE_TRAY"):
+        return
+    try:
+        pystray = importlib.import_module("pystray")
+        image_module = importlib.import_module("PIL.Image")
+        image_draw_module = importlib.import_module("PIL.ImageDraw")
+    except Exception as exc:
+        logger.warning("Tray icon requested but optional dependencies are unavailable: %s", exc)
+        return
+
+    def _make_image():
+        image = image_module.new("RGB", (64, 64), "#1a1d27")
+        draw = image_draw_module.Draw(image)
+        draw.ellipse((14, 8, 50, 44), fill="#6366f1")
+        draw.rectangle((28, 40, 36, 54), fill="#e2e8f0")
+        draw.rectangle((20, 52, 44, 58), fill="#e2e8f0")
+        return image
+
+    def _show_window(icon, item):  # noqa: ANN001, ARG001
+        if not _window:
+            return
+        for method_name in ("show", "restore"):
+            method = getattr(_window, method_name, None)
+            if method:
+                try:
+                    method()
+                except Exception as exc:
+                    logger.debug("Failed to call window.%s from tray: %s", method_name, exc)
+
+    def _quit(icon, item):  # noqa: ANN001, ARG001
+        try:
+            icon.stop()
+        except Exception:
+            pass
+        if _listener:
+            try:
+                _listener.stop()
+            except Exception:
+                pass
+        if _window:
+            try:
+                _window.destroy()
+            except Exception as exc:
+                logger.warning("Failed to destroy VoiceCode window from tray: %s", exc)
+
+    icon = pystray.Icon(
+        "VoiceCode",
+        _make_image(),
+        "VoiceCode",
+        menu=pystray.Menu(
+            pystray.MenuItem("Show VoiceCode", _show_window),
+            pystray.MenuItem("Quit", _quit),
+        ),
+    )
+    threading.Thread(target=icon.run, daemon=True).start()
+    logger.info("Tray icon started.")
+
+
 def _hide_console() -> None:
     if os.name != "nt":
         return
@@ -192,6 +256,16 @@ def _hide_console() -> None:
         logger.debug("Failed to hide console window: %s", exc)
 
 
+def _show_startup_error(exc: BaseException) -> None:
+    message = f"VoiceCode failed to start. {exc}"
+    logger.exception(message)
+    if os.name == "nt":
+        try:
+            ctypes.windll.user32.MessageBoxW(None, message, "VoiceCode startup failed", 0x10)
+        except Exception:
+            pass
+
+
 def _wait_for_server(timeout_seconds: float = 20.0) -> None:
     deadline = time.monotonic() + timeout_seconds
     url = f"http://127.0.0.1:{server.PORT}/health"
@@ -200,8 +274,22 @@ def _wait_for_server(timeout_seconds: float = 20.0) -> None:
         try:
             with urlopen(url, timeout=1) as response:
                 if response.status == 200:
+                    payload = json.loads(response.read().decode("utf-8"))
+                    server_pid = payload.get("pid")
+                    if server_pid is None:
+                        raise RuntimeError(
+                            f"Port {server.PORT} is already in use by another service "
+                            "that does not identify itself as VoiceCode."
+                        )
+                    if server_pid != os.getpid():
+                        raise RuntimeError(
+                            f"Port {server.PORT} is already used by another VoiceCode process "
+                            f"(pid {server_pid}). Close the existing instance or set PORT."
+                        )
                     return
-        except (OSError, URLError) as exc:
+        except RuntimeError:
+            raise
+        except (OSError, URLError, json.JSONDecodeError) as exc:
             last_error = exc
         time.sleep(0.2)
     raise RuntimeError(
@@ -229,8 +317,17 @@ def main() -> None:
         resizable=True,
         js_api=Api(),
     )
+    _start_tray_icon()
     webview.start(func=_hide_console)
 
 
+def run() -> None:
+    try:
+        main()
+    except Exception as exc:
+        _show_startup_error(exc)
+        raise
+
+
 if __name__ == "__main__":
-    main()
+    run()
