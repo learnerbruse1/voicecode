@@ -11,7 +11,7 @@ from urllib.request import urlopen
 import webview
 from pynput import keyboard as kb  # type: ignore[import-untyped]
 
-import app as server
+from . import app as server
 
 
 def _configure_console_encoding() -> None:

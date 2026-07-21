@@ -10,3 +10,11 @@ build/
 *.egg-info/
 .claude/
 config.json
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+.tmp_wheel_test/
+.pre-commit-cache/
