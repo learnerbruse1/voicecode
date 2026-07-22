@@ -55,7 +55,7 @@ Environment overrides:
 
 | Variable | Values | Purpose |
 | --- | --- | --- |
-| `WHISPER_MODEL` | `tiny`, `base`, `small`, `medium`, `large-v3`, `distil-large-v3` | Startup model |
+| `WHISPER_MODEL` | `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, `distil-large-v3` | Startup model |
 | `WHISPER_DEVICE` | `auto`, `cpu`, `cuda` | Preferred inference device |
 | `WHISPER_COMPUTE_TYPE` | `auto`, `int8`, `float16`, `float32`, `int8_float16` | Preferred compute type |
 | `WHISPER_CPU_THREADS` | positive integer | CPU worker threads |
@@ -88,6 +88,19 @@ VoiceCode stores user data outside the package directory:
 
 Additional overrides: `VOICECODE_CONFIG_FILE`, `VOICECODE_STATIC_DIR`, `VOICECODE_RUNTIME_DIR`, `VOICECODE_LOG_FILE`, `VOICECODE_HISTORY_FILE`, `VOICECODE_LOG_LEVEL`, and `PORT`.
 
+## Documentation
+
+- [API overview](docs/API.md) and split references under [docs/api/](docs/api/README.md)
+- [Architecture](docs/ARCHITECTURE.md) for runtime design and thread-safety boundaries
+- [Developer guide](docs/DEVELOPMENT.md) for setup, checks, logging, and frontend layout rules
+- [Module boundaries](docs/MODULES.md) for maintainable extension points
+- [Configuration guide](docs/CONFIGURATION.md) for config files, environment variables, and reset behavior
+- [Hardware and model selection](docs/HARDWARE.md) for CPU/GPU, CUDA, compute types, and VRAM guidance
+- [Error handling and resilience](docs/ERROR_HANDLING.md) for request IDs, JSON errors, progress overlays, and fallback behavior
+- [Troubleshooting](docs/TROUBLESHOOTING.md) for common model, CUDA, and UI issues
+- [Roadmap](docs/ROADMAP.md) for optional extension ideas and future work
+- [FAQ](docs/FAQ.md) for user-facing answers
+
 ## API
 
 See [docs/API.md](docs/API.md). Important endpoints include:
@@ -112,16 +125,21 @@ All non-empty JSON request bodies must be JSON objects. Malformed JSON and non-o
 
 ```text
 voicecode/
-├── src/voicecode/       # Authoritative package implementation
-│   ├── app.py           # Local API, config, recorder, Whisper inference
-│   ├── main.py          # Desktop window, hotkey integration, startup checks
-│   ├── runtime.py       # Runtime/cache path helpers
-│   └── static/          # Packaged web UI assets
-├── static/              # Source-tree copy of web UI assets (kept in sync by tests)
-├── tests/               # Smoke/API/runtime tests with fake Whisper/audio modules
-├── docs/                # API, architecture, development, FAQ
-├── app.py, main.py      # Compatibility wrappers
-└── pyproject.toml       # Packaging, dependencies, tool config
+??? src/voicecode/          # Authoritative package implementation
+?   ??? app.py              # Local API and Whisper orchestration
+?   ??? audio.py            # Recorder and microphone device parsing
+?   ??? history.py          # Transcript history persistence
+?   ??? settings.py         # Config schema, validation, paths, model metadata
+?   ??? text_processing.py  # Transcript post-processing modes
+?   ??? extensions/         # Optional feature modules and registry
+?   ??? main.py             # Desktop window, hotkey integration, startup checks
+?   ??? runtime.py          # Runtime/cache path helpers
+?   ??? static/             # Packaged web UI assets
+??? static/                 # Source-tree UI assets mirrored with package assets
+??? tests/                  # Smoke/API/runtime tests with fake Whisper/audio modules
+??? docs/                   # API, developer, hardware, error-handling, and module docs
+??? app.py, main.py         # Compatibility wrappers
+??? pyproject.toml          # Packaging, dependencies, tool config
 ```
 
 ## Contributing

@@ -104,5 +104,5 @@ no_implicit_optional = true
 strict_equality = true
 show_error_codes = true
 [[tool.mypy.overrides]]
-module = ["psutil"]
+module = ["psutil", "pynvml"]
 ignore_missing_imports = true

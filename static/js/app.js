@@ -1,3 +1,11 @@
+window.addEventListener("error", event => {
+  showError(t("operation_failed"), event.message || String(event.error || "Unknown frontend error"));
+});
+window.addEventListener("unhandledrejection", event => {
+  const reason = event.reason;
+  showError(t("operation_failed"), reason && reason.message ? reason.message : String(reason || "Unhandled promise rejection"));
+});
+
 ﻿function setActiveView(viewName) {
   document.querySelectorAll(".nav-item").forEach(btn => btn.classList.toggle("active", btn.dataset.view === viewName));
   document.querySelectorAll(".view").forEach(view => view.classList.toggle("active", view.id === `view-${viewName}`));

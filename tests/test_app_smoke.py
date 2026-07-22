@@ -91,6 +91,16 @@ def client(app_module):
     return app_module.app.test_client()
 
 
+def test_unknown_route_returns_json_error(client):
+    response = client.get("/not-a-real-route")
+
+    assert response.status_code == 404
+    body = response.get_json()
+    assert "error" in body
+    assert "request_id" in body
+    assert response.headers.get("X-VoiceCode-Request-ID") == body["request_id"]
+
+
 def test_config_post_handles_empty_and_rejects_unknown_keys(client):
     response = client.post("/config")
     assert response.status_code == 200
@@ -101,6 +111,19 @@ def test_config_post_handles_empty_and_rejects_unknown_keys(client):
     response = client.post("/config", json={"unknown": 1})
     assert response.status_code == 400
     assert "Unknown config keys" in response.get_json()["error"]
+
+
+def test_config_reset_restores_defaults(client):
+    response = client.post("/config", json={"model": "small", "device": "cpu"})
+    assert response.status_code == 200
+
+    response = client.post("/config/reset")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["model"] == "base"
+    assert body["device"] == "auto"
+    assert body["extensions"]["hotwords"]["enabled"] is True
 
 
 def test_reload_model_validates_input(client):
@@ -456,6 +479,10 @@ def test_static_ui_exposes_three_language_controls():
     assert 'id="auto-device-toggle"' in html
     assert 'id="device-manual-options"' in html
     assert 'id="progress-overlay"' in html
+    assert 'value="large-v3-turbo"' in html
+    assert 'id="model-description"' in html
+    assert 'id="model-button-list"' in html
+    assert 'id="reset-defaults-btn"' in html
 
 
 def test_localized_readmes_exist():
@@ -464,6 +491,17 @@ def test_localized_readmes_exist():
     assert (repo_root / "README.md").is_file()
     assert (repo_root / "README_zh.md").is_file()
     assert (repo_root / "README_ja.md").is_file()
+
+
+def test_models_endpoint_includes_latest_whisper_turbo_model(client):
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    models = body["models"]
+    assert "large-v3-turbo" in models
+    assert "Newest Whisper model" in models["large-v3-turbo"]["description"]
+    assert body["compatibility"]["large-v3-turbo"]["vram_min_gb"] >= 1
 
 
 def test_audio_devices_endpoint_lists_input_devices(client):

@@ -13,21 +13,61 @@ from .extensions.registry import default_extension_config
 
 logger = logging.getLogger("voicecode.settings")
 
-VALID_MODELS = {"tiny", "base", "small", "medium", "large-v3", "distil-large-v3"}
+VALID_MODELS = {"tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"}
 VALID_LANGUAGES = {"", "auto", "zh", "en", "ja", None}
 VALID_UI_LANGUAGES = {"en", "zh", "ja"}
 VALID_TEXT_MODES = {"plain", "coding", "markdown", "prompt"}
 VALID_DEVICES = {"auto", "cpu", "cuda"}
 VALID_COMPUTE_TYPES = {"auto", "default", "int8", "int8_float16", "int16", "float16", "float32"}
 MODEL_INFO = {
-    "tiny": {"size": "~75 MB", "description": "Fastest, lowest resource usage."},
-    "base": {"size": "~150 MB", "description": "Recommended CPU default."},
-    "small": {"size": "~500 MB", "description": "Better accuracy on modern CPUs/GPUs."},
-    "medium": {"size": "~1.5 GB", "description": "High accuracy, slower on CPU."},
-    "large-v3": {"size": "~3 GB", "description": "Best multilingual accuracy; GPU recommended."},
+    "tiny": {
+        "size": "~75 MB",
+        "description": "Fastest, lowest resource usage.",
+        "vram_min_gb": 1,
+        "vram_recommended_gb": 2,
+        "recommendation": "Best for very old CPUs/GPUs and quick tests.",
+    },
+    "base": {
+        "size": "~150 MB",
+        "description": "Recommended CPU default.",
+        "vram_min_gb": 1,
+        "vram_recommended_gb": 2,
+        "recommendation": "Good default for dictation on CPU or low VRAM GPUs.",
+    },
+    "small": {
+        "size": "~500 MB",
+        "description": "Better accuracy on modern CPUs/GPUs.",
+        "vram_min_gb": 2,
+        "vram_recommended_gb": 4,
+        "recommendation": "Balanced option for most laptops and entry GPUs.",
+    },
+    "medium": {
+        "size": "~1.5 GB",
+        "description": "High accuracy, slower on CPU.",
+        "vram_min_gb": 5,
+        "vram_recommended_gb": 6,
+        "recommendation": "Use with 6GB+ VRAM or strong CPUs.",
+    },
+    "large-v3": {
+        "size": "~3 GB",
+        "description": "Best multilingual accuracy; GPU recommended.",
+        "vram_min_gb": 10,
+        "vram_recommended_gb": 12,
+        "recommendation": "Use on high VRAM GPUs when maximum accuracy matters.",
+    },
+    "large-v3-turbo": {
+        "size": "~3 GB",
+        "description": "Newest Whisper model; faster than large-v3 with similar accuracy.",
+        "vram_min_gb": 6,
+        "vram_recommended_gb": 8,
+        "recommendation": "Best speed/quality choice for 8GB+ NVIDIA GPUs.",
+    },
     "distil-large-v3": {
         "size": "~1.5 GB",
         "description": "Fast large-v3 distilled model; NVIDIA GPU recommended.",
+        "vram_min_gb": 6,
+        "vram_recommended_gb": 8,
+        "recommendation": "Fast large-style model for 8GB+ GPUs.",
     },
 }
 DEFAULT_EXTENSIONS = default_extension_config()
@@ -51,6 +91,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "extensions": copy.deepcopy(DEFAULT_EXTENSIONS),
 }
 ALLOWED_CONFIG_KEYS = set(DEFAULT_CONFIG)
+
+
+def default_config() -> dict[str, Any]:
+    return copy.deepcopy(DEFAULT_CONFIG)
 
 
 def env_flag(name: str) -> bool:
@@ -334,11 +378,11 @@ def load_config(config_file: str | None = None) -> dict[str, Any]:
                     return validate_config_patch(cfg)
                 except ValueError as exc:
                     logger.warning("Ignoring invalid config file '%s': %s", resolved, exc)
-                    return copy.deepcopy(DEFAULT_CONFIG)
+                    return default_config()
             logger.warning("Ignoring config file because it does not contain a JSON object.")
         except Exception as exc:
             logger.warning("Failed to read config file '%s': %s", resolved, exc)
-    return copy.deepcopy(DEFAULT_CONFIG)
+    return default_config()
 
 
 def save_config(cfg: dict[str, Any], config_file: str | None = None) -> None:

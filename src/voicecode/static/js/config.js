@@ -9,6 +9,7 @@ async function loadConfig() {
     document.querySelectorAll("input[name='device-choice']").forEach(input => { input.checked = input.value === (deviceSel.value === "auto" ? "cpu" : deviceSel.value); });
     computeTypeSel.value = cfg.compute_type || "auto";
     renderDeviceMode();
+    updateModelDescription();
     beamSizeSel.value = String(cfg.beam_size || 5);
     vadFilterSel.value = String(cfg.vad_filter !== false);
     langSel.value = cfg.language || "zh";

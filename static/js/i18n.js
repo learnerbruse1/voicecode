@@ -1,5 +1,15 @@
 window.I18N={
   "en": {
+    "restore_defaults": "Restore defaults",
+    "restore_defaults_confirm": "Restore all settings to defaults?",
+    "restore_defaults_detail": "Resetting configuration and reloading the default model.",
+    "vram_min": "Min VRAM",
+    "vram_rec": "Recommended VRAM",
+    "model_config_too_low": "Configuration too low",
+    "model_config_too_low_detail": "This model requires more GPU memory than the selected hardware provides. Choose a smaller model, switch to CPU, or enable auto hardware selection.",
+    "model_large_v3_turbo": "Large v3 turbo (newest, faster)",
+    "latest_model": "Latest",
+    "model_description_default": "Choose a model based on speed, accuracy, and hardware.",
     "label_auto_device": "Auto hardware",
     "auto_device_toggle": "Auto select best CPU/GPU",
     "auto_device_on": "Auto selected",

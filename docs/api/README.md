@@ -1,0 +1,12 @@
+﻿# API Documentation Index
+
+VoiceCode's API is local-only and bound to `127.0.0.1`.
+
+Split API references:
+
+- [System API](system.md): health, status, stats, hardware, diagnostics, frontend logs.
+- [Configuration API](config.md): config read/write/reset.
+- [Transcription API](transcription.md): recording and direct file/sample transcription.
+- [Extensions API](extensions.md): extension status and extension-backed config.
+
+The complete single-file reference remains available at [../API.md](../API.md).

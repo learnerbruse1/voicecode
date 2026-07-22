@@ -38,7 +38,7 @@ import numpy as np  # noqa: E402
 import sounddevice as sd  # type: ignore[import-untyped]  # noqa: E402
 from faster_whisper import WhisperModel  # type: ignore[import-untyped]  # noqa: E402
 from flask import Flask, Response, g, jsonify, request, send_from_directory  # noqa: E402
-from werkzeug.exceptions import BadRequest, UnsupportedMediaType  # noqa: E402
+from werkzeug.exceptions import BadRequest, HTTPException, UnsupportedMediaType  # noqa: E402
 
 from . import history as history_store  # noqa: E402
 from . import settings as settings_store  # noqa: E402
@@ -53,7 +53,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("voicecode.app")
 
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        logger.warning("Ignoring invalid integer environment variable %s=%s", name, raw)
+        return default
+
+
 app = Flask(__name__, static_folder="static")
+app.config["MAX_CONTENT_LENGTH"] = _env_int("VOICECODE_MAX_UPLOAD_MB", 512) * 1024 * 1024
 
 
 @app.before_request
@@ -104,6 +117,47 @@ def _cuda_device_count() -> int:
     except Exception as exc:
         logger.debug("CUDA detection failed: %s", exc)
         return 0
+
+
+def _gpu_memory_total_mb() -> int | None:
+    try:
+        if _cuda_device_count() <= 0:
+            return None
+        try:
+            import pynvml
+        except Exception:
+            return None
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        gpu_mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        return round(gpu_mem_info.total / 1024**2)
+    except Exception as exc:
+        logger.debug("Failed to query GPU total memory: %s", exc)
+        return None
+
+
+def _metadata_float(info: dict[str, Any], key: str, default: float = 0.0) -> float:
+    value = info.get(key, default)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float, str)):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _model_vram_requirement_gb(size: str) -> float:
+    return _metadata_float(MODEL_INFO.get(size, {}), "vram_min_gb")
+
+
+def _gpu_has_enough_vram(size: str) -> tuple[bool, int | None, float]:
+    total_mb = _gpu_memory_total_mb()
+    required_gb = _model_vram_requirement_gb(size)
+    if total_mb is None or required_gb <= 0:
+        return True, total_mb, required_gb
+    return total_mb / 1024 >= required_gb, total_mb, required_gb
 
 
 def _default_cpu_threads() -> int:
@@ -216,6 +270,19 @@ def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True
     _device, _compute_type, _cpu_threads = _resolve_device_profile(
         preferred_device, preferred_compute
     )
+    if _device == "cuda":
+        enough_vram, total_vram_mb, required_vram_gb = _gpu_has_enough_vram(requested_size)
+        if not enough_vram:
+            detected_gb = round((total_vram_mb or 0) / 1024, 1)
+            message = (
+                f"Model '{requested_size}' requires at least {required_vram_gb:g}GB VRAM for CUDA; "
+                f"detected {detected_gb:g}GB."
+            )
+            if preferred_device == "auto":
+                logger.warning("%s Falling back to CPU int8 because device is auto.", message)
+                _device, _compute_type, _cpu_threads = "cpu", "int8", _default_cpu_threads()
+            else:
+                raise RuntimeError(message)
 
     logger.info("Loading Whisper model '%s' on %s (%s)...", requested_size, _device, _compute_type)
     try:
@@ -335,8 +402,8 @@ def _configure_file_logging() -> None:
                 return
         handler = RotatingFileHandler(
             log_file,
-            maxBytes=int(os.environ.get("VOICECODE_LOG_MAX_BYTES", "1000000")),
-            backupCount=int(os.environ.get("VOICECODE_LOG_BACKUP_COUNT", "5")),
+            maxBytes=_env_int("VOICECODE_LOG_MAX_BYTES", 1_000_000),
+            backupCount=_env_int("VOICECODE_LOG_BACKUP_COUNT", 5, minimum=0),
             encoding="utf-8",
         )
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
@@ -368,6 +435,23 @@ def _error(message: str, status_code: int):
     return jsonify(
         {"error": message, "request_id": getattr(g, "request_id", "unknown")}
     ), status_code
+
+
+@app.errorhandler(HTTPException)
+def _handle_http_exception(exc: HTTPException):
+    description = exc.description if isinstance(exc.description, str) else exc.name
+    return _error(description or exc.name, exc.code or 500)
+
+
+@app.errorhandler(Exception)
+def _handle_unexpected_exception(exc: Exception):
+    logger.exception(
+        "Unhandled request exception: id=%s method=%s path=%s",
+        getattr(g, "request_id", "unknown"),
+        request.method if request else "unknown",
+        request.path if request else "unknown",
+    )
+    return _error("Internal server error. Check VoiceCode logs with the request_id.", 500)
 
 
 def _normalize_language(language: Any) -> str | None:
@@ -447,6 +531,18 @@ def status():
 @app.route("/config", methods=["GET"])
 def get_config():
     return jsonify(load_config())
+
+
+@app.route("/config/reset", methods=["POST"])
+def reset_config():
+    try:
+        cfg = settings_store.default_config()
+        save_config(cfg)
+        logger.info("Configuration reset to defaults: id=%s", getattr(g, "request_id", "unknown"))
+        return jsonify(cfg)
+    except Exception as exc:
+        logger.exception("Failed to reset config.")
+        return _error(f"Failed to reset config: {exc}", 500)
 
 
 @app.route("/config", methods=["POST"])
@@ -797,6 +893,38 @@ def transcribe_upload():
                 logger.debug("Failed to delete temporary upload: %s", tmp_path)
 
 
+def _model_compatibility() -> dict[str, dict[str, Any]]:
+    cfg = load_config()
+    configured_device = str(cfg.get("device", "auto"))
+    total_vram_mb = _gpu_memory_total_mb()
+    total_vram_gb = round(total_vram_mb / 1024, 1) if total_vram_mb is not None else None
+    compatibility: dict[str, dict[str, Any]] = {}
+    for model_name, info in MODEL_INFO.items():
+        min_vram_gb = _metadata_float(info, "vram_min_gb")
+        recommended_vram_gb = _metadata_float(info, "vram_recommended_gb", min_vram_gb)
+        cuda_selectable = True
+        reason = None
+        if (
+            configured_device == "cuda"
+            and total_vram_gb is not None
+            and total_vram_gb < min_vram_gb
+        ):
+            cuda_selectable = False
+            reason = (
+                f"Current NVIDIA GPU has {total_vram_gb:g}GB VRAM; "
+                f"{model_name} requires at least {min_vram_gb:g}GB."
+            )
+        compatibility[model_name] = {
+            "configured_device": configured_device,
+            "detected_vram_gb": total_vram_gb,
+            "vram_min_gb": min_vram_gb,
+            "vram_recommended_gb": recommended_vram_gb,
+            "selectable": cuda_selectable,
+            "reason": reason,
+        }
+    return compatibility
+
+
 @app.route("/extensions")
 def extensions():
     return jsonify({"extensions": extension_registry.statuses(load_config())})
@@ -816,6 +944,7 @@ def models():
             "model_loaded": model_loaded,
             "model_state": model_state,
             "models": MODEL_INFO,
+            "compatibility": _model_compatibility(),
             "device_options": sorted(VALID_DEVICES),
             "compute_type_options": sorted(VALID_COMPUTE_TYPES),
             "cuda_available": _cuda_device_count() > 0,
@@ -972,7 +1101,7 @@ def stats():
     try:
         if _cuda_device_count() > 0:
             try:
-                import pynvml  # type: ignore[import-not-found]
+                import pynvml
             except Exception:
                 pynvml = None
             if pynvml is not None:

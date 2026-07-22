@@ -11,6 +11,8 @@ var clearBtn = $("clear-btn");
 var recLabel = $("rec-label");
 var cancelBtn = $("cancel-btn");
 var modelSel = $("model");
+var modelDescriptionEl = $("model-description");
+var modelButtonListEl = $("model-button-list");
 var deviceSel = $("device");
 var computeTypeSel = $("compute-type");
 var langSel = $("lang");
@@ -23,6 +25,7 @@ var historyEnabledSel = $("history-enabled");
 var fsizeSel = $("fsize");
 var appendSel = $("appendmode");
 var topBtn = $("topbtn");
+var resetDefaultsBtn = $("reset-defaults-btn");
 var historyBtn = $("history-btn");
 var clearHistoryBtn = $("clear-history-btn");
 var diagnosticsBtn = $("diagnostics-btn");
@@ -65,6 +68,7 @@ var currentStatusKey = "status_ready";
 var currentHotkey = {modifiers: ["alt"], key: "z"};
 var pendingMods = [];
 var shownModelErrors = new Set();
+var modelInfoCache = null;
 var dbgLines = [];
 
 function t(key) {

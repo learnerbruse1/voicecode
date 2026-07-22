@@ -51,7 +51,7 @@ Supported keys:
 | Key | Values |
 | --- | --- |
 | `hotkey` | object with `modifiers` (`alt`, `ctrl`, `shift`) and non-empty `key` |
-| `model` | `tiny`, `base`, `small`, `medium`, `large-v3`, `distil-large-v3` |
+| `model` | `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, `distil-large-v3` |
 | `device` | `auto`, `cpu`, `cuda` |
 | `compute_type` | `auto`, `default`, `int8`, `int8_float16`, `int16`, `float16`, `float32` |
 | `beam_size` | integer from 1 to 10 |
@@ -80,6 +80,10 @@ Example:
   }
 }
 ```
+
+### `POST /config/reset`
+
+Restores default configuration, writes it to the user config file, and returns the restored config. The UI reloads the default model after this call.
 
 ### `POST /reload_model`
 
@@ -173,7 +177,9 @@ Returns extension status, availability, optional dependencies, missing dependenc
 
 ### `GET /models`
 
-Returns supported model metadata, current model, active inference device, compute type, CUDA availability, and model load state.
+Returns supported model metadata, current model, active inference device, compute type, CUDA availability, model load state, and per-model compatibility advice.
+
+Each model metadata entry includes size, description, minimum VRAM, recommended VRAM, and a short recommendation. The `compatibility` object marks models as not selectable when the current manual CUDA configuration has less VRAM than the model minimum.
 
 ### `GET /hardware`
 

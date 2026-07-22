@@ -94,8 +94,10 @@
                 <option value="small" data-i18n="model_small">Small (more accurate, ~500 MB)</option>
                 <option value="medium" data-i18n="model_medium">Medium (high accuracy, ~1.5 GB)</option>
                 <option value="large-v3" data-i18n="model_large_v3">Large v3 (best accuracy, GPU recommended)</option>
+                <option value="large-v3-turbo" data-i18n="model_large_v3_turbo">Large v3 turbo (newest, faster)</option>
                 <option value="distil-large-v3" data-i18n="model_distil_large_v3">Distil large v3 (fast GPU model)</option>
               </select>
+              <div id="model-description" class="help-text">Model description will appear here.</div><div id="model-button-list" class="model-button-list"></div>
               <label for="auto-device-toggle" data-i18n="label_auto_device">Auto hardware</label>
               <div class="device-mode-card">
                 <label class="switch-row"><span data-i18n="auto_device_toggle">Auto select best CPU/GPU</span><input id="auto-device-toggle" type="checkbox"><span class="switch-slider"></span></label>
@@ -139,7 +141,7 @@
               <label for="history-enabled" data-i18n="label_history">History</label>
               <select id="history-enabled"><option value="true" data-i18n="history_on">On</option><option value="false" data-i18n="history_off">Off</option></select>
             </div>
-            <div class="button-row"><button class="sm" id="topbtn" type="button"></button></div>
+            <div class="button-row"><button class="sm" id="topbtn" type="button"></button><button class="sm danger" id="reset-defaults-btn" type="button" data-i18n="restore_defaults">Restore defaults</button></div>
           </section>
 
           <section class="panel hk-row">
