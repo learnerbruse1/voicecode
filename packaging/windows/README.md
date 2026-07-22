@@ -11,7 +11,7 @@ That flow builds a PyInstaller one-folder application and, when Inno Setup 6 is 
 ## Installer output
 
 ```text
-packaging\installer\Output\VoiceCodeSetup-0.1.0.exe
+packaging\installer\Output\VoiceCode-0.1.0-windows-x86_64-setup.exe
 ```
 
 The installer defaults to a per-user path:

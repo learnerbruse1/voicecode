@@ -64,7 +64,7 @@ Outputs:
 
 ```text
 packaging\installer\dist\VoiceCode\
-packaging\installer\Output\VoiceCodeSetup-0.1.0.exe
+packaging\installer\Output\VoiceCode-0.1.0-windows-x86_64-setup.exe
 ```
 
 The installer uses Inno Setup 6 and supports custom install directories. It defaults to non-admin per-user installs, while allowing elevation through the installer dialog/command line when a user chooses a protected directory. The default install directory is per-user:

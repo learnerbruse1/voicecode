@@ -5,7 +5,7 @@ This folder contains the recommended Windows release packaging project.
 ## What this produces
 
 - A PyInstaller **one-folder** desktop app at `packaging/installer/dist/VoiceCode/`.
-- An Inno Setup installer at `packaging/installer/Output/VoiceCodeSetup-0.1.0.exe` when Inno Setup 6 is available.
+- An Inno Setup installer at `packaging/installer/Output/VoiceCode-0.1.0-windows-x86_64-setup.exe` when Inno Setup 6 is available.
 - A standard Windows installer that lets users choose the installation directory.
 - A per-user default installation path: `%LOCALAPPDATA%\Programs\VoiceCode`.
 - Optional elevation when users intentionally choose a protected directory such as `Program Files`.
@@ -55,7 +55,7 @@ packaging\installer\dist\VoiceCode\
     models\
 
 packaging\installer\Output\
-  VoiceCodeSetup-0.1.0.exe
+  VoiceCode-0.1.0-windows-x86_64-setup.exe
 ```
 
 ## Runtime/cache behavior

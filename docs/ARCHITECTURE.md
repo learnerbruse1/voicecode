@@ -68,7 +68,7 @@ flowchart LR
     A["source tree"] --> B["PyInstaller one-folder build"]
     B --> C["packaging/installer/dist/VoiceCode"]
     C --> D["Inno Setup compiler"]
-    D --> E["VoiceCodeSetup-0.1.0.exe"]
+    D --> E["VoiceCode-0.1.0-windows-x86_64-setup.exe"]
     E --> F["user-selected install directory"]
 ```
 

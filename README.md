@@ -53,7 +53,7 @@ End users do **not** need to install Python when using the Windows installer.
 Download or build:
 
 ```text
-packaging/installer/Output/VoiceCodeSetup-0.1.0.exe
+packaging/installer/Output/VoiceCode-0.1.0-windows-x86_64-setup.exe
 ```
 
 Run the installer and choose the installation folder when prompted. The default is:
@@ -166,7 +166,7 @@ Outputs:
 
 ```text
 packaging\installer\dist\VoiceCode\
-packaging\installer\Output\VoiceCodeSetup-0.1.0.exe
+packaging\installer\Output\VoiceCode-0.1.0-windows-x86_64-setup.exe
 ```
 
 If Inno Setup is not available, build only the one-folder app:
