@@ -6,13 +6,29 @@ import os
 import sys
 import threading
 import time
+from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
-import webview
-from pynput import keyboard as kb  # type: ignore[import-untyped]
-
 from . import app as server
+
+webview: Any = None
+_webview_import_error: BaseException | None = None
+try:
+    import webview as _imported_webview
+
+    webview = _imported_webview
+except Exception as exc:
+    _webview_import_error = exc
+
+kb: Any = None
+_keyboard_import_error: BaseException | None = None
+try:
+    from pynput import keyboard as _imported_keyboard  # type: ignore[import-untyped]
+
+    kb = _imported_keyboard
+except Exception as exc:
+    _keyboard_import_error = exc
 
 
 def _configure_console_encoding() -> None:
@@ -36,15 +52,19 @@ logger = logging.getLogger("voicecode.main")
 
 _window = None
 _listener = None
-_type_controller = kb.Controller()
+_type_controller = kb.Controller() if kb is not None else None
 _typing_from_global = False
 _typing_lock = threading.Lock()
 
-_MOD_MAP = {
-    "alt": (kb.Key.alt_l, kb.Key.alt_r),
-    "ctrl": (kb.Key.ctrl_l, kb.Key.ctrl_r),
-    "shift": (kb.Key.shift_l, kb.Key.shift_r),
-}
+_MOD_MAP = (
+    {
+        "alt": (kb.Key.alt_l, kb.Key.alt_r),
+        "ctrl": (kb.Key.ctrl_l, kb.Key.ctrl_r),
+        "shift": (kb.Key.shift_l, kb.Key.shift_r),
+    }
+    if kb is not None
+    else {}
+)
 
 
 def _env_flag(name: str) -> bool:
@@ -77,6 +97,9 @@ def _eval_js_safe(script: str) -> None:
 def _type_text(text: str) -> None:
     def _do() -> None:
         time.sleep(0.15)
+        if _type_controller is None:
+            logger.warning("Global typing is unavailable because pynput could not be initialized.")
+            return
         try:
             _type_controller.type(text)
         except Exception as exc:
@@ -86,6 +109,11 @@ def _type_text(text: str) -> None:
 
 
 def _start_listener(hotkey_cfg):
+    if kb is None:
+        raise RuntimeError(
+            "Global hotkey support is unavailable because pynput could not be initialized: "
+            f"{_keyboard_import_error}"
+        )
     mods_needed = set(hotkey_cfg.get("modifiers", []))
     key_char = str(hotkey_cfg.get("key", "")).lower()
     held_mods = set()
@@ -299,6 +327,12 @@ def _wait_for_server(timeout_seconds: float = 20.0) -> None:
 
 def main() -> None:
     global _listener, _window
+
+    if webview is None:
+        raise RuntimeError(
+            "Desktop UI support is unavailable because pywebview could not be initialized: "
+            f"{_webview_import_error}"
+        )
 
     server.on_transcription = _on_transcription
 

@@ -1,6 +1,6 @@
 # VoiceCode
 
-[English](README.md) | [????](README_zh.md) | [???](README_ja.md)
+[English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
 
 Offline speech-to-text desktop app for vibe coding. VoiceCode records audio locally, transcribes it with Whisper, and can type the recognized text into the active application through a global push-to-talk hotkey.
 

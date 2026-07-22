@@ -893,7 +893,7 @@ def start_server() -> None:
 @app.route("/stats")
 def stats():
     try:
-        import psutil  # type: ignore[import-untyped]
+        import psutil
 
         proc = psutil.Process(os.getpid())
         cpu = round(psutil.cpu_percent(interval=0.2), 1)
