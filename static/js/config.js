@@ -4,6 +4,10 @@ async function loadConfig() {
     const cfg = await resp.json();
     if (!resp.ok) throw new Error(cfg.error || resp.statusText || "Failed to load config");
     modelSel.value = cfg.model || "base";
+    deviceSel.value = cfg.device || "auto";
+    computeTypeSel.value = cfg.compute_type || "auto";
+    beamSizeSel.value = String(cfg.beam_size || 5);
+    vadFilterSel.value = String(cfg.vad_filter !== false);
     langSel.value = cfg.language || "zh";
     uiLanguage = ["en", "zh", "ja"].includes(cfg.ui_language) ? cfg.ui_language : "en";
     audioDeviceSel.value = String(cfg.audio_device || "");

@@ -1,124 +1,72 @@
-# VoiceCode
+﻿# VoiceCode
 
 [English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
 
-VoiceCode 是一款本地离线运行的桌面语音转文字工具，适合编程、文档写作和日常输入。它会录制本机麦克风音频，使用本地 Whisper 模型转写文本，并可通过全局按住说话快捷键把结果输入到当前应用。
+VoiceCode 是一个本地优先的桌面语音转文字应用，面向编程、写作和提示词草稿场景。它通过麦克风录音，使用 `faster-whisper` / CTranslate2 在本地转写，并可通过全局按住说话热键把结果输入到当前应用。
 
-## 主要功能
+## 主要特性
 
-- 使用 faster-whisper 进行本地离线转写
-- 基于 pywebview 的 Windows 桌面界面
-- 本地 Flask/Waitress API，仅绑定 127.0.0.1
-- 全局按住说话快捷键
-- 英文、简体中文、日文 UI 切换
-- 转写语言支持自动检测、中文、英文、日文
-- 支持无模型预览模式：VOICECODE_SKIP_MODEL_LOAD=1
-- 普通文本、代码、Markdown、Prompt 后处理模式
-- 可选本地转写历史、麦克风选择和诊断面板
-- Windows 标准安装器，安装时可选择安装目录
-- 打包版会把后续模型下载和缓存集中到安装目录下
+- 基于 Whisper 兼容模型的本地语音转文字。
+- 自动检测 NVIDIA CUDA，并在 GPU 初始化或推理失败时安全回退到 CPU。
+- 可配置推理设备：`auto`、`cpu`、`cuda`。
+- 可配置计算精度：`auto`、`int8`、`float16`、`float32`、`int8_float16`。
+- 面向 Windows、macOS、Linux 的标准 Python 开源项目结构。
+- 本地 API 仅绑定 `127.0.0.1`。
+- 使用 `pywebview` 提供桌面 UI，`pynput` 提供全局热键，`sounddevice` 采集麦克风。
+- 提供 `/transcribe` 接口，便于文件上传、测试和外部集成。
+- 配置、日志、历史记录都写入用户可写目录，不写入安装包目录。
 
-## 普通用户安装
+## 安装运行
 
-推荐使用 Windows 安装器：
-
-~~~text
-packaging/installer/Output/VoiceCode-0.1.0-windows-x86_64-setup.exe
-~~~
-
-双击安装器后，可在向导中选择安装路径。默认路径为：
-
-~~~text
-%LOCALAPPDATA%\Programs\VoiceCode
-~~~
-
-使用安装器时，用户不需要单独安装 Python。Python 运行时、Python 包和原生依赖都会放在安装目录中。未来 Hugging Face / faster-whisper 下载的模型和缓存会写入：
-
-~~~text
-<安装目录>\runtime\cache
-<安装目录>\runtime\models
-~~~
-
-这样应用本体和大体积运行时文件都集中在同一个目录下，便于备份、迁移或删除。
-
-## 开发运行
-
-PowerShell：
-
-~~~powershell
-.\setup.ps1
-.\run.ps1
-~~~
-
-cmd.exe：
-
-~~~bat
-setup.bat
-run.bat
-~~~
-
-Python 包方式：
-
-~~~powershell
+```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\voicecode.exe
-~~~
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m voicecode
+```
 
-也可以运行：
+Linux/macOS：
 
-~~~powershell
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 python -m voicecode
-~~~
+```
 
-## 配置和运行时数据
+本仓库已移除一键安装脚本和生成的安装器产物，推荐使用标准 Python 虚拟环境和包管理流程。
 
-- Windows 配置默认位置：%APPDATA%\VoiceCode\config.json
-- Windows 日志默认位置：%APPDATA%\VoiceCode\logs\voicecode.log
-- 转写历史默认位置：配置目录旁的 history.jsonl
-- 打包版模型和下载缓存默认位置：<安装目录>\runtime
+## CPU / NVIDIA GPU 适配
 
-常用环境变量：VOICECODE_CONFIG_FILE、VOICECODE_STATIC_DIR、VOICECODE_RUNTIME_DIR、VOICECODE_MODEL_DIR、VOICECODE_LOG_FILE、VOICECODE_HISTORY_FILE、VOICECODE_SKIP_MODEL_LOAD、VOICECODE_ENABLE_TRAY、PORT、WHISPER_MODEL。
+默认策略：如果 CTranslate2 能检测到 CUDA 设备，则使用 `cuda/float16`；否则使用 `cpu/int8`。如果 CUDA 推理运行时失败，应用会自动回退到 `cpu/int8`，保证语音转文字功能仍可用。
 
-## 构建 Windows 安装器
+常用环境变量：
 
-~~~powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\installer\build-installer.ps1
-~~~
+| 变量 | 说明 |
+| --- | --- |
+| `WHISPER_MODEL` | 启动模型：`tiny`、`base`、`small`、`medium`、`large-v3`、`distil-large-v3` |
+| `WHISPER_DEVICE` | 推理设备：`auto`、`cpu`、`cuda` |
+| `WHISPER_COMPUTE_TYPE` | 计算精度：`auto`、`int8`、`float16`、`float32`、`int8_float16` |
+| `WHISPER_CPU_THREADS` | CPU 推理线程数 |
+| `VOICECODE_MODEL_DIR` | 模型缓存目录 |
+| `VOICECODE_OFFLINE` | 只使用本地缓存模型 |
+| `VOICECODE_SKIP_MODEL_LOAD` | 启动 UI 但跳过模型加载，适合预览和测试 |
 
-输出：
+建议：CPU 环境使用 `base` 或 `small`；NVIDIA GPU 环境可使用 `small`、`medium`、`large-v3` 或 `distil-large-v3`。
 
-~~~text
-packaging\installer\dist\VoiceCode\
-packaging\installer\Output\VoiceCode-0.1.0-windows-x86_64-setup.exe
-~~~
+## 开发检查
 
-如果没有 Inno Setup，只构建 one-folder 应用：
+```powershell
+python -m ruff format --check app.py main.py tests src/voicecode
+python -m ruff check app.py main.py tests src/voicecode
+python -m mypy app.py main.py src/voicecode
+python -X utf8 -m pytest -q
+```
 
-~~~powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\installer\build-installer.ps1 -SkipInno
-~~~
+## API 与文档
 
-## 最终发布验证
-
-当前发布候选已通过：
-
-- ruff format --check
-- ruff check
-- mypy
-- pytest（35 passed）
-- py_compile
-- wheel 构建
-- PyInstaller one-folder 构建
-- Inno Setup 安装器构建
-- 自定义目录静默安装/卸载 smoke test
-
-API 输入校验已覆盖畸形 JSON、JSON null、非 object payload、布尔值伪装整数、非法热键修饰键、重复启动、模型重载竞态和录音取消顺序等边界。
-
-## 隐私
-
-VoiceCode 设计为本地运行。音频只发送到本机 127.0.0.1 上的本地服务，并由本地 Whisper 模型处理。转写历史、日志、配置和模型缓存均为本地文件，VoiceCode 不会主动上传它们。
+接口说明见 [docs/API.md](docs/API.md)。架构说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，开发指南见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 许可证
 

@@ -1,85 +1,63 @@
-# Architecture
+﻿# Architecture
 
-VoiceCode is a small local desktop application with packaged Windows release support.
+VoiceCode is a compact local-first desktop app. The installable package under `src/voicecode` is authoritative; root `app.py` and `main.py` are compatibility wrappers.
 
 ```mermaid
 flowchart TD
-    A["main.py / python -m voicecode / VoiceCode.exe"] --> R["runtime path setup"]
-    R --> B["Waitress + Flask server"]
-    R --> C["pywebview desktop window"]
-    R --> D["pynput global hotkey listener"]
-    C --> E["static/index.html + CSS/JS modules"]
-    E --> B
-    B --> F["sounddevice recorder"]
-    B --> G["faster-whisper model"]
-    G --> H["runtime/cache and runtime/models in packaged builds"]
+  A["python -m voicecode"] --> B["runtime path setup"]
+  B --> C["Flask API served by Waitress"]
+  B --> D["pywebview desktop window"]
+  B --> E["pynput global hotkey listener"]
+  D --> F["static HTML/CSS/JS UI"]
+  F --> C
+  C --> G["sounddevice recorder"]
+  C --> H["faster-whisper / CTranslate2"]
+  H --> I{"CUDA available?"}
+  I -->|yes| J["NVIDIA GPU / float16 by default"]
+  I -->|no or failure| K["CPU / int8 fallback"]
+  C --> L["user config, logs, history"]
 ```
 
-## Runtime model
+## Runtime boundaries
 
-- The Flask app binds to `127.0.0.1` only.
-- Waitress runs in a daemon thread so the webview can own the desktop main thread.
-- Startup polls `/health` and verifies that the returned `pid` matches the current process.
-- If `/health` belongs to another VoiceCode process, startup fails with a clear repeated-launch error.
-- If another service returns `200` on `/health` but does not expose a VoiceCode `pid`, startup fails with a port-conflict error.
-- Recording state is guarded by a re-entrant lock.
-- Whisper model use and reloads are guarded by a re-entrant lock.
-- Model reload state is exposed through `GET /status` and `GET /models`.
-- A single-worker executor serializes asynchronous model loads/reloads.
-- Cancellation uses a token so stale transcription results do not get pushed to the UI after cancel.
+- HTTP is bound to `127.0.0.1` only.
+- Startup checks `/health` and verifies the returned PID belongs to the current process.
+- Config, logs, history, and model caches are user-writable and never stored inside the installed package directory by default.
+- Non-empty JSON request bodies must be JSON objects before an endpoint performs side effects.
 
-## Runtime paths
+## Key modules
 
-`src/voicecode/runtime.py` configures packaged runtime paths before importing the desktop and server modules.
+| Path | Responsibility |
+| --- | --- |
+| `src/voicecode/app.py` | Flask routes, config validation, recorder, Whisper model lifecycle, transcription |
+| `src/voicecode/main.py` | desktop startup, pywebview window, global hotkey callback, server readiness checks |
+| `src/voicecode/runtime.py` | runtime/cache path configuration for explicit runtime roots |
+| `src/voicecode/static/` | packaged web UI assets |
+| `static/` | source-tree UI assets mirrored with packaged assets and checked by tests |
 
-Development runs keep normal user cache behavior unless `VOICECODE_RUNTIME_DIR` is explicitly set. PyInstaller builds default to:
+## Inference model lifecycle
 
-```text
-<install-dir>\runtime
-<install-dir>\runtime\cache
-<install-dir>\runtime\models
-```
+1. Select a model (`tiny`, `base`, `small`, `medium`, `large-v3`, `distil-large-v3`).
+2. Resolve device and compute type from config and environment overrides.
+3. Prefer CUDA when available and configured as `auto` or `cuda`.
+4. Load `faster-whisper.WhisperModel` with cache/download root hints.
+5. If CUDA load or inference fails, reload the same model on `cpu/int8`.
+6. Expose status through `/status`, `/models`, `/hardware`, `/diagnostics`, and `/stats`.
 
-The launcher sets Hugging Face and transformer cache variables with `setdefault`, so advanced users can still override them externally.
+## Thread safety
 
-Config, logs, and history remain user-writable and outside the installed package by default:
+| Resource | Guard |
+| --- | --- |
+| Whisper model | `model_lock` (`threading.RLock`) |
+| Config file I/O | `_config_lock` |
+| Audio buffer and active flag | `Recorder._lock` (`threading.RLock`) |
+| Model reload state | `_model_state_lock` |
+| Cancellation token | `_cancel_lock` |
+| Typing callback state | `_typing_lock` in `main.py` |
 
-- `%APPDATA%\VoiceCode\config.json`
-- `%APPDATA%\VoiceCode\logs\voicecode.log`
-- `%APPDATA%\VoiceCode\history.jsonl`
+## Extension points
 
-This follows the project constraint that config must not be written into the installed package directory while still keeping large packaged runtime downloads under the selected installation folder.
-
-## Source layout
-
-- `app.py` and `main.py` are thin compatibility wrappers.
-- `src/voicecode/app.py`, `src/voicecode/main.py`, and `src/voicecode/runtime.py` are the authoritative runtime implementation.
-- `src/voicecode/__main__.py` configures packaged runtime/cache paths, locates packaged static assets, and delegates to `voicecode.main.run`.
-- `static/index.html` loads split frontend assets from `static/css/app.css` and focused modules under `static/js/`: `i18n.js`, `dom.js`, `modal.js`, `api.js`, `config.js`, `hotkey.js`, `settings.js`, `recorder.js`, `history.js`, `status.js`, and `app.js`.
-- `src/voicecode/static/` is the packaged static copy.
-- `tests/test_app_smoke.py` verifies compatibility wrappers, static asset synchronization, API behavior, startup PID checks, reload races, runtime cache paths, and packaging file presence.
-
-## Packaging architecture
-
-The recommended Windows release pipeline is:
-
-```mermaid
-flowchart LR
-    A["source tree"] --> B["PyInstaller one-folder build"]
-    B --> C["packaging/installer/dist/VoiceCode"]
-    C --> D["Inno Setup compiler"]
-    D --> E["VoiceCode-0.1.0-windows-x86_64-setup.exe"]
-    E --> F["user-selected install directory"]
-```
-
-PyInstaller collects Python, native libraries, static UI files, and Python dependencies into `_internal`. Inno Setup wraps the one-folder app into a standard installer that lets the user select the destination directory and creates Start Menu/optional desktop shortcuts.
-
-Generated packaging outputs are ignored by `packaging/installer/.gitignore`.
-
-## Encoding and diagnostics
-
-Startup scripts and Python entry points force UTF-8 console I/O where possible. Logs and error responses are intentionally English to make release diagnostics readable across PowerShell, cmd, CI, and GitHub issues.
-
-## Optional tray support
-
-Tray support is disabled by default and can be tested with `VOICECODE_ENABLE_TRAY=1` after installing the optional `.[tray]` extra. The feature is optional to avoid forcing extra desktop dependencies on all users.
+- Add more languages by extending validation, UI options, and prompts.
+- Add transcription post-processing in `_post_process_text`.
+- Integrate local workflows through `/transcribe` instead of driving the UI.
+- Add model metadata in `MODEL_INFO` while keeping validation strict.

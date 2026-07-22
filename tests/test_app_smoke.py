@@ -303,6 +303,39 @@ def test_distribution_static_assets_stay_synchronized():
         ).read_text(encoding="utf-8")
 
 
+def test_config_accepts_inference_controls_and_hardware_endpoint(client):
+    response = client.post(
+        "/config",
+        json={
+            "device": "cpu",
+            "compute_type": "int8",
+            "beam_size": 3,
+            "vad_filter": False,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["device"] == "cpu"
+    assert body["compute_type"] == "int8"
+    assert body["beam_size"] == 3
+    assert body["vad_filter"] is False
+
+    response = client.get("/hardware")
+
+    assert response.status_code == 200
+    hardware = response.get_json()
+    assert hardware["cuda_available"] is False
+    assert "cpu" in hardware["supported_devices"]
+
+
+def test_transcribe_endpoint_accepts_json_audio_samples(client):
+    response = client.post("/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en"})
+
+    assert response.status_code == 200
+    assert response.get_json()["text"] == "hello"
+
+
 def test_record_start_reports_model_unavailable(client, app_module):
     app_module.model = None
     app_module._set_model_state("error", "Model download failed")
@@ -391,11 +424,18 @@ def test_history_rejects_non_integer_limit(client):
     assert "limit" in response.get_json()["error"]
 
 
-def test_packaging_files_exist():
+def test_one_click_installer_scripts_are_not_part_of_source_tree():
     repo_root = Path(__file__).resolve().parents[1]
 
-    assert (repo_root / "packaging" / "pyinstaller" / "voicecode.spec").is_file()
-    assert (repo_root / "packaging" / "windows" / "README.md").is_file()
+    for path in [
+        repo_root / "setup.ps1",
+        repo_root / "setup.bat",
+        repo_root / "run.ps1",
+        repo_root / "run.bat",
+        repo_root / "packaging" / "installer",
+    ]:
+        assert not path.exists()
+    assert (repo_root / "pyproject.toml").is_file()
     assert (repo_root / ".github" / "workflows" / "release.yml").is_file()
 
 
@@ -574,7 +614,9 @@ def test_reload_model_rejects_second_request_while_load_is_in_progress(
 
     first = client.post("/reload_model", json={"model": "tiny"})
     assert first.status_code == 200
-    assert first.get_json() == {"status": "loading", "model": "tiny"}
+    first_body = first.get_json()
+    assert first_body["status"] == "loading"
+    assert first_body["model"] == "tiny"
     assert started.wait(timeout=1)
 
     second = client.post("/reload_model", json={"model": "small"})

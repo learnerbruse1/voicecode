@@ -19,7 +19,23 @@
       <option value="tiny" data-i18n="model_tiny">Tiny (fast, ~75 MB)</option>
       <option value="base" data-i18n="model_base">Base (recommended, ~150 MB)</option>
       <option value="small" data-i18n="model_small">Small (more accurate, ~500 MB)</option>
-      <option value="medium" data-i18n="model_medium">Medium (most accurate, ~1.5 GB)</option>
+      <option value="medium" data-i18n="model_medium">Medium (high accuracy, ~1.5 GB)</option>
+      <option value="large-v3" data-i18n="model_large_v3">Large v3 (best accuracy, GPU recommended)</option>
+      <option value="distil-large-v3" data-i18n="model_distil_large_v3">Distil large v3 (fast GPU model)</option>
+    </select>
+    <label for="device" data-i18n="label_device">Device</label>
+    <select id="device">
+      <option value="auto" data-i18n="device_auto">Auto</option>
+      <option value="cpu" data-i18n="device_cpu">CPU</option>
+      <option value="cuda" data-i18n="device_cuda">NVIDIA CUDA</option>
+    </select>
+    <label for="compute-type" data-i18n="label_compute_type">Precision</label>
+    <select id="compute-type">
+      <option value="auto" data-i18n="compute_auto">Auto</option>
+      <option value="int8">int8</option>
+      <option value="float16">float16</option>
+      <option value="float32">float32</option>
+      <option value="int8_float16">int8_float16</option>
     </select>
     <label for="lang" data-i18n="label_transcription_language">Transcription language</label>
     <select id="lang">
@@ -46,6 +62,19 @@
       <option value="coding" data-i18n="text_coding">Coding</option>
       <option value="markdown" data-i18n="text_markdown">Markdown</option>
       <option value="prompt" data-i18n="text_prompt">Prompt</option>
+    </select>
+    <label for="beam-size" data-i18n="label_beam_size">Beam</label>
+    <select id="beam-size">
+      <option value="1">1</option>
+      <option value="3">3</option>
+      <option value="5">5</option>
+      <option value="8">8</option>
+      <option value="10">10</option>
+    </select>
+    <label for="vad-filter" data-i18n="label_vad_filter">VAD</label>
+    <select id="vad-filter">
+      <option value="true" data-i18n="vad_on">On</option>
+      <option value="false" data-i18n="vad_off">Off</option>
     </select>
     <label for="history-enabled" data-i18n="label_history">History</label>
     <select id="history-enabled">

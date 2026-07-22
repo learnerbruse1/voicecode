@@ -7,6 +7,7 @@ import platform
 import re
 import os
 import sys
+import tempfile
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -31,7 +32,6 @@ def _configure_console_encoding() -> None:
 
 _configure_console_encoding()
 
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 import ctranslate2  # type: ignore[import-untyped]  # noqa: E402
@@ -51,22 +51,87 @@ app = Flask(__name__, static_folder="static")
 
 PORT = int(os.environ.get("PORT", 7788))
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base")
-VALID_MODELS = {"tiny", "base", "small", "medium"}
+VALID_MODELS = {"tiny", "base", "small", "medium", "large-v3", "distil-large-v3"}
 VALID_LANGUAGES = {"", "auto", "zh", "en", "ja", None}
 VALID_UI_LANGUAGES = {"en", "zh", "ja"}
 VALID_TEXT_MODES = {"plain", "coding", "markdown", "prompt"}
+VALID_DEVICES = {"auto", "cpu", "cuda"}
+VALID_COMPUTE_TYPES = {"auto", "default", "int8", "int8_float16", "int16", "float16", "float32"}
 MODEL_INFO = {
     "tiny": {"size": "~75 MB", "description": "Fastest, lowest resource usage."},
-    "base": {"size": "~150 MB", "description": "Recommended default for most users."},
-    "small": {"size": "~500 MB", "description": "More accurate, slower."},
-    "medium": {"size": "~1.5 GB", "description": "Most accurate supported option."},
+    "base": {"size": "~150 MB", "description": "Recommended CPU default."},
+    "small": {"size": "~500 MB", "description": "Better accuracy on modern CPUs/GPUs."},
+    "medium": {"size": "~1.5 GB", "description": "High accuracy, slower on CPU."},
+    "large-v3": {"size": "~3 GB", "description": "Best multilingual accuracy; GPU recommended."},
+    "distil-large-v3": {
+        "size": "~1.5 GB",
+        "description": "Fast large-v3 distilled model; NVIDIA GPU recommended.",
+    },
 }
 
 
+def _cuda_device_count() -> int:
+    try:
+        return int(ctranslate2.get_cuda_device_count())
+    except Exception as exc:
+        logger.debug("CUDA detection failed: %s", exc)
+        return 0
+
+
+def _default_cpu_threads() -> int:
+    configured = os.environ.get("WHISPER_CPU_THREADS")
+    if configured:
+        try:
+            return max(1, int(configured))
+        except ValueError:
+            logger.warning("Ignoring invalid WHISPER_CPU_THREADS value: %s", configured)
+    return max(2, multiprocessing.cpu_count() // 2)
+
+
+def _normalize_device_preference(value: Any) -> str:
+    if value in (None, ""):
+        return "auto"
+    if not isinstance(value, str):
+        raise ValueError("device must be one of: auto, cpu, cuda.")
+    normalized = value.strip().lower()
+    if normalized not in VALID_DEVICES:
+        raise ValueError("device must be one of: auto, cpu, cuda.")
+    return normalized
+
+
+def _normalize_compute_type(value: Any) -> str:
+    if value in (None, ""):
+        return "auto"
+    if not isinstance(value, str):
+        raise ValueError(
+            "compute_type must be one of: auto, default, int8, int8_float16, int16, float16, float32."
+        )
+    normalized = value.strip().lower()
+    if normalized not in VALID_COMPUTE_TYPES:
+        raise ValueError(
+            "compute_type must be one of: auto, default, int8, int8_float16, int16, float16, float32."
+        )
+    return normalized
+
+
+def _resolve_device_profile(
+    device: str = "auto", compute_type: str = "auto"
+) -> tuple[str, str, int]:
+    requested_device = _normalize_device_preference(os.environ.get("WHISPER_DEVICE", device))
+    requested_compute = _normalize_compute_type(
+        os.environ.get("WHISPER_COMPUTE_TYPE", compute_type)
+    )
+    cuda_available = _cuda_device_count() > 0
+    actual_device = "cuda" if requested_device in {"auto", "cuda"} and cuda_available else "cpu"
+    if requested_compute in {"auto", "default"}:
+        actual_compute = "float16" if actual_device == "cuda" else "int8"
+    else:
+        actual_compute = requested_compute
+    return actual_device, actual_compute, _default_cpu_threads()
+
+
 def _best_device() -> tuple[str, str, int]:
-    if ctranslate2.get_cuda_device_count() > 0:
-        return "cuda", "float16", 4
-    return "cpu", "int8", max(2, multiprocessing.cpu_count() // 2)
+    return _resolve_device_profile("auto", "auto")
 
 
 _device, _compute_type, _cpu_threads = _best_device()
@@ -95,18 +160,37 @@ def _set_model_state(status_value: str, error: str | None = None) -> None:
         _model_state["error"] = error
 
 
+def _whisper_model_kwargs(device: str, compute_type: str, cpu_threads: int) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "device": device,
+        "compute_type": compute_type,
+        "cpu_threads": cpu_threads,
+    }
+    model_dir = os.environ.get("VOICECODE_MODEL_DIR")
+    if model_dir:
+        kwargs["download_root"] = str(Path(model_dir).expanduser())
+    if _env_flag("VOICECODE_OFFLINE"):
+        kwargs["local_files_only"] = True
+    return kwargs
+
+
 def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True) -> WhisperModel:
-    """Load a Whisper model without making application startup depend on success."""
-    global MODEL_SIZE, _compute_type, _device, model
+    """Load a Whisper model with CUDA auto-detection and safe CPU fallback."""
+    global MODEL_SIZE, _compute_type, _cpu_threads, _device, model
 
     requested_size = size or MODEL_SIZE
+    cfg = load_config()
+    preferred_device = _normalize_device_preference(cfg.get("device", "auto"))
+    preferred_compute = _normalize_compute_type(cfg.get("compute_type", "auto"))
+    _device, _compute_type, _cpu_threads = _resolve_device_profile(
+        preferred_device, preferred_compute
+    )
+
     logger.info("Loading Whisper model '%s' on %s (%s)...", requested_size, _device, _compute_type)
     try:
         loaded_model = WhisperModel(
             requested_size,
-            device=_device,
-            compute_type=_compute_type,
-            cpu_threads=_cpu_threads,
+            **_whisper_model_kwargs(_device, _compute_type, _cpu_threads),
         )
     except Exception as exc:
         if not allow_cpu_fallback or _device == "cpu":
@@ -116,13 +200,11 @@ def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True
             _device,
             exc,
         )
-        _device, _compute_type = "cpu", "int8"
+        _device, _compute_type, _cpu_threads = "cpu", "int8", _default_cpu_threads()
         try:
             loaded_model = WhisperModel(
                 requested_size,
-                device="cpu",
-                compute_type="int8",
-                cpu_threads=_cpu_threads,
+                **_whisper_model_kwargs("cpu", "int8", _cpu_threads),
             )
         except Exception as cpu_exc:
             raise RuntimeError(_model_error_message(cpu_exc)) from cpu_exc
@@ -236,6 +318,10 @@ def _configure_file_logging() -> None:
 DEFAULT_CONFIG: dict[str, Any] = {
     "hotkey": {"modifiers": ["alt"], "key": "z"},
     "model": "base",
+    "device": "auto",
+    "compute_type": "auto",
+    "beam_size": 5,
+    "vad_filter": True,
     "language": "zh",
     "ui_language": "en",
     "audio_device": "",
@@ -282,6 +368,20 @@ def _validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
 
     if "model" in patch and patch["model"] not in VALID_MODELS:
         raise ValueError(f"Unsupported model: {patch['model']}")
+    if "device" in patch:
+        patch["device"] = _normalize_device_preference(patch["device"])
+    if "compute_type" in patch:
+        patch["compute_type"] = _normalize_compute_type(patch["compute_type"])
+    if "beam_size" in patch:
+        beam_size = patch["beam_size"]
+        if (
+            isinstance(beam_size, bool)
+            or not isinstance(beam_size, int)
+            or not 1 <= beam_size <= 10
+        ):
+            raise ValueError("beam_size must be an integer between 1 and 10.")
+    if "vad_filter" in patch and not isinstance(patch["vad_filter"], bool):
+        raise ValueError("vad_filter must be a boolean.")
     if "language" in patch and patch["language"] not in VALID_LANGUAGES:
         raise ValueError("Unsupported language. Use one of: auto, zh, en, ja.")
     if "ui_language" in patch and patch["ui_language"] not in VALID_UI_LANGUAGES:
@@ -456,7 +556,14 @@ def _model_reload_done(future: Future, size: str) -> None:
 def reload_model():
     try:
         payload = _json_payload()
-        size = payload.get("model", "base")
+        current_cfg = load_config()
+        reload_patch = {
+            key: payload[key]
+            for key in ("model", "device", "compute_type", "beam_size", "vad_filter")
+            if key in payload
+        }
+        validated_patch = _validate_config_patch(reload_patch)
+        size = str(validated_patch.get("model", current_cfg.get("model", MODEL_SIZE)))
         if size not in VALID_MODELS:
             return _error(f"Unsupported model: {size}", 400)
     except ValueError as exc:
@@ -474,9 +581,20 @@ def reload_model():
         _model_state["status"] = "loading"
         _model_state["error"] = None
 
+    if validated_patch:
+        current_cfg.update(validated_patch)
+        save_config(current_cfg)
+
     future = _executor.submit(_load_model_sync, size)
     future.add_done_callback(lambda f: _model_reload_done(f, size))
-    return jsonify({"status": "loading", "model": size})
+    return jsonify(
+        {
+            "status": "loading",
+            "model": size,
+            "device": current_cfg.get("device", "auto"),
+            "compute_type": current_cfg.get("compute_type", "auto"),
+        }
+    )
 
 
 @app.route("/log", methods=["POST"])
@@ -728,62 +846,133 @@ def record_cancel():
     return jsonify({"status": "cancelled"})
 
 
-def _transcribe_audio(audio: np.ndarray, language: str | None = None) -> dict[str, str]:
-    global _compute_type, _device, model
-    prompt = (
-        "Please transcribe in Simplified Chinese."
-        if language == "zh"
-        else "Please transcribe in Japanese."
-        if language == "ja"
-        else None
-    )
+def _language_prompt(language: str | None) -> str | None:
+    if language == "zh":
+        return "Transcribe the speech as Simplified Chinese text."
+    if language == "ja":
+        return "Transcribe the speech as Japanese text."
+    return None
+
+
+def _is_cuda_runtime_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(token in message for token in ("cuda", "cublas", "cudnn", "gpu"))
+
+
+def _transcribe_kwargs(language: str | None) -> dict[str, Any]:
+    cfg = load_config()
+    beam_size = int(cfg.get("beam_size", 5))
+    vad_filter = bool(cfg.get("vad_filter", True))
+    kwargs: dict[str, Any] = {
+        "language": language,
+        "task": "transcribe",
+        "beam_size": beam_size,
+        "best_of": 1,
+        "condition_on_previous_text": False,
+        "initial_prompt": _language_prompt(language),
+        "vad_filter": vad_filter,
+        "temperature": 0.0,
+    }
+    if vad_filter:
+        kwargs["vad_parameters"] = {"min_silence_duration_ms": 500}
+    return kwargs
+
+
+def _fallback_to_cpu_model() -> WhisperModel:
+    global _compute_type, _cpu_threads, _device, model
+
+    _device, _compute_type, _cpu_threads = "cpu", "int8", _default_cpu_threads()
+    try:
+        loaded_model = WhisperModel(
+            MODEL_SIZE,
+            **_whisper_model_kwargs("cpu", "int8", _cpu_threads),
+        )
+    except Exception as load_exc:
+        raise RuntimeError(_model_error_message(load_exc)) from load_exc
+    model = loaded_model
+    _set_model_state("ready", "GPU inference failed; VoiceCode fell back to CPU int8.")
+    return loaded_model
+
+
+def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> dict[str, Any]:
+    global model
+
+    kwargs = _transcribe_kwargs(language)
     with model_lock:
         active_model = model
         if active_model is None:
             raise RuntimeError(_model_unavailable_reason() or "Whisper model is not available.")
         try:
-            segments, info = active_model.transcribe(
-                audio,
-                language=language,
-                task="transcribe",
-                beam_size=1,
-                best_of=1,
-                condition_on_previous_text=False,
-                initial_prompt=prompt,
-                vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 500},
-                temperature=0.0,
-            )
+            segments, info = active_model.transcribe(audio, **kwargs)
             text = " ".join(s.text for s in segments).strip()
         except RuntimeError as exc:
-            if "cublas" in str(exc).lower() or "cuda" in str(exc).lower():
-                logger.warning("GPU inference failed (%s). Reloading model on CPU int8.", exc)
-                _device, _compute_type = "cpu", "int8"
-                try:
-                    model = WhisperModel(
-                        MODEL_SIZE,
-                        device="cpu",
-                        compute_type="int8",
-                        cpu_threads=_cpu_threads,
-                    )
-                except Exception as load_exc:
-                    raise RuntimeError(_model_error_message(load_exc)) from load_exc
-                segments, info = model.transcribe(
-                    audio,
-                    language=language,
-                    task="transcribe",
-                    beam_size=1,
-                    best_of=1,
-                    condition_on_previous_text=False,
-                    initial_prompt=prompt,
-                    vad_filter=True,
-                    vad_parameters={"min_silence_duration_ms": 500},
-                    temperature=0.0,
-                )
-                text = " ".join(s.text for s in segments).strip()
-            else:
+            if not _is_cuda_runtime_error(exc):
                 raise
-    return {"text": text, "language": info.language}
+            logger.warning("GPU inference failed (%s). Reloading model on CPU int8.", exc)
+            active_model = _fallback_to_cpu_model()
+            segments, info = active_model.transcribe(audio, **kwargs)
+            text = " ".join(s.text for s in segments).strip()
+    language_name = getattr(info, "language", language or "auto")
+    probability = getattr(info, "language_probability", None)
+    result: dict[str, Any] = {"text": text, "language": language_name}
+    if probability is not None:
+        result["language_probability"] = probability
+    return result
+
+
+def _coerce_audio_samples(value: Any) -> np.ndarray:
+    if not isinstance(value, list) or not value:
+        raise ValueError("audio must be a non-empty array of float samples.")
+    try:
+        samples = np.asarray(value, dtype=np.float32)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("audio must contain numeric samples.") from exc
+    if samples.ndim > 2:
+        raise ValueError("audio must be a one-dimensional array or a mono/stereo array.")
+    if samples.ndim == 2:
+        samples = samples.mean(axis=1, dtype=np.float32)
+    if not np.all(np.isfinite(samples)):
+        raise ValueError("audio samples must be finite numbers.")
+    return np.clip(samples, -1.0, 1.0).astype(np.float32, copy=False)
+
+
+@app.route("/transcribe", methods=["POST"])
+def transcribe_upload():
+    """Transcribe uploaded audio files or JSON float samples without using the recorder."""
+    try:
+        lang: str | None
+        if request.files:
+            uploaded = request.files.get("file")
+            if uploaded is None or not uploaded.filename:
+                return _error("Missing uploaded audio file field named 'file'.", 400)
+            lang = _normalize_language(request.form.get("language"))
+            suffix = Path(uploaded.filename).suffix or ".audio"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+                tmp_path = Path(tmp_file.name)
+                uploaded.save(tmp_file)
+            try:
+                result = _transcribe_audio(str(tmp_path), lang)
+            finally:
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    logger.debug("Failed to delete temporary upload: %s", tmp_path)
+        else:
+            payload = _json_payload()
+            lang = _normalize_language(payload.get("language"))
+            audio = _coerce_audio_samples(payload.get("audio"))
+            result = _transcribe_audio(audio, lang)
+        cfg = load_config()
+        result["text"] = _post_process_text(result["text"], str(cfg.get("text_mode", "plain")))
+        return jsonify(result)
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    except RuntimeError as exc:
+        logger.warning("Transcription is unavailable: %s", exc)
+        return _error(f"Transcription is unavailable: {exc}", 503)
+    except Exception as exc:
+        logger.exception("Transcription failed.")
+        return _error(f"Transcription failed: {exc}", 500)
 
 
 @app.route("/models")
@@ -800,6 +989,26 @@ def models():
             "model_loaded": model_loaded,
             "model_state": model_state,
             "models": MODEL_INFO,
+            "device_options": sorted(VALID_DEVICES),
+            "compute_type_options": sorted(VALID_COMPUTE_TYPES),
+            "cuda_available": _cuda_device_count() > 0,
+            "cpu_threads": _cpu_threads,
+        }
+    )
+
+
+@app.route("/hardware")
+def hardware():
+    cuda_count = _cuda_device_count()
+    return jsonify(
+        {
+            "cpu_threads": _default_cpu_threads(),
+            "cuda_available": cuda_count > 0,
+            "cuda_device_count": cuda_count,
+            "active_device": _device,
+            "active_compute_type": _compute_type,
+            "supported_devices": sorted(VALID_DEVICES),
+            "supported_compute_types": sorted(VALID_COMPUTE_TYPES),
         }
     )
 
@@ -877,6 +1086,10 @@ def diagnostics():
             "model_state": model_state,
             "device": _device,
             "compute_type": _compute_type,
+            "cuda_device_count": _cuda_device_count(),
+            "cpu_threads": _cpu_threads,
+            "runtime_dir": os.environ.get("VOICECODE_RUNTIME_DIR"),
+            "model_dir": os.environ.get("VOICECODE_MODEL_DIR"),
         }
     )
 
@@ -905,7 +1118,7 @@ def stats():
 
     gpu_info = None
     try:
-        if ctranslate2.get_cuda_device_count() > 0 and _device == "cuda":
+        if _cuda_device_count() > 0 and _device == "cuda":
             try:
                 import pynvml  # type: ignore[import-not-found]
             except Exception:

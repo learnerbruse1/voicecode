@@ -1,99 +1,49 @@
-# FAQ
+﻿# FAQ
 
-## Why does the browser preview say the site cannot be reached?
+## Does VoiceCode require an internet connection?
 
-The local web UI is served by VoiceCode on `127.0.0.1:7788`. Start the app with `run.ps1`, `run.bat`, `python main.py`, `python -m voicecode`, or the installed `VoiceCode.exe`. If the server cannot start, VoiceCode shows a startup error dialog.
+Only for the first download of a selected Whisper model. After the model is cached, VoiceCode can run offline. Set `VOICECODE_OFFLINE=1` to prevent downloads and require cached models.
 
-## Why does VoiceCode report that the port is already used?
+## Which model should I choose?
 
-VoiceCode only accepts a `/health` response from the current process PID. If another VoiceCode instance is already running, close it or use a different `PORT`. If another local service is using the same port and does not identify itself as VoiceCode, stop that service or change `PORT`.
+- `tiny`: fastest, lowest accuracy.
+- `base`: good CPU default.
+- `small`: better accuracy while still practical on CPU.
+- `medium`: higher accuracy; GPU recommended for interactive use.
+- `large-v3`: best multilingual accuracy; GPU strongly recommended.
+- `distil-large-v3`: faster distilled large model; GPU recommended.
 
+## How does GPU support work?
 
-## Why did my API request return `JSON payload must be an object`?
+VoiceCode uses `faster-whisper`, which uses CTranslate2. If CTranslate2 detects CUDA, `device=auto` chooses `cuda/float16`. If CUDA initialization or inference fails, VoiceCode falls back to `cpu/int8`.
 
-VoiceCode accepts empty request bodies for endpoints that have defaults, but non-empty JSON request bodies must be valid JSON objects. `null`, arrays, strings, malformed JSON, and other non-object payloads are rejected to avoid accidental side effects such as starting recording or reloading a model.
+## Can I force CPU mode?
 
-## How can I preview the UI without loading a Whisper model?
-
-Set:
+Yes:
 
 ```powershell
-$env:VOICECODE_SKIP_MODEL_LOAD = "1"
+$env:WHISPER_DEVICE = "cpu"
+$env:WHISPER_COMPUTE_TYPE = "int8"
 python -m voicecode
 ```
 
-The UI will open and `/status` will report that model loading was skipped. Recording/transcription will remain disabled until model loading is enabled again.
+You can also choose CPU from the UI.
 
-## What should I do if model download fails?
+## Why remove installer scripts?
 
-Check network access, try a different mirror, or manually prepare a compatible faster-whisper model. The Model/Diagnostics panels expose the current model state and error details.
-
-For packaged Windows installs, model downloads and cache files are intended to stay under:
-
-```text
-<install-dir>\runtime\cache
-<install-dir>\runtime\models
-```
-
-Make sure the selected install directory is writable by the current user.
-
-## Where are downloaded models and runtime caches stored?
-
-In development runs, VoiceCode normally uses the standard Hugging Face cache locations unless you set `VOICECODE_RUNTIME_DIR` or lower-level Hugging Face cache variables.
-
-In packaged PyInstaller/installer builds, the launcher defaults to:
-
-```text
-<install-dir>\runtime
-```
-
-and configures Hugging Face / transformer caches below that folder.
-
-## What should I do if the microphone does not work?
-
-Open the Microphone selector in settings, choose a different input device, then try recording again. Also check Windows microphone privacy settings and whether another app is holding the device.
+This repository is maintained as a clean open-source Python project. Generated installer artifacts and one-click local setup scripts often become stale, hide errors, and make cross-platform support harder. Use virtual environments, `pip install -e .`, and CI-tested commands instead.
 
 ## Where are settings stored?
 
-Windows default: `%APPDATA%\VoiceCode\config.json`. Override with `VOICECODE_CONFIG_FILE`.
+- Windows: `%APPDATA%\VoiceCode\config.json`
+- Linux/macOS: `$XDG_CONFIG_HOME/voicecode/config.json` or `~/.config/voicecode/config.json`
 
-Settings are intentionally kept in a user-writable config directory rather than inside the installed package directory.
+Logs and history are stored next to the config file unless overridden.
 
-## Where are logs stored?
+## Is audio sent to a cloud service?
 
-Windows default: `%APPDATA%\VoiceCode\logs\voicecode.log`. Override with `VOICECODE_LOG_FILE`.
+No. VoiceCode transcribes locally with the selected Whisper model. Model downloads can contact the model host unless the model is already cached or `VOICECODE_OFFLINE=1` is set.
 
-## Where is transcript history stored?
+## Can I use VoiceCode from another local tool?
 
-History is stored locally next to the config file in `history.jsonl` and can be disabled in settings. Override with `VOICECODE_HISTORY_FILE`.
-
-## Does VoiceCode upload audio?
-
-No. Audio is sent only to the local service at `127.0.0.1` and processed locally by Whisper.
-
-## Which UI and transcription languages are supported?
-
-The UI supports English, Simplified Chinese, and Japanese. Transcription language options are auto detect, Chinese, English, and Japanese. Logs and technical error details remain English for release diagnostics.
-
-## How do text modes work?
-
-Text modes apply lightweight post-processing after transcription:
-
-- `Plain`: trimmed raw text
-- `Coding`: simple spoken-token replacements such as `open parenthesis` -> `(`
-- `Markdown`: simple heading/list prefixes
-- `Prompt`: trims and appends final punctuation when missing
-
-## Can I install VoiceCode to a custom folder?
-
-Yes. The Windows installer shows the directory selection page and defaults to:
-
-```text
-%LOCALAPPDATA%\Programs\VoiceCode
-```
-
-Choose a user-writable path so VoiceCode can create its packaged `runtime` cache directories.
-
-## Can I move the installed folder later?
-
-The one-folder app is designed to keep dependencies and runtime caches together, but a standard installer also creates Start Menu shortcuts and uninstall registry entries. If you want a portable-style move, rebuild or distribute `packaging\installer\dist\VoiceCode\` directly, or reinstall to the new path.
+Yes. Use `POST /transcribe` with a multipart `file` upload or JSON float samples. See [API.md](API.md).
