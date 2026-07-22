@@ -2,93 +2,124 @@
 
 [English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
 
-VoiceCode は、ローカルでオフライン動作するデスクトップ音声入力ツールです。プログラミング、ドキュメント作成、日常のテキスト入力で利用できます。マイク音声を録音し、ローカルの Whisper モデルで文字起こしし、グローバルホットキーで現在のアプリに入力できます。
+VoiceCode は、ローカルでオフライン動作するデスクトップ音声入力ツールです。プログラミング、ドキュメント作成、日常のテキスト入力に利用できます。マイク音声を録音し、ローカルの Whisper モデルで文字起こしし、グローバルなプッシュトゥトーク・ホットキーで現在のアプリに入力できます。
 
 ## 主な機能
 
-- `faster-whisper` によるローカル・オフライン文字起こし
-- `pywebview` ベースの Windows デスクトップ UI
-- `127.0.0.1` のみにバインドするローカル Flask/Waitress API
-- 押して話すグローバルホットキー
-- 英語、簡体字中国語、日本語の UI 言語切り替え
-- 自動検出、中国語、英語、日本語の文字起こし言語選択
-- マイクデバイス選択とローカル診断パネル
-- 任意で有効化できるローカル文字起こし履歴
-- プレーン、コーディング、Markdown、Prompt のテキスト後処理モード
-- `VOICECODE_SKIP_MODEL_LOAD=1` によるモデルなしプレビューモード
-- PowerShell / cmd の UTF-8 出力対応
-- ログ、例外、API エラーは英語で出力し、問題調査をしやすくする設計
-- 設定はインストール先ではなくユーザーディレクトリに保存
-- `python -m voicecode` と `voicecode` コマンドに対応
+- faster-whisper によるローカル・オフライン文字起こし
+- pywebview ベースの Windows デスクトップ UI
+- 127.0.0.1 のみにバインドするローカル Flask/Waitress API
+- グローバルなプッシュトゥトーク・ホットキー
+- 英語、簡体字中国語、日本語の UI 切り替え
+- 文字起こし言語：自動検出、中国語、英語、日本語
+- モデルなしプレビューモード：VOICECODE_SKIP_MODEL_LOAD=1
+- Plain、Coding、Markdown、Prompt のテキスト後処理モード
+- 任意のローカル履歴、マイク選択、診断パネル
+- インストール先を選択できる Windows 標準インストーラー
+- パッケージ版では将来のモデルダウンロードとキャッシュをインストール先に集約
 
-## 必要環境
+## 一般ユーザー向けインストール
 
-- 主なサポート対象は Windows 10/11
-- Python 3.10 以上
-- マイクアクセス権限
-- CUDA 推論用の NVIDIA GPU は任意
+推奨インストーラー：
 
-## クイックスタート
+~~~text
+packaging/installer/Output/VoiceCodeSetup-0.1.0.exe
+~~~
 
-### PowerShell
+インストール時にインストール先フォルダーを選択できます。既定値は：
 
-```powershell
+~~~text
+%LOCALAPPDATA%\Programs\VoiceCode
+~~~
+
+インストーラーを使う場合、ユーザーが Python を別途インストールする必要はありません。Python ランタイム、Python パッケージ、ネイティブ依存関係はインストール先に配置されます。将来 Hugging Face / faster-whisper がダウンロードするモデルとキャッシュは以下に保存されます：
+
+~~~text
+<install-dir>\runtime\cache
+<install-dir>\runtime\models
+~~~
+
+これにより、アプリ本体と大きなランタイムファイルを同じ場所にまとめ、バックアップ、移動、削除を簡単にできます。
+
+## 開発実行
+
+PowerShell：
+
+~~~powershell
 .\setup.ps1
 .\run.ps1
-```
+~~~
 
-### cmd.exe
+cmd.exe：
 
-```bat
+~~~bat
 setup.bat
 run.bat
-```
+~~~
 
-### Python パッケージとして実行
+Python パッケージとして実行：
 
-```powershell
+~~~powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -e .
 .\.venv\Scripts\voicecode.exe
-```
+~~~
 
 または：
 
-```powershell
+~~~powershell
 python -m voicecode
-```
+~~~
 
-## 設定
+## 設定とランタイムデータ
 
-デフォルトの設定ファイル保存先：
+- Windows の設定既定値：%APPDATA%\VoiceCode\config.json
+- Windows のログ既定値：%APPDATA%\VoiceCode\logs\voicecode.log
+- 文字起こし履歴の既定値：設定ファイルの近くにある history.jsonl
+- パッケージ版のモデルとダウンロードキャッシュ既定値：<install-dir>\runtime
 
-- Windows：`%APPDATA%\VoiceCode\config.json`
-- Linux/macOS：`$XDG_CONFIG_HOME/voicecode/config.json` または `~/.config/voicecode/config.json`
+主な環境変数：VOICECODE_CONFIG_FILE、VOICECODE_STATIC_DIR、VOICECODE_RUNTIME_DIR、VOICECODE_MODEL_DIR、VOICECODE_LOG_FILE、VOICECODE_HISTORY_FILE、VOICECODE_SKIP_MODEL_LOAD、VOICECODE_ENABLE_TRAY、PORT、WHISPER_MODEL。
 
-主な環境変数：
+## Windows インストーラーのビルド
 
-| 変数 | 用途 |
-| --- | --- |
-| `VOICECODE_CONFIG_FILE` | 設定ファイルの場所を上書き |
-| `VOICECODE_STATIC_DIR` | Web UI の静的ファイルディレクトリを上書き |
-| `VOICECODE_LOG_LEVEL` | ログレベルを設定、例：`DEBUG` |
-| `PORT` | ローカル HTTP ポートを設定、デフォルトは `7788` |
-| `WHISPER_MODEL` | 起動時に読み込む Whisper モデル、デフォルトは `base` |
+~~~powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\installer\build-installer.ps1
+~~~
+
+出力：
+
+~~~text
+packaging\installer\dist\VoiceCode\
+packaging\installer\Output\VoiceCodeSetup-0.1.0.exe
+~~~
+
+Inno Setup がない場合は one-folder アプリのみ作成できます：
+
+~~~powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\installer\build-installer.ps1 -SkipInno
+~~~
+
+## 最終リリース検証
+
+現在のリリース候補は以下を通過しています：
+
+- ruff format --check
+- ruff check
+- mypy
+- pytest（35 passed）
+- py_compile
+- wheel ビルド
+- PyInstaller one-folder ビルド
+- Inno Setup インストーラービルド
+- カスタムディレクトリへのサイレントインストール/アンインストール smoke test
+
+API 入力検証では、不正な JSON、JSON null、object 以外の payload、boolean と integer の混同、不正なホットキー修飾キー、重複起動、モデル再読み込み競合、録音キャンセル順序などの境界もカバーしています。
 
 ## プライバシー
 
-VoiceCode はローカル動作を前提に設計されています。音声は本機の `127.0.0.1` 上のローカルサービスにのみ送信され、ローカルの Whisper モデルで処理されます。
-
-## 開発時のチェック
-
-```powershell
-python -m pytest
-python -m ruff check app.py main.py tests src/voicecode
-python -m mypy app.py main.py src/voicecode
-python -m pip wheel . --no-deps -w dist
-```
+VoiceCode はローカル動作を前提に設計されています。音声はローカルマシン上の 127.0.0.1 のサービスにのみ送信され、ローカルの Whisper モデルで処理されます。文字起こし履歴、ログ、設定、モデルキャッシュはローカルファイルであり、VoiceCode がアップロードすることはありません。
 
 ## ライセンス
 
-MIT。詳しくは [LICENSE](LICENSE) を参照してください。
+MIT。詳細は [LICENSE](LICENSE) を参照してください。

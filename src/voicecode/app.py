@@ -39,6 +39,7 @@ import numpy as np  # noqa: E402
 import sounddevice as sd  # type: ignore[import-untyped]  # noqa: E402
 from faster_whisper import WhisperModel  # type: ignore[import-untyped]  # noqa: E402
 from flask import Flask, jsonify, request, send_from_directory  # noqa: E402
+from werkzeug.exceptions import BadRequest, UnsupportedMediaType  # noqa: E402
 
 logging.basicConfig(
     level=os.environ.get("VOICECODE_LOG_LEVEL", "INFO"),
@@ -249,9 +250,13 @@ ALLOWED_CONFIG_KEYS = set(DEFAULT_CONFIG)
 
 
 def _json_payload() -> dict[str, Any]:
-    payload = request.get_json(silent=True)
-    if payload is None:
+    raw_body = request.get_data(cache=True)
+    if not raw_body or not raw_body.strip():
         return {}
+    try:
+        payload = request.get_json(silent=False)
+    except (BadRequest, UnsupportedMediaType) as exc:
+        raise ValueError("JSON payload must be a valid object.") from exc
     if not isinstance(payload, dict):
         raise ValueError("JSON payload must be an object.")
     return payload
@@ -292,7 +297,7 @@ def _validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("history_enabled must be a boolean.")
     if "history_limit" in patch:
         limit = patch["history_limit"]
-        if not isinstance(limit, int) or not 1 <= limit <= 500:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
             raise ValueError("history_limit must be an integer between 1 and 500.")
     if "append_mode" in patch and patch["append_mode"] not in {"append", "replace"}:
         raise ValueError("Unsupported append mode. Use append or replace.")
@@ -306,13 +311,18 @@ def _validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("hotkey must be an object.")
         modifiers = hotkey.get("modifiers", [])
         key = hotkey.get("key", "")
+        allowed_modifiers = {"alt", "ctrl", "shift"}
         if not isinstance(modifiers, list) or not all(isinstance(m, str) for m in modifiers):
             raise ValueError("hotkey.modifiers must be a string array.")
-        if not isinstance(key, str) or not key:
+        normalized_modifiers = [m.strip().lower() for m in modifiers]
+        unsupported_modifiers = sorted(set(normalized_modifiers) - allowed_modifiers)
+        if unsupported_modifiers:
+            raise ValueError("Unsupported hotkey modifiers: " + ", ".join(unsupported_modifiers))
+        if not isinstance(key, str) or not key.strip():
             raise ValueError("hotkey.key must be a non-empty string.")
         patch["hotkey"] = {
-            "modifiers": [m.lower() for m in modifiers if m.lower() in {"alt", "ctrl", "shift"}],
-            "key": key.lower(),
+            "modifiers": normalized_modifiers,
+            "key": key.strip().lower(),
         }
     return patch
 
@@ -352,11 +362,13 @@ def load_config() -> dict[str, Any]:
 def save_config(cfg: dict[str, Any]) -> None:
     cfg = _validate_config_patch(dict(cfg))
     with _config_lock:
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-        tmp = f"{CONFIG_FILE}.tmp"
+        config_path = Path(CONFIG_FILE).expanduser()
+        config_dir = config_path.resolve().parent
+        config_dir.mkdir(parents=True, exist_ok=True)
+        tmp = config_path.with_name(f"{config_path.name}.tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, CONFIG_FILE)
+        os.replace(tmp, config_path)
 
 
 STATIC_DIR = os.environ.get("VOICECODE_STATIC_DIR") or os.path.join(
@@ -824,7 +836,10 @@ def audio_devices():
 @app.route("/history", methods=["GET"])
 def get_history():
     cfg = load_config()
-    limit = int(request.args.get("limit", cfg.get("history_limit", 50)))
+    try:
+        limit = int(request.args.get("limit", cfg.get("history_limit", 50)))
+    except (TypeError, ValueError):
+        return _error("limit must be an integer between 1 and 500.", 400)
     limit = max(1, min(limit, 500))
     return jsonify({"entries": _read_history(limit)})
 

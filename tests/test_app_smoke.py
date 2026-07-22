@@ -105,6 +105,52 @@ def test_reload_model_validates_input(client):
     assert response.get_json()["error"] == "Unsupported model: bad-model"
 
 
+def test_malformed_json_request_is_rejected_without_side_effects(client, app_module, monkeypatch):
+    load_called = False
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal load_called
+        load_called = True
+        raise AssertionError("malformed JSON must not trigger model loading")
+
+    monkeypatch.setattr(app_module, "_load_model_sync", fail_if_called)
+
+    response = client.post("/reload_model", data="{", content_type="application/json")
+
+    assert response.status_code == 400
+    assert "JSON payload" in response.get_json()["error"]
+    assert load_called is False
+
+    response = client.post("/record/start", data="{", content_type="application/json")
+
+    assert response.status_code == 400
+    assert "JSON payload" in response.get_json()["error"]
+    assert app_module._recorder.is_recording() is False
+
+
+def test_json_null_request_is_rejected_without_side_effects(client, app_module, monkeypatch):
+    load_called = False
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal load_called
+        load_called = True
+        raise AssertionError("JSON null must not trigger model loading")
+
+    monkeypatch.setattr(app_module, "_load_model_sync", fail_if_called)
+
+    response = client.post("/reload_model", data="null", content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "JSON payload must be an object."
+    assert load_called is False
+
+    response = client.post("/record/start", data="null", content_type="application/json")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "JSON payload must be an object."
+    assert app_module._recorder.is_recording() is False
+
+
 def test_record_start_failure_does_not_leave_recorder_active(client, app_module):
     DummyStream.fail_start = True
     response = client.post("/record/start", json={"language": "en"})
@@ -155,6 +201,15 @@ def test_save_config_creates_parent_directory(tmp_path, app_module):
     app_module.save_config(app_module.DEFAULT_CONFIG)
 
     assert (tmp_path / "nested" / "config.json").is_file()
+
+
+def test_save_config_accepts_relative_filename(tmp_path, app_module, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    app_module.CONFIG_FILE = "config.json"
+
+    app_module.save_config(app_module.DEFAULT_CONFIG)
+
+    assert (tmp_path / "config.json").is_file()
 
 
 def test_package_launcher_and_static_asset_are_importable():
@@ -329,6 +384,13 @@ def test_history_and_diagnostics_endpoints(client):
     assert response.get_json()["status"] == "cleared"
 
 
+def test_history_rejects_non_integer_limit(client):
+    response = client.get("/history?limit=abc")
+
+    assert response.status_code == 400
+    assert "limit" in response.get_json()["error"]
+
+
 def test_packaging_files_exist():
     repo_root = Path(__file__).resolve().parents[1]
 
@@ -362,6 +424,34 @@ def test_config_rejects_boolean_audio_device(client):
 
     assert response.status_code == 400
     assert "audio_device" in response.get_json()["error"]
+
+
+def test_config_rejects_boolean_history_limit(client):
+    response = client.post("/config", json={"history_limit": True})
+
+    assert response.status_code == 400
+    assert "history_limit" in response.get_json()["error"]
+
+
+@pytest.mark.parametrize(
+    "hotkey,error_fragment",
+    [
+        ({"modifiers": ["cmd"], "key": "x"}, "Unsupported hotkey modifiers"),
+        ({"modifiers": ["alt"], "key": "   "}, "hotkey.key"),
+    ],
+)
+def test_config_rejects_invalid_hotkey_values(client, hotkey, error_fragment):
+    response = client.post("/config", json={"hotkey": hotkey})
+
+    assert response.status_code == 400
+    assert error_fragment in response.get_json()["error"]
+
+
+def test_config_normalizes_hotkey_values(client):
+    response = client.post("/config", json={"hotkey": {"modifiers": [" Alt "], "key": " Z "}})
+
+    assert response.status_code == 200
+    assert response.get_json()["hotkey"] == {"modifiers": ["alt"], "key": "z"}
 
 
 def test_load_config_ignores_semantically_invalid_file(client, app_module, tmp_path):
