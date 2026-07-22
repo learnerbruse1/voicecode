@@ -18,3 +18,4 @@ htmlcov/
 coverage.xml
 .tmp_wheel_test/
 .pre-commit-cache/
+.tmp_*/
