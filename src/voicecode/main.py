@@ -277,9 +277,10 @@ def _hide_console() -> None:
     if os.name != "nt":
         return
     try:
-        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        windll = getattr(ctypes, "windll")
+        hwnd = windll.kernel32.GetConsoleWindow()
         if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, 0)
+            windll.user32.ShowWindow(hwnd, 0)
     except Exception as exc:
         logger.debug("Failed to hide console window: %s", exc)
 
@@ -289,7 +290,8 @@ def _show_startup_error(exc: BaseException) -> None:
     logger.exception(message)
     if os.name == "nt":
         try:
-            ctypes.windll.user32.MessageBoxW(None, message, "VoiceCode startup failed", 0x10)
+            windll = getattr(ctypes, "windll")
+            windll.user32.MessageBoxW(None, message, "VoiceCode startup failed", 0x10)
         except Exception:
             pass
 
