@@ -9,8 +9,10 @@ All non-empty JSON request bodies must be valid JSON objects. Malformed JSON, JS
 Error responses use:
 
 ```json
-{"error": "English error message"}
+{"error": "English error message", "request_id": "short request id"}
 ```
+
+Each response also includes `X-VoiceCode-Request-ID`. The server logs request start/completion with method, path, status, duration, and request ID so UI/API failures can be correlated with log lines.
 
 ## Endpoints
 
@@ -63,6 +65,21 @@ Supported keys:
 | `font_size` | `0.85rem`, `1rem`, `1.2rem`, `1.5rem` |
 | `append_mode` | `append`, `replace` |
 | `on_top` | boolean |
+| `extensions` | object containing per-extension enable flags and options |
+
+Extension config IDs currently supported: `audio_io`, `exporters`, `hotwords`, `vad`, `zh_normalizer`, `quality`, `diarization`, and `punctuation`.
+
+Example:
+
+```json
+{
+  "extensions": {
+    "hotwords": {"enabled": true, "phrases": ["FastAPI", "CTranslate2"]},
+    "vad": {"enabled": true, "engine": "faster_whisper", "min_silence_duration_ms": 700},
+    "exporters": {"enabled": true, "formats": ["json", "txt", "srt", "vtt"]}
+  }
+}
+```
 
 ### `POST /reload_model`
 
@@ -129,10 +146,30 @@ Multipart upload:
 JSON samples:
 
 ```json
-{"audio": [0.0, 0.1, -0.1], "language": "en"}
+{"audio": [0.0, 0.1, -0.1], "language": "en", "output_format": "json"}
 ```
 
-`audio` must be a non-empty numeric sample array. One-dimensional mono arrays and two-dimensional mono/stereo arrays are accepted.
+`audio` must be a non-empty numeric sample array. One-dimensional mono arrays and two-dimensional mono/stereo arrays are accepted. `output_format` can be `json`, `txt`, `srt`, or `vtt` when the `exporters` extension is enabled.
+
+### `GET /extensions`
+
+Returns extension status, availability, optional dependencies, missing dependencies, and effective config.
+
+```json
+{
+  "extensions": [
+    {
+      "id": "hotwords",
+      "name": "Hotwords",
+      "enabled": true,
+      "available": true,
+      "optional_dependencies": [],
+      "missing_dependencies": [],
+      "config": {"enabled": true, "phrases": []}
+    }
+  ]
+}
+```
 
 ### `GET /models`
 
@@ -140,7 +177,7 @@ Returns supported model metadata, current model, active inference device, comput
 
 ### `GET /hardware`
 
-Returns hardware capability and active inference profile.
+Returns hardware capability and active inference profile. When the UI hardware switch is enabled, `device=auto` lets the backend choose the fastest available supported profile: CUDA with the best supported GPU compute type when available, otherwise CPU with an efficient compute type.
 
 ```json
 {
@@ -164,7 +201,16 @@ Writes frontend diagnostic messages through Python logging.
 
 ### `GET /stats`
 
-Returns best-effort CPU/RAM/GPU telemetry. Values may be `-1` or `null` when telemetry is unavailable.
+Returns best-effort CPU/RAM/GPU telemetry for the status bar and home page. Values may be `-1` or `null` when telemetry is unavailable.
+
+Notable fields:
+
+- `cpu`: CPU name, physical/logical cores, and frequency when available.
+- `cpu_percent`: system CPU utilization.
+- `process_cpu_percent`: VoiceCode process CPU utilization.
+- `process_memory_mb`: VoiceCode process RSS memory.
+- `system_memory_total_mb`, `system_memory_available_mb`, `system_memory_percent`: system memory details.
+- `gpu`: NVIDIA GPU name, utilization, VRAM usage, and driver version when NVML is available.
 
 ### `GET /history`
 

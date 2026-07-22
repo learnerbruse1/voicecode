@@ -29,7 +29,11 @@ flowchart TD
 
 | Path | Responsibility |
 | --- | --- |
-| `src/voicecode/app.py` | Flask routes, config validation, recorder, Whisper model lifecycle, transcription |
+| `src/voicecode/app.py` | Flask routes, JSON/API validation, Whisper model lifecycle, endpoint orchestration |
+| `src/voicecode/settings.py` | config defaults, schema validation, config/log/history paths |
+| `src/voicecode/audio.py` | microphone recorder and audio device parsing |
+| `src/voicecode/history.py` | transcript history persistence |
+| `src/voicecode/text_processing.py` | transcript post-processing modes |
 | `src/voicecode/main.py` | desktop startup, pywebview window, global hotkey callback, server readiness checks |
 | `src/voicecode/runtime.py` | runtime/cache path configuration for explicit runtime roots |
 | `src/voicecode/static/` | packaged web UI assets |
@@ -54,6 +58,8 @@ flowchart TD
 | Model reload state | `_model_state_lock` |
 | Cancellation token | `_cancel_lock` |
 | Typing callback state | `_typing_lock` in `main.py` |
+
+See `docs/MODULES.md` for module boundaries and `docs/ROADMAP.md` for optional feature ideas.
 
 ## Extension points
 

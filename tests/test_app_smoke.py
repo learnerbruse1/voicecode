@@ -20,6 +20,7 @@ class DummyCT:
 
 class DummyWhisperModel:
     fail_load = False
+    last_transcribe_kwargs = None
 
     def __init__(self, *args, **kwargs):
         if self.__class__.fail_load:
@@ -28,6 +29,8 @@ class DummyWhisperModel:
         self.kwargs = kwargs
 
     def transcribe(self, audio, **kwargs):
+        self.__class__.last_transcribe_kwargs = kwargs
+
         class Seg:
             text = "hello"
 
@@ -78,6 +81,7 @@ def app_module(monkeypatch):
     module._set_model_state("ready")
     DummyStream.fail_start = False
     DummyWhisperModel.fail_load = False
+    DummyWhisperModel.last_transcribe_kwargs = None
     yield module
     sys.modules.pop("app", None)
 
@@ -336,6 +340,80 @@ def test_transcribe_endpoint_accepts_json_audio_samples(client):
     assert response.get_json()["text"] == "hello"
 
 
+def test_extensions_endpoint_lists_default_extensions(client):
+    response = client.get("/extensions")
+
+    assert response.status_code == 200
+    extensions = {item["id"]: item for item in response.get_json()["extensions"]}
+    assert extensions["audio_io"]["enabled"] is True
+    assert extensions["exporters"]["enabled"] is True
+    assert extensions["hotwords"]["enabled"] is True
+    assert extensions["vad"]["enabled"] is True
+    assert extensions["zh_normalizer"]["enabled"] is False
+    assert extensions["quality"]["enabled"] is False
+    assert extensions["diarization"]["enabled"] is False
+    assert extensions["punctuation"]["enabled"] is False
+
+
+def test_config_validates_extension_ids_and_keys(client):
+    response = client.post("/config", json={"extensions": {"missing": {"enabled": True}}})
+    assert response.status_code == 400
+    assert "Unknown extension ids" in response.get_json()["error"]
+
+    response = client.post("/config", json={"extensions": {"hotwords": {"bad": True}}})
+    assert response.status_code == 400
+    assert "Unknown config keys for extension 'hotwords'" in response.get_json()["error"]
+
+
+def test_hotwords_and_vad_extensions_feed_transcription_kwargs(client):
+    response = client.post(
+        "/config",
+        json={
+            "extensions": {
+                "hotwords": {"enabled": True, "phrases": [" FastAPI ", "CTranslate2"]},
+                "vad": {
+                    "enabled": True,
+                    "engine": "faster_whisper",
+                    "min_silence_duration_ms": 1000,
+                },
+            }
+        },
+    )
+    assert response.status_code == 200
+
+    response = client.post("/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en"})
+
+    assert response.status_code == 200
+    kwargs = DummyWhisperModel.last_transcribe_kwargs
+    assert kwargs is not None
+    assert "FastAPI" in kwargs["initial_prompt"]
+    assert "CTranslate2" in kwargs["initial_prompt"]
+    assert kwargs["vad_filter"] is True
+    assert kwargs["vad_parameters"] == {"min_silence_duration_ms": 1000}
+
+
+def test_transcribe_endpoint_exports_text_formats(client):
+    response = client.post(
+        "/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en", "output_format": "srt"}
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/x-subrip"
+    assert "hello" in response.get_data(as_text=True)
+
+
+def test_exporters_extension_can_be_disabled(client):
+    response = client.post("/config", json={"extensions": {"exporters": {"enabled": False}}})
+    assert response.status_code == 200
+
+    response = client.post(
+        "/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en", "output_format": "txt"}
+    )
+
+    assert response.status_code == 409
+    assert "exporters extension is disabled" in response.get_json()["error"]
+
+
 def test_record_start_reports_model_unavailable(client, app_module):
     app_module.model = None
     app_module._set_model_state("error", "Model download failed")
@@ -371,6 +449,13 @@ def test_static_ui_exposes_three_language_controls():
         assert language in html
     assert 'data-i18n="label_ui_language"' in html
     assert 'data-i18n="lang_ja"' in html
+    assert 'class="sidebar"' in html
+    assert 'data-view="home"' in html
+    assert 'id="content-scroll"' in html
+    assert 'id="win-close"' in html
+    assert 'id="auto-device-toggle"' in html
+    assert 'id="device-manual-options"' in html
+    assert 'id="progress-overlay"' in html
 
 
 def test_localized_readmes_exist():
@@ -456,6 +541,11 @@ def test_stats_without_pynvml_does_not_log_warning(client, app_module, monkeypat
     response = client.get("/stats")
 
     assert response.status_code == 200
+    body = response.get_json()
+    assert "cpu" in body
+    assert "process_memory_mb" in body
+    assert "system_memory_total_mb" in body
+    assert "driver" in body["gpu"]
     assert "Failed to collect GPU stats" not in caplog.text
 
 

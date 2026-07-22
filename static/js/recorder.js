@@ -29,6 +29,7 @@ async function stopRec() {
     return;
   }
   setStatus("processing", "processing");
+  showProgress(t("processing"), t("transcribing_detail"));
   cancelBtn.style.display = "";
   const lang = langSel.value === "auto" ? "" : langSel.value;
   dbg("stop recording: POST /record/stop lang=" + lang);
@@ -40,6 +41,7 @@ async function stopRec() {
   } finally {
     currentRequest = null;
     cancelBtn.style.display = "none";
+    hideProgress();
     pollModelStatus(false);
   }
 }
@@ -63,4 +65,4 @@ copyBtn.onclick = () => {
   }).catch(err => showError(t("clipboard_failed"), err.message || t("clipboard_failed_detail")));
 };
 clearBtn.onclick = () => { text = ""; renderText(); };
-cancelBtn.onclick = () => { cancelled = true; cancelBtn.style.display = "none"; if (currentRequest) currentRequest.abort(); requestJSON("POST", "/record/cancel", {}, {silentAbort: true, suppressPopup: true}); };
+cancelBtn.onclick = () => { cancelled = true; hideProgress(); cancelBtn.style.display = "none"; if (currentRequest) currentRequest.abort(); requestJSON("POST", "/record/cancel", {}, {silentAbort: true, suppressPopup: true}); };

@@ -8,6 +8,7 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 
 - Local transcription powered by Whisper-compatible `faster-whisper` models.
 - Automatic NVIDIA CUDA detection with safe CPU fallback.
+- Automatic hardware selection UI with manual CPU/CUDA override and blocking progress overlay for long operations.
 - Configurable inference device (`auto`, `cpu`, `cuda`) and compute type (`auto`, `int8`, `float16`, `float32`, `int8_float16`).
 - Cross-platform Python package layout for Windows, macOS, and Linux development.
 - Local-only Flask/Waitress API bound to `127.0.0.1`.
@@ -93,6 +94,7 @@ See [docs/API.md](docs/API.md). Important endpoints include:
 
 - `GET /health`
 - `GET /status`
+- `GET /extensions`
 - `GET /hardware`
 - `GET /models`
 - `POST /reload_model`
@@ -101,6 +103,8 @@ See [docs/API.md](docs/API.md). Important endpoints include:
 - `GET /audio/devices`
 - `GET /history`, `POST /history/clear`
 - `GET /diagnostics`
+
+See [docs/MODULES.md](docs/MODULES.md) for module boundaries and [docs/ROADMAP.md](docs/ROADMAP.md) for optional feature ideas.
 
 All non-empty JSON request bodies must be JSON objects. Malformed JSON and non-object JSON return `400` without side effects.
 

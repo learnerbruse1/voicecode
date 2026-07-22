@@ -5,7 +5,10 @@ async function loadConfig() {
     if (!resp.ok) throw new Error(cfg.error || resp.statusText || "Failed to load config");
     modelSel.value = cfg.model || "base";
     deviceSel.value = cfg.device || "auto";
+    if (autoDeviceToggle) autoDeviceToggle.checked = deviceSel.value === "auto";
+    document.querySelectorAll("input[name='device-choice']").forEach(input => { input.checked = input.value === (deviceSel.value === "auto" ? "cpu" : deviceSel.value); });
     computeTypeSel.value = cfg.compute_type || "auto";
+    renderDeviceMode();
     beamSizeSel.value = String(cfg.beam_size || 5);
     vadFilterSel.value = String(cfg.vad_filter !== false);
     langSel.value = cfg.language || "zh";

@@ -85,3 +85,21 @@ The source-tree UI under `static/` and the packaged UI under `src/voicecode/stat
 - Keep the server local-only.
 - Validate JSON bodies before side effects.
 - Preserve compatibility wrappers unless a major-version migration removes them.
+
+## Logging
+
+VoiceCode uses English structured log messages suitable for open-source issue reports. Request logs include request ID, method, path, status, and duration. Error responses include the same request ID in the JSON body and `X-VoiceCode-Request-ID` response header.
+
+Useful variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `VOICECODE_LOG_FILE` | Override the rotating log file path |
+| `VOICECODE_LOG_LEVEL` | Set log level, for example `DEBUG` |
+| `VOICECODE_LOG_MAX_BYTES` | Max bytes per log file before rotation |
+| `VOICECODE_LOG_BACKUP_COUNT` | Number of rotated log files to keep |
+| `VOICECODE_DISABLE_FILE_LOG` | Disable file logging for tests or temporary runs |
+
+## Frontend layout
+
+The desktop UI uses a left navigation rail and a right-side scrollable content area. Keep primary speech-to-text controls on the Home page. Move settings, extensions, history, diagnostics, and project information into separate views. For operations that can take time, such as model reload or transcription, use the global progress overlay so the page is dimmed and accidental interactions are discouraged.

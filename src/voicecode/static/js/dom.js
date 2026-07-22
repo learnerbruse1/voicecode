@@ -34,6 +34,26 @@ var errorMessage = $("error-message");
 var errorClose = $("error-close");
 var errorCopy = $("error-copy");
 
+var contentScroll = $("content-scroll");
+var viewTitle = $("view-title");
+var viewSubtitle = $("view-subtitle");
+var systemStatusEl = $("system-status");
+var homeMetricsEl = $("home-metrics");
+var historyListEl = $("history-list");
+var diagnosticsOutputEl = $("diagnostics-output");
+var extensionsListEl = $("extensions-list");
+var extensionsRefreshBtn = $("extensions-refresh");
+var winMinBtn = $("win-min");
+var winMaxBtn = $("win-max");
+var winCloseBtn = $("win-close");
+var autoDeviceToggle = $("auto-device-toggle");
+var autoDeviceCurrent = $("auto-device-current");
+var manualDeviceOptions = $("device-manual-options");
+var progressOverlay = $("progress-overlay");
+var progressTitle = $("progress-title");
+var progressDetail = $("progress-detail");
+var progressClose = $("progress-close");
+
 var uiLanguage = "en";
 var recording = false;
 var text = "";
@@ -77,6 +97,29 @@ function dbg(msg) {
   dbgEl.textContent = dbgLines.join("\n");
   fetch("/log", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({msg})}).catch(() => {});
 }
+
+
+function showProgress(title, detail) {
+  if (!progressOverlay) return;
+  progressTitle.textContent = title || t("operation_in_progress");
+  progressDetail.textContent = detail || t("please_wait");
+  progressOverlay.classList.add("show");
+  progressOverlay.setAttribute("aria-hidden", "false");
+  document.body.classList.add("progress-active");
+}
+
+function updateProgress(detail) {
+  if (progressDetail && detail) progressDetail.textContent = detail;
+}
+
+function hideProgress() {
+  if (!progressOverlay) return;
+  progressOverlay.classList.remove("show");
+  progressOverlay.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("progress-active");
+}
+
+if (progressClose) progressClose.onclick = hideProgress;
 
 function renderText() {
   if (text) {

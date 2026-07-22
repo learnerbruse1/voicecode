@@ -171,6 +171,54 @@ def _start_listener(hotkey_cfg):
 
 
 class Api:
+    def minimize_window(self):
+        if not _window:
+            return False
+        try:
+            method = getattr(_window, "minimize", None)
+            if method:
+                method()
+                return True
+        except Exception as exc:
+            logger.warning("Failed to minimize VoiceCode window: %s", exc)
+        return False
+
+    def toggle_maximize_window(self):
+        if os.name == "nt":
+            try:
+                user32 = ctypes.windll.user32
+                hwnd = user32.FindWindowW(None, "VoiceCode - Speech to Text")
+                if hwnd:
+                    sw_maximize = 3
+                    sw_restore = 9
+                    if user32.IsZoomed(hwnd):
+                        user32.ShowWindow(hwnd, sw_restore)
+                    else:
+                        user32.ShowWindow(hwnd, sw_maximize)
+                    return True
+            except Exception as exc:
+                logger.warning("Failed to toggle maximize state: %s", exc)
+        if _window:
+            for method_name in ("toggle_fullscreen", "maximize", "restore"):
+                method = getattr(_window, method_name, None)
+                if method:
+                    try:
+                        method()
+                        return True
+                    except Exception as exc:
+                        logger.debug("window.%s failed: %s", method_name, exc)
+        return False
+
+    def close_window(self):
+        if not _window:
+            return False
+        try:
+            _window.destroy()
+            return True
+        except Exception as exc:
+            logger.warning("Failed to close VoiceCode window: %s", exc)
+            return False
+
     def set_on_top(self, on_top):
         if os.name != "nt":
             logger.info("Always-on-top is only supported on Windows in this build.")
@@ -347,9 +395,9 @@ def main() -> None:
     _window = webview.create_window(
         "VoiceCode - Speech to Text",
         f"http://127.0.0.1:{server.PORT}",
-        width=860,
-        height=700,
-        min_size=(620, 520),
+        width=1120,
+        height=760,
+        min_size=(860, 560),
         resizable=True,
         js_api=Api(),
     )

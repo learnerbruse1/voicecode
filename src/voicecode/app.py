@@ -1,14 +1,13 @@
 import atexit
 from pathlib import Path
-import json
 import logging
 import multiprocessing
 import platform
-import re
 import os
 import sys
-import tempfile
 import threading
+import time
+import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
@@ -38,8 +37,15 @@ import ctranslate2  # type: ignore[import-untyped]  # noqa: E402
 import numpy as np  # noqa: E402
 import sounddevice as sd  # type: ignore[import-untyped]  # noqa: E402
 from faster_whisper import WhisperModel  # type: ignore[import-untyped]  # noqa: E402
-from flask import Flask, jsonify, request, send_from_directory  # noqa: E402
+from flask import Flask, Response, g, jsonify, request, send_from_directory  # noqa: E402
 from werkzeug.exceptions import BadRequest, UnsupportedMediaType  # noqa: E402
+
+from . import history as history_store  # noqa: E402
+from . import settings as settings_store  # noqa: E402
+from .audio import Recorder, normalize_audio_device as _normalize_audio_device  # noqa: E402
+from .extensions import audio_io, exporters, hotwords, registry as extension_registry, vad  # noqa: E402
+from .extensions import punctuation, zh_normalizer  # noqa: E402
+from .text_processing import post_process_text as _post_process_text  # noqa: E402
 
 logging.basicConfig(
     level=os.environ.get("VOICECODE_LOG_LEVEL", "INFO"),
@@ -49,25 +55,47 @@ logger = logging.getLogger("voicecode.app")
 
 app = Flask(__name__, static_folder="static")
 
+
+@app.before_request
+def _log_request_start() -> None:
+    g.request_id = uuid.uuid4().hex[:12]
+    g.request_started_at = time.perf_counter()
+    logger.debug(
+        "Request started: id=%s method=%s path=%s remote=%s content_type=%s",
+        g.request_id,
+        request.method,
+        request.path,
+        request.remote_addr,
+        request.content_type,
+    )
+
+
+@app.after_request
+def _log_request_done(response):  # noqa: ANN001
+    elapsed_ms = (
+        time.perf_counter() - getattr(g, "request_started_at", time.perf_counter())
+    ) * 1000
+    logger.info(
+        "Request completed: id=%s method=%s path=%s status=%s duration_ms=%.1f",
+        getattr(g, "request_id", "unknown"),
+        request.method,
+        request.path,
+        response.status_code,
+        elapsed_ms,
+    )
+    response.headers.setdefault("X-VoiceCode-Request-ID", getattr(g, "request_id", "unknown"))
+    return response
+
+
 PORT = int(os.environ.get("PORT", 7788))
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base")
-VALID_MODELS = {"tiny", "base", "small", "medium", "large-v3", "distil-large-v3"}
-VALID_LANGUAGES = {"", "auto", "zh", "en", "ja", None}
-VALID_UI_LANGUAGES = {"en", "zh", "ja"}
-VALID_TEXT_MODES = {"plain", "coding", "markdown", "prompt"}
-VALID_DEVICES = {"auto", "cpu", "cuda"}
-VALID_COMPUTE_TYPES = {"auto", "default", "int8", "int8_float16", "int16", "float16", "float32"}
-MODEL_INFO = {
-    "tiny": {"size": "~75 MB", "description": "Fastest, lowest resource usage."},
-    "base": {"size": "~150 MB", "description": "Recommended CPU default."},
-    "small": {"size": "~500 MB", "description": "Better accuracy on modern CPUs/GPUs."},
-    "medium": {"size": "~1.5 GB", "description": "High accuracy, slower on CPU."},
-    "large-v3": {"size": "~3 GB", "description": "Best multilingual accuracy; GPU recommended."},
-    "distil-large-v3": {
-        "size": "~1.5 GB",
-        "description": "Fast large-v3 distilled model; NVIDIA GPU recommended.",
-    },
-}
+VALID_MODELS = settings_store.VALID_MODELS
+VALID_DEVICES = settings_store.VALID_DEVICES
+VALID_COMPUTE_TYPES = settings_store.VALID_COMPUTE_TYPES
+MODEL_INFO = settings_store.MODEL_INFO
+DEFAULT_CONFIG = settings_store.DEFAULT_CONFIG
+ALLOWED_CONFIG_KEYS = settings_store.ALLOWED_CONFIG_KEYS
+CONFIG_FILE = settings_store.CONFIG_FILE
 
 
 def _cuda_device_count() -> int:
@@ -89,29 +117,32 @@ def _default_cpu_threads() -> int:
 
 
 def _normalize_device_preference(value: Any) -> str:
-    if value in (None, ""):
-        return "auto"
-    if not isinstance(value, str):
-        raise ValueError("device must be one of: auto, cpu, cuda.")
-    normalized = value.strip().lower()
-    if normalized not in VALID_DEVICES:
-        raise ValueError("device must be one of: auto, cpu, cuda.")
-    return normalized
+    return settings_store.normalize_device_preference(value)
 
 
 def _normalize_compute_type(value: Any) -> str:
-    if value in (None, ""):
-        return "auto"
-    if not isinstance(value, str):
-        raise ValueError(
-            "compute_type must be one of: auto, default, int8, int8_float16, int16, float16, float32."
-        )
-    normalized = value.strip().lower()
-    if normalized not in VALID_COMPUTE_TYPES:
-        raise ValueError(
-            "compute_type must be one of: auto, default, int8, int8_float16, int16, float16, float32."
-        )
-    return normalized
+    return settings_store.normalize_compute_type(value)
+
+
+def _supported_compute_types(device: str) -> set[str]:
+    try:
+        return {str(item) for item in ctranslate2.get_supported_compute_types(device)}
+    except Exception as exc:
+        logger.debug("Failed to query supported compute types for %s: %s", device, exc)
+        return set()
+
+
+def _auto_compute_type(device: str) -> str:
+    supported = _supported_compute_types(device)
+    preferences = (
+        ("float16", "int8_float16", "int8", "float32")
+        if device == "cuda"
+        else ("int8", "int16", "float32")
+    )
+    for candidate in preferences:
+        if not supported or candidate in supported:
+            return candidate
+    return "float16" if device == "cuda" else "int8"
 
 
 def _resolve_device_profile(
@@ -124,7 +155,7 @@ def _resolve_device_profile(
     cuda_available = _cuda_device_count() > 0
     actual_device = "cuda" if requested_device in {"auto", "cuda"} and cuda_available else "cpu"
     if requested_compute in {"auto", "default"}:
-        actual_compute = "float16" if actual_device == "cuda" else "int8"
+        actual_compute = _auto_compute_type(actual_device)
     else:
         actual_compute = requested_compute
     return actual_device, actual_compute, _default_cpu_threads()
@@ -245,7 +276,7 @@ def _ensure_model_loaded() -> WhisperModel:
 
 
 def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+    return settings_store.env_flag(name)
 
 
 def _start_initial_model_load() -> None:
@@ -268,33 +299,27 @@ def _start_initial_model_load() -> None:
     future.add_done_callback(lambda f: _model_reload_done(f, MODEL_SIZE))
 
 
+def _sync_config_file() -> None:
+    settings_store.CONFIG_FILE = CONFIG_FILE
+
+
 def _default_config_file() -> str:
-    if os.name == "nt":
-        base_dir = os.environ.get("APPDATA") or os.path.join(Path.home(), "AppData", "Roaming")
-        return os.path.join(base_dir, "VoiceCode", "config.json")
-    base_dir = os.environ.get("XDG_CONFIG_HOME") or os.path.join(Path.home(), ".config")
-    return os.path.join(base_dir, "voicecode", "config.json")
-
-
-CONFIG_FILE = os.environ.get("VOICECODE_CONFIG_FILE") or _default_config_file()
+    return settings_store.default_config_file()
 
 
 def _config_dir() -> Path:
-    return Path(CONFIG_FILE).expanduser().resolve().parent
+    _sync_config_file()
+    return settings_store.config_dir(CONFIG_FILE)
 
 
 def _log_file() -> Path:
-    override = os.environ.get("VOICECODE_LOG_FILE")
-    if override:
-        return Path(override).expanduser().resolve()
-    return _config_dir() / "logs" / "voicecode.log"
+    _sync_config_file()
+    return settings_store.log_file(CONFIG_FILE)
 
 
 def _history_file() -> Path:
-    override = os.environ.get("VOICECODE_HISTORY_FILE")
-    if override:
-        return Path(override).expanduser().resolve()
-    return _config_dir() / "history.jsonl"
+    _sync_config_file()
+    return settings_store.history_file(CONFIG_FILE)
 
 
 def _configure_file_logging() -> None:
@@ -308,31 +333,16 @@ def _configure_file_logging() -> None:
         for handler in root_logger.handlers:
             if getattr(handler, "baseFilename", None) == log_file_text:
                 return
-        handler = RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+        handler = RotatingFileHandler(
+            log_file,
+            maxBytes=int(os.environ.get("VOICECODE_LOG_MAX_BYTES", "1000000")),
+            backupCount=int(os.environ.get("VOICECODE_LOG_BACKUP_COUNT", "5")),
+            encoding="utf-8",
+        )
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
         root_logger.addHandler(handler)
     except Exception as exc:
         logger.warning("Failed to configure file logging: %s", exc)
-
-
-DEFAULT_CONFIG: dict[str, Any] = {
-    "hotkey": {"modifiers": ["alt"], "key": "z"},
-    "model": "base",
-    "device": "auto",
-    "compute_type": "auto",
-    "beam_size": 5,
-    "vad_filter": True,
-    "language": "zh",
-    "ui_language": "en",
-    "audio_device": "",
-    "text_mode": "plain",
-    "history_enabled": True,
-    "history_limit": 50,
-    "font_size": "1rem",
-    "append_mode": "append",
-    "on_top": False,
-}
-ALLOWED_CONFIG_KEYS = set(DEFAULT_CONFIG)
 
 
 def _json_payload() -> dict[str, Any]:
@@ -349,82 +359,23 @@ def _json_payload() -> dict[str, Any]:
 
 
 def _error(message: str, status_code: int):
-    logger.warning("Request failed: %s", message)
-    return jsonify({"error": message}), status_code
+    logger.warning(
+        "Request failed: id=%s status=%s error=%s",
+        getattr(g, "request_id", "unknown"),
+        status_code,
+        message,
+    )
+    return jsonify(
+        {"error": message, "request_id": getattr(g, "request_id", "unknown")}
+    ), status_code
 
 
 def _normalize_language(language: Any) -> str | None:
-    if language in (None, "", "auto"):
-        return None
-    if language in {"zh", "en", "ja"}:
-        return str(language)
-    raise ValueError("Unsupported language. Use one of: auto, zh, en, ja.")
+    return settings_store.normalize_language(language)
 
 
 def _validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
-    unknown = set(patch) - ALLOWED_CONFIG_KEYS
-    if unknown:
-        raise ValueError(f"Unknown config keys: {', '.join(sorted(unknown))}")
-
-    if "model" in patch and patch["model"] not in VALID_MODELS:
-        raise ValueError(f"Unsupported model: {patch['model']}")
-    if "device" in patch:
-        patch["device"] = _normalize_device_preference(patch["device"])
-    if "compute_type" in patch:
-        patch["compute_type"] = _normalize_compute_type(patch["compute_type"])
-    if "beam_size" in patch:
-        beam_size = patch["beam_size"]
-        if (
-            isinstance(beam_size, bool)
-            or not isinstance(beam_size, int)
-            or not 1 <= beam_size <= 10
-        ):
-            raise ValueError("beam_size must be an integer between 1 and 10.")
-    if "vad_filter" in patch and not isinstance(patch["vad_filter"], bool):
-        raise ValueError("vad_filter must be a boolean.")
-    if "language" in patch and patch["language"] not in VALID_LANGUAGES:
-        raise ValueError("Unsupported language. Use one of: auto, zh, en, ja.")
-    if "ui_language" in patch and patch["ui_language"] not in VALID_UI_LANGUAGES:
-        raise ValueError("Unsupported UI language. Use one of: en, zh, ja.")
-    if "audio_device" in patch and patch["audio_device"] is not None:
-        if isinstance(patch["audio_device"], bool) or not isinstance(
-            patch["audio_device"], (str, int)
-        ):
-            raise ValueError("audio_device must be an empty string, device index, or device name.")
-    if "text_mode" in patch and patch["text_mode"] not in VALID_TEXT_MODES:
-        raise ValueError("Unsupported text mode. Use one of: plain, coding, markdown, prompt.")
-    if "history_enabled" in patch and not isinstance(patch["history_enabled"], bool):
-        raise ValueError("history_enabled must be a boolean.")
-    if "history_limit" in patch:
-        limit = patch["history_limit"]
-        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
-            raise ValueError("history_limit must be an integer between 1 and 500.")
-    if "append_mode" in patch and patch["append_mode"] not in {"append", "replace"}:
-        raise ValueError("Unsupported append mode. Use append or replace.")
-    if "font_size" in patch and patch["font_size"] not in {"0.85rem", "1rem", "1.2rem", "1.5rem"}:
-        raise ValueError("Unsupported font size.")
-    if "on_top" in patch and not isinstance(patch["on_top"], bool):
-        raise ValueError("on_top must be a boolean.")
-    if "hotkey" in patch:
-        hotkey = patch["hotkey"]
-        if not isinstance(hotkey, dict):
-            raise ValueError("hotkey must be an object.")
-        modifiers = hotkey.get("modifiers", [])
-        key = hotkey.get("key", "")
-        allowed_modifiers = {"alt", "ctrl", "shift"}
-        if not isinstance(modifiers, list) or not all(isinstance(m, str) for m in modifiers):
-            raise ValueError("hotkey.modifiers must be a string array.")
-        normalized_modifiers = [m.strip().lower() for m in modifiers]
-        unsupported_modifiers = sorted(set(normalized_modifiers) - allowed_modifiers)
-        if unsupported_modifiers:
-            raise ValueError("Unsupported hotkey modifiers: " + ", ".join(unsupported_modifiers))
-        if not isinstance(key, str) or not key.strip():
-            raise ValueError("hotkey.key must be a non-empty string.")
-        patch["hotkey"] = {
-            "modifiers": normalized_modifiers,
-            "key": key.strip().lower(),
-        }
-    return patch
+    return settings_store.validate_config_patch(patch)
 
 
 def _get_cancel_token() -> int:
@@ -440,35 +391,15 @@ def _bump_cancel_token() -> int:
 
 
 def load_config() -> dict[str, Any]:
+    _sync_config_file()
     with _config_lock:
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    known_data = {k: v for k, v in data.items() if k in ALLOWED_CONFIG_KEYS}
-                    cfg = {**DEFAULT_CONFIG, **known_data}
-                    try:
-                        return _validate_config_patch(cfg)
-                    except ValueError as exc:
-                        logger.warning("Ignoring invalid config file '%s': %s", CONFIG_FILE, exc)
-                        return dict(DEFAULT_CONFIG)
-                logger.warning("Ignoring config file because it does not contain a JSON object.")
-            except Exception as exc:
-                logger.warning("Failed to read config file '%s': %s", CONFIG_FILE, exc)
-        return dict(DEFAULT_CONFIG)
+        return settings_store.load_config(CONFIG_FILE)
 
 
 def save_config(cfg: dict[str, Any]) -> None:
-    cfg = _validate_config_patch(dict(cfg))
+    _sync_config_file()
     with _config_lock:
-        config_path = Path(CONFIG_FILE).expanduser()
-        config_dir = config_path.resolve().parent
-        config_dir.mkdir(parents=True, exist_ok=True)
-        tmp = config_path.with_name(f"{config_path.name}.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, config_path)
+        settings_store.save_config(cfg, CONFIG_FILE)
 
 
 STATIC_DIR = os.environ.get("VOICECODE_STATIC_DIR") or os.path.join(
@@ -522,8 +453,7 @@ def get_config():
 def post_config():
     try:
         patch = _validate_config_patch(_json_payload())
-        cfg = load_config()
-        cfg.update(patch)
+        cfg = settings_store.merge_config(load_config(), patch)
         save_config(cfg)
         return jsonify(cfg)
     except ValueError as exc:
@@ -604,165 +534,23 @@ def client_log():
     except ValueError:
         payload = {}
     msg = str(payload.get("msg", ""))
-    logger.info("Frontend: %s", msg)
+    component = str(payload.get("component", "frontend"))
+    level = str(payload.get("level", "info")).lower()
+    log_method = (
+        getattr(logger, level, logger.info)
+        if level in {"debug", "info", "warning", "error"}
+        else logger.info
+    )
+    log_method("Frontend log: component=%s message=%s", component, msg)
     return "", 204
 
 
-def _normalize_audio_device(value: Any) -> int | str | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, bool):
-        raise ValueError("audio_device must be an empty string, device index, or device name.")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return None
-        if stripped.lstrip("-").isdigit():
-            return int(stripped)
-        return stripped
-    raise ValueError("audio_device must be an empty string, device index, or device name.")
-
-
-def _post_process_text(text: str, mode: str) -> str:
-    processed = " ".join(text.split()) if mode != "plain" else text.strip()
-    if mode == "coding":
-        replacements = [
-            (r"\bnew line\b", "\n"),
-            (r"\btab\b", "    "),
-            (r"\bopen parenthesis\b", "("),
-            (r"\bclose parenthesis\b", ")"),
-            (r"\bopen bracket\b", "["),
-            (r"\bclose bracket\b", "]"),
-            (r"\bopen brace\b", "{"),
-            (r"\bclose brace\b", "}"),
-            (r"\bequals\b", "="),
-            (r"\bcomma\b", ","),
-            (r"\bsemicolon\b", ";"),
-            (r"\bcolon\b", ":"),
-            (r"\bdot\b", "."),
-            (r"\barrow\b", "=>"),
-        ]
-        for pattern, replacement in replacements:
-            processed = re.sub(pattern, replacement, processed, flags=re.IGNORECASE)
-    elif mode == "markdown":
-        processed = re.sub(r"^heading one\s+", "# ", processed, flags=re.IGNORECASE)
-        processed = re.sub(r"^heading two\s+", "## ", processed, flags=re.IGNORECASE)
-        processed = re.sub(r"^bullet point\s+", "- ", processed, flags=re.IGNORECASE)
-    elif mode == "prompt":
-        processed = processed.strip()
-        if processed and processed[-1] not in ".!????":
-            processed += "."
-    return processed.strip()
-
-
 def _append_history(entry: dict[str, Any]) -> None:
-    try:
-        history_file = _history_file()
-        history_file.parent.mkdir(parents=True, exist_ok=True)
-        with history_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception as exc:
-        logger.warning("Failed to append transcript history: %s", exc)
+    history_store.append_history(_history_file(), entry)
 
 
 def _read_history(limit: int = 50) -> list[dict[str, Any]]:
-    history_file = _history_file()
-    if not history_file.is_file():
-        return []
-    entries: list[dict[str, Any]] = []
-    try:
-        with history_file.open("r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-    except Exception as exc:
-        logger.warning("Failed to read transcript history: %s", exc)
-        return []
-    return entries[-limit:]
-
-
-class Recorder:
-    RATE = 16000
-
-    def __init__(self) -> None:
-        self._buf: list[np.ndarray] = []
-        self._lock = threading.RLock()
-        self._active = False
-        self._stream: Any | None = None
-
-    def is_recording(self) -> bool:
-        with self._lock:
-            return self._active
-
-    def start(self, device: int | str | None = None) -> bool:
-        with self._lock:
-            if self._active:
-                return False
-            self._buf = []
-            try:
-                stream_kwargs: dict[str, Any] = {
-                    "samplerate": self.RATE,
-                    "channels": 1,
-                    "dtype": "float32",
-                    "blocksize": 1024,
-                    "callback": self._cb,
-                }
-                if device is not None:
-                    stream_kwargs["device"] = device
-                self._stream = sd.InputStream(**stream_kwargs)
-                self._active = True
-                self._stream.start()
-            except Exception:
-                logger.exception("Failed to start audio recorder.")
-                self._active = False
-                if self._stream:
-                    try:
-                        self._stream.close()
-                    except Exception:
-                        logger.debug(
-                            "Failed to close audio stream after startup error.", exc_info=True
-                        )
-                self._stream = None
-                self._buf = []
-                raise
-        logger.info("Audio recorder started.")
-        return True
-
-    def _cb(self, indata, frames, time_info, status) -> None:  # noqa: ANN001
-        if status:
-            logger.warning("Audio recorder status: %s", status)
-        with self._lock:
-            if self._active:
-                self._buf.append(indata[:, 0].copy())
-
-    def stop_and_get(self) -> np.ndarray:
-        with self._lock:
-            if not self._active:
-                return np.array([], dtype=np.float32)
-            self._active = False
-            stream = self._stream
-            self._stream = None
-
-        if stream:
-            try:
-                stream.stop()
-            finally:
-                stream.close()
-
-        with self._lock:
-            if not self._buf:
-                return np.array([], dtype=np.float32)
-            audio = np.concatenate(self._buf)
-            self._buf = []
-
-        logger.info(
-            "Audio recorder stopped: %s samples (%.1fs)", len(audio), len(audio) / self.RATE
-        )
-        return audio
+    return history_store.read_history(_history_file(), limit)
 
 
 _recorder = Recorder()
@@ -808,7 +596,7 @@ def record_stop():
     try:
         result = _transcribe_audio(audio, lang)
         cfg = load_config()
-        result["text"] = _post_process_text(result["text"], str(cfg.get("text_mode", "plain")))
+        result = _finalize_transcription_result(result, cfg)
         if cfg.get("history_enabled", True) and result["text"]:
             _append_history(
                 {
@@ -862,19 +650,21 @@ def _is_cuda_runtime_error(exc: BaseException) -> bool:
 def _transcribe_kwargs(language: str | None) -> dict[str, Any]:
     cfg = load_config()
     beam_size = int(cfg.get("beam_size", 5))
-    vad_filter = bool(cfg.get("vad_filter", True))
+    vad_config = extension_registry.extension_config(cfg, "vad")
+    hotwords_config = extension_registry.extension_config(cfg, "hotwords")
+    initial_prompt = _language_prompt(language)
+    if extension_registry.is_enabled(cfg, "hotwords"):
+        initial_prompt = hotwords.build_prompt(initial_prompt, hotwords_config)
     kwargs: dict[str, Any] = {
         "language": language,
         "task": "transcribe",
         "beam_size": beam_size,
         "best_of": 1,
         "condition_on_previous_text": False,
-        "initial_prompt": _language_prompt(language),
-        "vad_filter": vad_filter,
+        "initial_prompt": initial_prompt,
         "temperature": 0.0,
     }
-    if vad_filter:
-        kwargs["vad_parameters"] = {"min_silence_duration_ms": 500}
+    kwargs.update(vad.transcribe_options(vad_config, bool(cfg.get("vad_filter", True))))
     return kwargs
 
 
@@ -904,67 +694,93 @@ def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> d
             raise RuntimeError(_model_unavailable_reason() or "Whisper model is not available.")
         try:
             segments, info = active_model.transcribe(audio, **kwargs)
-            text = " ".join(s.text for s in segments).strip()
+            segment_list = list(segments)
+            text = " ".join(s.text for s in segment_list).strip()
         except RuntimeError as exc:
             if not _is_cuda_runtime_error(exc):
                 raise
             logger.warning("GPU inference failed (%s). Reloading model on CPU int8.", exc)
             active_model = _fallback_to_cpu_model()
             segments, info = active_model.transcribe(audio, **kwargs)
-            text = " ".join(s.text for s in segments).strip()
+            segment_list = list(segments)
+            text = " ".join(s.text for s in segment_list).strip()
     language_name = getattr(info, "language", language or "auto")
     probability = getattr(info, "language_probability", None)
     result: dict[str, Any] = {"text": text, "language": language_name}
+    serializable_segments = []
+    for segment in segment_list:
+        start = getattr(segment, "start", None)
+        end = getattr(segment, "end", None)
+        if start is not None or end is not None:
+            serializable_segments.append(
+                {"start": float(start or 0.0), "end": float(end or 0.0), "text": segment.text}
+            )
+    if serializable_segments:
+        result["segments"] = serializable_segments
     if probability is not None:
         result["language_probability"] = probability
     return result
 
 
 def _coerce_audio_samples(value: Any) -> np.ndarray:
-    if not isinstance(value, list) or not value:
-        raise ValueError("audio must be a non-empty array of float samples.")
-    try:
-        samples = np.asarray(value, dtype=np.float32)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("audio must contain numeric samples.") from exc
-    if samples.ndim > 2:
-        raise ValueError("audio must be a one-dimensional array or a mono/stereo array.")
-    if samples.ndim == 2:
-        samples = samples.mean(axis=1, dtype=np.float32)
-    if not np.all(np.isfinite(samples)):
-        raise ValueError("audio samples must be finite numbers.")
-    return np.clip(samples, -1.0, 1.0).astype(np.float32, copy=False)
+    cfg = load_config()
+    audio_config = extension_registry.extension_config(cfg, "audio_io")
+    if not extension_registry.is_enabled(cfg, "audio_io"):
+        raise ValueError("audio_io extension is disabled.")
+    return audio_io.coerce_audio_samples(value, audio_config)
+
+
+def _finalize_transcription_result(result: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    result["text"] = _post_process_text(result["text"], str(cfg.get("text_mode", "plain")))
+    if extension_registry.is_enabled(cfg, "zh_normalizer"):
+        zh_config = extension_registry.extension_config(cfg, "zh_normalizer")
+        result["text"] = zh_normalizer.normalize(
+            result["text"], str(result.get("language", "auto")), zh_config
+        )
+    if extension_registry.is_enabled(cfg, "punctuation"):
+        punctuation_config = extension_registry.extension_config(cfg, "punctuation")
+        result["text"] = punctuation.restore(
+            result["text"], str(result.get("language", "auto")), punctuation_config
+        )
+    return result
 
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe_upload():
     """Transcribe uploaded audio files or JSON float samples without using the recorder."""
+    tmp_path: Path | None = None
     try:
         lang: str | None
+        output_format = "json"
+        cfg = load_config()
         if request.files:
+            if not extension_registry.is_enabled(cfg, "audio_io"):
+                return _error("audio_io extension is disabled.", 409)
             uploaded = request.files.get("file")
             if uploaded is None or not uploaded.filename:
                 return _error("Missing uploaded audio file field named 'file'.", 400)
             lang = _normalize_language(request.form.get("language"))
-            suffix = Path(uploaded.filename).suffix or ".audio"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-                tmp_path = Path(tmp_file.name)
-                uploaded.save(tmp_file)
-            try:
-                result = _transcribe_audio(str(tmp_path), lang)
-            finally:
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    logger.debug("Failed to delete temporary upload: %s", tmp_path)
+            output_format = str(request.form.get("output_format", "json"))
+            audio_config = extension_registry.extension_config(cfg, "audio_io")
+            tmp_path = audio_io.save_upload_to_temp(uploaded, audio_config)
+            result = _transcribe_audio(str(tmp_path), lang)
         else:
             payload = _json_payload()
             lang = _normalize_language(payload.get("language"))
+            output_format = str(payload.get("output_format", "json"))
             audio = _coerce_audio_samples(payload.get("audio"))
             result = _transcribe_audio(audio, lang)
-        cfg = load_config()
-        result["text"] = _post_process_text(result["text"], str(cfg.get("text_mode", "plain")))
-        return jsonify(result)
+        result = _finalize_transcription_result(result, cfg)
+        if output_format.lower().strip() in {"", "json"}:
+            return jsonify(result)
+        if not extension_registry.is_enabled(cfg, "exporters"):
+            return _error("exporters extension is disabled.", 409)
+        exporter_config = extension_registry.extension_config(cfg, "exporters")
+        allowed_formats = set(exporter_config.get("formats", ["json", "txt", "srt", "vtt"]))
+        if output_format.lower().strip() not in allowed_formats:
+            return _error("Requested output_format is disabled by configuration.", 400)
+        body, mimetype = exporters.export_result(result, output_format)
+        return Response(body, mimetype=mimetype)
     except ValueError as exc:
         return _error(str(exc), 400)
     except RuntimeError as exc:
@@ -973,6 +789,17 @@ def transcribe_upload():
     except Exception as exc:
         logger.exception("Transcription failed.")
         return _error(f"Transcription failed: {exc}", 500)
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                logger.debug("Failed to delete temporary upload: %s", tmp_path)
+
+
+@app.route("/extensions")
+def extensions():
+    return jsonify({"extensions": extension_registry.statuses(load_config())})
 
 
 @app.route("/models")
@@ -1009,6 +836,10 @@ def hardware():
             "active_compute_type": _compute_type,
             "supported_devices": sorted(VALID_DEVICES),
             "supported_compute_types": sorted(VALID_COMPUTE_TYPES),
+            "runtime_supported_compute_types": {
+                "cpu": sorted(_supported_compute_types("cpu")),
+                "cuda": sorted(_supported_compute_types("cuda")) if cuda_count > 0 else [],
+            },
         }
     )
 
@@ -1090,6 +921,7 @@ def diagnostics():
             "cpu_threads": _cpu_threads,
             "runtime_dir": os.environ.get("VOICECODE_RUNTIME_DIR"),
             "model_dir": os.environ.get("VOICECODE_MODEL_DIR"),
+            "extensions": extension_registry.statuses(load_config()),
         }
     )
 
@@ -1105,20 +937,40 @@ def start_server() -> None:
 
 @app.route("/stats")
 def stats():
+    cpu = -1.0
+    process_cpu = -1.0
+    process_memory_mb = -1.0
+    system_memory_total_mb = -1.0
+    system_memory_available_mb = -1.0
+    system_memory_percent = -1.0
+    cpu_info = {
+        "name": platform.processor() or platform.machine() or "CPU",
+        "logical_cores": os.cpu_count(),
+        "physical_cores": None,
+    }
     try:
         import psutil
 
         proc = psutil.Process(os.getpid())
         cpu = round(psutil.cpu_percent(interval=0.2), 1)
-        ram = round(proc.memory_info().rss / 1024**2, 1)
+        process_cpu = round(proc.cpu_percent(interval=None), 1)
+        process_memory_mb = round(proc.memory_info().rss / 1024**2, 1)
+        virtual_memory = psutil.virtual_memory()
+        system_memory_total_mb = round(virtual_memory.total / 1024**2, 1)
+        system_memory_available_mb = round(virtual_memory.available / 1024**2, 1)
+        system_memory_percent = round(virtual_memory.percent, 1)
+        cpu_info["logical_cores"] = psutil.cpu_count(logical=True)
+        cpu_info["physical_cores"] = psutil.cpu_count(logical=False)
+        cpu_freq = psutil.cpu_freq()
+        if cpu_freq:
+            cpu_info["current_mhz"] = round(cpu_freq.current, 1)
+            cpu_info["max_mhz"] = round(cpu_freq.max, 1)
     except Exception as exc:
         logger.warning("Failed to collect CPU/RAM stats: %s", exc)
-        cpu = -1
-        ram = -1
 
     gpu_info = None
     try:
-        if _cuda_device_count() > 0 and _device == "cuda":
+        if _cuda_device_count() > 0:
             try:
                 import pynvml  # type: ignore[import-not-found]
             except Exception:
@@ -1126,6 +978,9 @@ def stats():
             if pynvml is not None:
                 try:
                     pynvml.nvmlInit()
+                    driver_version = pynvml.nvmlSystemGetDriverVersion()
+                    if isinstance(driver_version, bytes):
+                        driver_version = driver_version.decode("utf-8", errors="replace")
                     handle = pynvml.nvmlDeviceGetHandleByIndex(0)
                     gpu_util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
                     gpu_mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
@@ -1138,11 +993,17 @@ def stats():
                         "util": gpu_util,
                         "mem_used": gpu_mem_used,
                         "mem_total": gpu_mem_total,
+                        "mem_percent": round((gpu_mem_used / gpu_mem_total) * 100, 1)
+                        if gpu_mem_total
+                        else -1,
                         "name": gpu_name,
+                        "driver": driver_version,
                     }
                 except Exception as exc:
                     logger.debug("GPU stats unavailable: %s", exc)
-                    gpu_info = {"util": -1, "name": "GPU"}
+                    gpu_info = {"util": -1, "name": "NVIDIA GPU", "driver": None}
+            else:
+                gpu_info = {"util": -1, "name": "NVIDIA GPU", "driver": None}
     except Exception as exc:
         logger.debug("CUDA device check failed: %s", exc)
 
@@ -1152,7 +1013,13 @@ def stats():
             "compute_type": _compute_type,
             "model": MODEL_SIZE,
             "cpu_percent": cpu,
-            "ram_mb": ram,
+            "process_cpu_percent": process_cpu,
+            "ram_mb": process_memory_mb,
+            "process_memory_mb": process_memory_mb,
+            "system_memory_total_mb": system_memory_total_mb,
+            "system_memory_available_mb": system_memory_available_mb,
+            "system_memory_percent": system_memory_percent,
+            "cpu": cpu_info,
             "gpu": gpu_info,
         }
     )
