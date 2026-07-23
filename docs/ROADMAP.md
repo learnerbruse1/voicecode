@@ -136,6 +136,8 @@ Suggested design:
 
 ## Current implementation status
 
+Completed foundation work includes a persisted first-start guide, operable schema-driven extension settings, isolated one-click dependency tasks, external JSON i18n catalogs, split Flask route modules, and split dependency services. Heavy diarization/punctuation model adapters remain future work.
+
 Implemented extension framework and switchable modules:
 
 - `audio_io`: enabled by default, validates JSON samples and uploaded audio files.

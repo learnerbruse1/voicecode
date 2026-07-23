@@ -21,6 +21,8 @@ VoiceCode stores configuration in a user-writable path, never inside the install
 | `VOICECODE_LOG_MAX_BYTES` | Rotating log max bytes |
 | `VOICECODE_LOG_BACKUP_COUNT` | Number of rotated log files to retain |
 | `VOICECODE_MAX_UPLOAD_MB` | Flask max request body size, default 512 MB |
+| `VOICECODE_API_TOKEN` | Optional fixed token for trusted local API integrations; generated randomly by default |
+| `VOICECODE_DISABLE_API_TOKEN` | Disable mutating-request token checks for isolated tests only |
 | `VOICECODE_OFFLINE` | Load local cached models only |
 | `VOICECODE_SKIP_MODEL_LOAD` | Start UI/API without loading Whisper |
 | `WHISPER_MODEL` | Startup model |
@@ -28,6 +30,26 @@ VoiceCode stores configuration in a user-writable path, never inside the install
 | `WHISPER_COMPUTE_TYPE` | `auto`, `int8`, `float16`, `float32`, etc. |
 | `WHISPER_CPU_THREADS` | CPU inference thread count |
 
+
+
+## Local API protection
+
+VoiceCode binds to `127.0.0.1`, but mutating API calls are still protected by a per-process local API token in normal runtime. The desktop page receives the token through a non-cacheable same-origin HTML meta tag and sends it as `X-VoiceCode-Token` for JSON writes.
+
+Use `VOICECODE_API_TOKEN` only when a trusted local integration needs a stable token. Use `VOICECODE_DISABLE_API_TOKEN=1` only in isolated development or test environments.
+
+
+## Model cache management
+
+The **Models** page shows every supported Whisper model, its hardware guidance, whether VoiceCode sees a local cache, and the managed cache directory. Users can download/load a model or delete a non-active model cache with a second confirmation click.
+
+Model cache root resolution:
+
+1. `VOICECODE_MODEL_DIR` when explicitly set.
+2. `<VOICECODE_RUNTIME_DIR>/models` when `VOICECODE_RUNTIME_DIR` is configured by a packaged/runtime launch.
+3. `<project>/models` for source-tree development runs.
+
+Deletion only removes matching model cache entries inside the managed cache root and is refused for the active model.
 
 ## Language and localization
 
@@ -46,6 +68,13 @@ When adding a new UI language:
 2. Add a complete catalog to `static/js/i18n.js` and mirror it to `src/voicecode/static/js/i18n.js`.
 3. Add layout overrides in `static/css/app.css` if labels need different spacing.
 4. Update tests that verify i18n catalog completeness and static asset synchronization.
+
+
+## Transcript history
+
+When `history_enabled` is true, successful transcriptions are appended to a JSONL history file in the user-writable config area unless `VOICECODE_HISTORY_FILE` overrides it. The History page can search text, filter by language, export filtered results as JSON/TXT/Markdown, delete individual entries with confirmation, or clear all history.
+
+Each history entry stores a stable `id`, timestamp, transcription language, model, and final text. Older entries without an `id` receive a deterministic compatibility ID when read.
 
 ## Resetting defaults
 
@@ -77,3 +106,13 @@ Example:
   }
 }
 ```
+
+## First-start state
+
+The `onboarding` object stores `completed`, `completed_version`, and `skipped`. Use `GET /onboarding`, `POST /onboarding/complete`, and `POST /onboarding/reset` for normal UI/client behavior. Resetting onboarding preserves model, language, extension, and history settings.
+
+The guide can save only UI/transcription language, model, device, compute type, audio device, and hotkey. Full config validation still applies.
+
+## Isolated dependency directory
+
+Resolution order is `VOICECODE_DEP_DIR`, `<VOICECODE_RUNTIME_DIR>/dependencies` for packaged runtime mode, then source-tree `<project>/VOICE_DEP`, or the user config `dependencies/` directory for a normal installed package. The directory is added ahead of the global environment when it exists. Install manifests live under `.voicecode/`; do not edit them while an install/uninstall is running.

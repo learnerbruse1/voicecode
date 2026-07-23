@@ -44,6 +44,60 @@ def is_enabled(config: Mapping[str, Any], extension_id: str) -> bool:
     return bool(extension_config(config, extension_id).get("enabled", False))
 
 
+_CONFIG_CHOICES: dict[str, dict[str, list[str]]] = {
+    "exporters": {"formats": ["json", "txt", "srt", "vtt"]},
+    "vad": {"engine": ["faster_whisper", "silero", "off"]},
+    "zh_normalizer": {"script": ["none", "simplified", "traditional"]},
+    "quality": {"metrics": ["wer", "cer"]},
+    "diarization": {"engine": ["pyannote"]},
+    "punctuation": {"engine": ["nemo"]},
+}
+
+
+def config_schema(extension_id: str) -> list[dict[str, Any]]:
+    """Return a small UI-oriented schema derived from the authoritative defaults."""
+    defaults = EXTENSION_BY_ID[extension_id].default_config()
+    choices = _CONFIG_CHOICES.get(extension_id, {})
+    fields: list[dict[str, Any]] = []
+    for name, default in defaults.items():
+        field: dict[str, Any] = {"name": name, "default": default}
+        if name in choices:
+            field["type"] = "multiselect" if isinstance(default, list) else "select"
+            field["choices"] = choices[name]
+        elif isinstance(default, bool):
+            field["type"] = "boolean"
+        elif isinstance(default, int):
+            field["type"] = "integer"
+        elif isinstance(default, list):
+            field["type"] = "string_list"
+        else:
+            field["type"] = "string"
+        fields.append(field)
+    return fields
+
+
+_REQUIRED_DEPENDENCY_IDS: dict[str, tuple[str, ...]] = {
+    "quality": ("jiwer",),
+    "diarization": ("pyannote-audio",),
+    "punctuation": ("nemo-toolkit",),
+}
+
+
+def required_dependency_ids(extension_id: str, config: Mapping[str, Any]) -> tuple[str, ...]:
+    ext_config = extension_config(config, extension_id)
+    if not bool(ext_config.get("enabled", False)):
+        return ()
+    if extension_id == "vad":
+        return ("silero-vad",) if ext_config.get("engine") == "silero" else ()
+    if extension_id == "zh_normalizer":
+        return (
+            ("opencc-python-reimplemented",)
+            if ext_config.get("script") in {"simplified", "traditional"}
+            else ()
+        )
+    return _REQUIRED_DEPENDENCY_IDS.get(extension_id, ())
+
+
 def statuses(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     results = []
     for extension in EXTENSIONS:

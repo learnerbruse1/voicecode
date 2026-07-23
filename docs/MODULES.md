@@ -1,71 +1,81 @@
-﻿# Modules
+# Modules
 
-VoiceCode keeps `voicecode.app` as the local API entry point, but feature code should live in focused modules.
-
-```mermaid
-flowchart TD
-  API["voicecode.app\nFlask routes + orchestration"] --> Settings["voicecode.settings\nconfig schema + paths"]
-  API --> Audio["voicecode.audio\nrecorder + device parsing"]
-  API --> History["voicecode.history\nJSONL persistence"]
-  API --> Text["voicecode.text_processing\npost-processing modes"]
-  API --> Deps["voicecode.dependencies\nVOICE_DEP isolated package manager"]
-  API --> Ext["voicecode.extensions\noptional feature registry"]
-  UI["static/js + static/css\ni18n catalogs + language-aware layout"] --> API
-  Ext --> AudioIO["audio_io"]
-  Ext --> Exporters["exporters"]
-  Ext --> Hotwords["hotwords"]
-  Ext --> Vad["vad"]
-  Ext --> Normalizers["normalizers / quality / diarization / punctuation"]
-  API --> Whisper["faster-whisper / CTranslate2"]
-  Main["voicecode.main\ndesktop + hotkeys"] --> API
-  Runtime["voicecode.runtime\ncache dirs"] --> Main
-```
+VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry point while focused route and service modules own independent responsibilities.
 
 ## Rules for adding features
 
 1. Keep the core path simple: record audio, transcribe locally, return text.
-2. Add optional behavior in a focused module first.
-3. Wire modules into `voicecode.app` only at route/service boundaries.
+2. Put route groups in a Blueprint module and pass explicit context callbacks for mutable state.
+3. Put dependency metadata, filesystem/status logic, and background execution in separate modules.
 4. Validate config in `voicecode.settings` before side effects.
-5. Keep default dependencies small; put heavyweight integrations behind optional extras or VOICE_DEP-managed downloads.
-6. Every visible label needs a `data-i18n` key and complete English/Chinese/Japanese catalog entries.
-7. Add tests for module behavior, route behavior, static asset synchronization, and i18n catalog completeness.
+5. Keep default dependencies small; put heavyweight integrations behind optional extras or isolated installs.
+6. Every visible label needs matching keys in all external JSON catalogs.
+7. Update both static asset trees and extend synchronization/package-data tests.
+8. Add API tests for malformed/non-object JSON and no-side-effect failure behavior.
 
-## Current modules
+## Backend modules
 
 | Module | Public responsibility |
 | --- | --- |
-| `voicecode.settings` | Defaults, validation, config/log/history path helpers, environment flags |
-| `voicecode.audio` | `Recorder` and `normalize_audio_device` |
-| `voicecode.history` | append/read/clear transcript history files |
-| `voicecode.text_processing` | post-process transcripts for plain, coding, Markdown, and prompt modes |
-| `voicecode.runtime` | runtime/cache path environment setup |
-| `voicecode.dependencies` | isolated dependency catalog, install task tracking, VOICE_DEP manifests, safe uninstall |
-| `voicecode.main` | app startup, server readiness, pywebview, hotkey typing |
-| `voicecode.app` | HTTP routes, JSON validation, Whisper lifecycle, dependency endpoints, endpoint orchestration |
-| `static/js/i18n.js` | English/Chinese/Japanese UI catalogs; every non-English catalog must cover all English keys |
-| `static/js/dom.js` | DOM handles, translation application, language attributes, shared UI helpers |
-| `static/js/settings.js` | settings event handlers, dedicated language module behavior, language-sensitive refreshes |
-| `static/css/app.css` | responsive layout and `html[data-ui-language]` language-specific spacing rules |
+| `voicecode.app` | Flask setup, security/error policy, Whisper lifecycle, recording/transcription, model cache routes, blueprint registration |
+| `voicecode.management_api` | onboarding, extension update/install, dependency listing/install/task/uninstall |
+| `voicecode.history_api` | history filters, exports, entry deletion, clear route |
+| `voicecode.system_api` | hardware, audio device/test, diagnostics, stats routes |
+| `voicecode.settings` | defaults, validation, nested merge, config/log/history paths |
+| `voicecode.audio` | `Recorder`, device normalization/enumeration, level test |
+| `voicecode.history` | append/read/filter/delete/clear JSONL persistence |
+| `voicecode.text_processing` | plain, coding, Markdown, and prompt post-processing |
+| `voicecode.runtime` | packaged runtime/cache path setup |
+| `voicecode.dependency_types` | dependency spec/task data classes |
+| `voicecode.dependency_catalog` | immutable catalog and feature mapping |
+| `voicecode.dependency_environment` | isolated path, import status, manifests, safe uninstall |
+| `voicecode.dependency_installer` | background pip task execution and retention |
+| `voicecode.dependencies` | compatibility facade over split dependency modules |
+| `voicecode.main` | desktop startup, PID health check, pywebview, hotkey typing |
 | `voicecode.extensions.base` | extension protocol and status shape |
-| `voicecode.extensions.registry` | extension discovery, effective config, and status reporting |
-| `voicecode.extensions.audio_io` | upload/sample validation and temporary audio file handling |
-| `voicecode.extensions.exporters` | JSON/TXT/SRT/VTT transcript export |
-| `voicecode.extensions.hotwords` | prompt augmentation for project-specific terms |
-| `voicecode.extensions.vad` | VAD configuration adapter for faster-whisper |
-| `voicecode.extensions.zh_normalizer` | optional Chinese spacing, punctuation, and script normalization |
-| `voicecode.extensions.quality` | optional WER/CER helper shell using jiwer |
-| `voicecode.extensions.diarization` | optional speaker diarization adapter shell |
-| `voicecode.extensions.punctuation` | optional punctuation restoration adapter shell |
+| `voicecode.extensions.registry` | discovery, effective config, config schema, required dependency mapping |
 
-## Candidate future modules
+## Frontend modules
 
-| Module | Purpose |
+| Asset | Responsibility |
 | --- | --- |
-| `voicecode.audio_io` | file decoding, resampling, max-duration checks |
-| `voicecode.exporters` | SRT, VTT, JSON transcript exports |
-| `voicecode.vad` | optional Silero or other VAD adapters |
-| `voicecode.normalizers` | language-specific text normalization |
-| `voicecode.quality` | optional WER/CER measurement helpers |
-| `voicecode.diarization` | optional speaker diarization for batch/file transcription |
-| `voicecode.features` | optional internal feature registry |
+| `static/js/app.js` | guarded bootstrap, navigation, window controls, polling |
+| `static/js/i18n.js` | asynchronous external catalog loader |
+| `static/i18n/*.json` | complete English/Chinese/Japanese translation catalogs |
+| `static/js/dom.js` | DOM references, translation application, shared state/helpers |
+| `static/js/api.js` | token-aware JSON requests, timeouts, normalized errors |
+| `static/js/config.js` | load/save config and audio device list |
+| `static/js/onboarding.js` | first-start steps, readiness, dependency progress, completion/reset |
+| `static/js/extensions.js` | schema-driven extension forms, save, one-click dependencies |
+| `static/js/dependencies.js` | dependency cards, install/uninstall/task progress, install-all-required |
+| `static/js/models.js` | model list, load/download, cache deletion |
+| `static/js/settings.js` | settings events, model/hardware changes, microphone test |
+| `static/js/recorder.js` | recording and transcription interaction |
+| `static/js/history.js` | history search/filter/export/copy/delete and diagnostics |
+| `static/js/status.js` | model and process status summaries |
+| `static/css/app.css` | desktop layout, language-specific sizing, onboarding/extensions UI |
+
+## Extension modules
+
+| Extension | Current behavior |
+| --- | --- |
+| `audio_io` | validates upload suffix/size and JSON sample arrays |
+| `exporters` | JSON/TXT/SRT/VTT response formatting |
+| `hotwords` | adds configured phrases to transcription prompts |
+| `vad` | configures built-in faster-whisper VAD or optional Silero selection |
+| `zh_normalizer` | spacing, punctuation, optional simplified/traditional conversion |
+| `quality` | optional WER/CER helper through `jiwer` |
+| `diarization` | dependency/config boundary for pyannote adapter work |
+| `punctuation` | dependency/config boundary for NeMo restoration work |
+
+`diarization` and `punctuation` expose real enable/config/dependency behavior, but their heavy inference adapters remain intentionally conservative placeholders.
+
+## Adding a new extension
+
+1. Add an extension class under `voicecode/extensions/` with defaults and availability checks.
+2. Register it in `extensions/registry.py`.
+3. Add validation in `settings.validate_extensions_patch`.
+4. If packages are needed, add `DependencySpec` entries and feature IDs in `dependency_catalog.py`.
+5. Add config choices/required-dependency rules in the registry.
+6. Add translation keys to all three JSON catalogs.
+7. Add API/behavior tests and update API/module docs.

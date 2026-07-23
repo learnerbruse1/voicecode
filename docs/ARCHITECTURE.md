@@ -1,52 +1,125 @@
-﻿# Architecture
+# Architecture
 
-VoiceCode is a compact local-first desktop app. The installable package under `src/voicecode` is authoritative; root `app.py` and `main.py` are compatibility wrappers.
-
-```mermaid
-flowchart TD
-  A["python -m voicecode"] --> B["runtime path setup"]
-  B --> C["Flask API served by Waitress"]
-  B --> D["pywebview desktop window"]
-  B --> E["pynput global hotkey listener"]
-  D --> F["static HTML/CSS/JS UI"]
-  F --> C
-  C --> G["sounddevice recorder"]
-  C --> H["faster-whisper / CTranslate2"]
-  H --> I{"CUDA available?"}
-  I -->|yes| J["NVIDIA GPU / float16 by default"]
-  I -->|no or failure| K["CPU / int8 fallback"]
-  C --> L["user config, logs, history"]
-```
+VoiceCode is a local-first desktop application: pywebview hosts a static web UI, Waitress serves a loopback-only Flask API, and faster-whisper/CTranslate2 performs inference in the same Python process.
 
 ## Runtime boundaries
 
-- HTTP is bound to `127.0.0.1` only.
-- Startup checks `/health` and verifies the returned PID belongs to the current process.
-- Config, logs, history, and model caches are user-writable and never stored inside the installed package directory by default.
-- Non-empty JSON request bodies must be JSON objects before an endpoint performs side effects.
+```mermaid
+flowchart TD
+  Entry["python -m voicecode / main.py"] --> Runtime["runtime.py\nmutable cache path setup"]
+  Entry --> Desktop["main.py\npywebview + global hotkey"]
+  Desktop --> Server["app.py\nFlask app + model orchestration"]
+  Server --> Mgmt["management_api.py\nonboarding / extensions / dependencies"]
+  Server --> HistoryAPI["history_api.py\nquery / export / delete"]
+  Server --> SystemAPI["system_api.py\nhardware / audio test / diagnostics / stats"]
+  Server --> Whisper["faster-whisper / CTranslate2"]
+  Server --> Audio["audio.py\nsounddevice recorder"]
+  Server --> Settings["settings.py\nvalidation + persistence"]
+  Server --> Extensions["extensions/\nfeature adapters + schema"]
+  Mgmt --> DependencyFacade["dependencies.py\npublic facade"]
+  DependencyFacade --> Catalog["dependency_catalog.py"]
+  DependencyFacade --> Environment["dependency_environment.py\npaths / status / manifests / uninstall"]
+  DependencyFacade --> Installer["dependency_installer.py\nbackground pip tasks"]
+  Desktop --> UI["static/index.html + feature JS modules"]
+  UI --> Catalogs["static/i18n/*.json"]
+  UI --> Server
+```
 
-## Key modules
+The HTTP server binds only to `127.0.0.1`. Startup polls `/health` and verifies the returned PID matches the current process so repeated launches or unrelated services on the configured port fail clearly.
 
-| Path | Responsibility |
+## Backend module boundaries
+
+| Module | Responsibility |
 | --- | --- |
-| `src/voicecode/app.py` | Flask routes, JSON/API validation, Whisper model lifecycle, endpoint orchestration |
-| `src/voicecode/settings.py` | config defaults, schema validation, config/log/history paths |
-| `src/voicecode/audio.py` | microphone recorder and audio device parsing |
-| `src/voicecode/history.py` | transcript history persistence |
-| `src/voicecode/text_processing.py` | transcript post-processing modes |
-| `src/voicecode/main.py` | desktop startup, pywebview window, global hotkey callback, server readiness checks |
-| `src/voicecode/runtime.py` | runtime/cache path configuration for explicit runtime roots |
-| `src/voicecode/static/` | packaged web UI assets |
-| `static/` | source-tree UI assets mirrored with packaged assets and checked by tests |
+| `app.py` | Flask construction, request/error policy, config compatibility helpers, model lifecycle, recording/transcription, model cache routes, blueprint wiring |
+| `management_api.py` | First-start state, extension config/action routes, dependency routes |
+| `history_api.py` | History filtering, export, single-entry deletion, clear |
+| `system_api.py` | Hardware, microphone device/test, diagnostics, process/GPU stats |
+| `dependency_catalog.py` | Immutable dependency metadata and feature mapping |
+| `dependency_environment.py` | Isolated directory resolution, import inspection, manifests, safe removal |
+| `dependency_installer.py` | Serialized background pip installs and bounded task retention |
+| `dependencies.py` | Stable compatibility facade for callers/tests |
+| `settings.py` | Defaults, nested merge, validation, user-writable paths |
+| `extensions/registry.py` | Extension discovery, effective config, UI schema, config-aware dependency requirements |
+
+Blueprints receive explicit context callables rather than importing mutable `app.py` globals. This keeps tests able to override model/audio/config state while preventing route modules from owning inference lifecycle state.
+
+## Frontend modules
+
+```mermaid
+flowchart LR
+  App["app.js\nbootstrap + navigation"] --> I18n["i18n.js\nasync catalog loader"]
+  App --> Config["config.js"]
+  App --> Onboarding["onboarding.js"]
+  App --> Extensions["extensions.js"]
+  App --> Dependencies["dependencies.js"]
+  App --> Models["models.js"]
+  App --> Recorder["recorder.js"]
+  App --> History["history.js"]
+  App --> Status["status.js"]
+  Shared["dom.js / api.js / modal.js"] --> App
+  CatalogJSON["i18n/en.json\ni18n/zh.json\ni18n/ja.json"] --> I18n
+```
+
+`app.js` waits for the English catalog before translating or bootstrapping feature panels. `loadConfig()` then loads the selected catalog and reapplies translations. Feature-specific rendering is separated: extension controls no longer live in history code, and first-start behavior has its own module.
+
+## First-start lifecycle
+
+```mermaid
+sequenceDiagram
+  participant UI as onboarding.js
+  participant API as management_api.py
+  participant Dep as dependency_installer.py
+  participant Config as settings.py
+  UI->>API: GET /onboarding
+  API-->>UI: completion + runtime/audio/model readiness
+  UI->>API: POST /dependencies/install-required
+  API->>Dep: start serialized background tasks
+  loop poll each task
+    UI->>API: GET /dependencies/tasks/{id}
+    API-->>UI: progress/message/log
+  end
+  UI->>API: POST /onboarding/complete
+  API->>Config: validate + persist preferences and version
+  API-->>UI: completed config
+```
+
+Skipping setup records intent but does not bypass normal runtime errors. The guide can be reset from the About page.
+
+## Dependency safety
+
+- The install target is `VOICECODE_DEP_DIR`, packaged runtime `runtime/dependencies`, or source-tree `VOICE_DEP`.
+- `pip --target` runs in a background task; one install executes at a time.
+- GitHub candidates are tried before the PyPI spec when cataloged.
+- Failed-attempt top-level paths are cleaned before fallback.
+- Successful installs write manifests under `.voicecode/`.
+- Uninstall resolves every path and refuses removal outside the dependency root.
+- Files referenced by another manifest are retained.
+- Task history is bounded and logs expose only recent lines through the API.
+
+## Model cache root resolution
+
+1. `VOICECODE_MODEL_DIR` when set;
+2. `<VOICECODE_RUNTIME_DIR>/models` for packaged/runtime overrides;
+3. `<project>/models` for source-tree compatibility.
+
+The model manager only deletes known cache candidates below this root and refuses to delete the active model.
 
 ## Inference model lifecycle
 
-1. Select a model (`tiny`, `base`, `small`, `medium`, `large-v3`, `distil-large-v3`).
-2. Resolve device and compute type from config and environment overrides.
-3. Prefer CUDA when available and configured as `auto` or `cuda`.
-4. Load `faster-whisper.WhisperModel` with cache/download root hints.
-5. If CUDA load or inference fails, reload the same model on `cpu/int8`.
-6. Expose status through `/status`, `/models`, `/hardware`, `/diagnostics`, and `/stats`.
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Loading: startup or reload
+  Loading --> Ready: model created
+  Loading --> Error: runtime/load failure
+  Ready --> Loading: model/model-device change
+  Ready --> CPUFallback: CUDA inference failure
+  CPUFallback --> Ready: CPU int8 model loaded
+  Error --> Loading: retry/reload
+```
+
+Model state and the model object use separate locks. Reload work runs in the executor, while transcription and model replacement remain guarded by `model_lock`.
 
 ## Thread safety
 
@@ -57,13 +130,11 @@ flowchart TD
 | Audio buffer and active flag | `Recorder._lock` (`threading.RLock`) |
 | Model reload state | `_model_state_lock` |
 | Cancellation token | `_cancel_lock` |
-| Typing callback state | `_typing_lock` in `main.py` |
+| Global typing flag | `_typing_lock` |
+| Dependency task map | dependency installer `_task_lock` |
+| pip install serialization | dependency installer `_install_lock` |
+| Hotkey modifier set | listener-local lock |
 
-See `docs/MODULES.md` for module boundaries and `docs/ROADMAP.md` for optional feature ideas.
+## Packaging boundary
 
-## Extension points
-
-- Add more languages by extending validation, UI options, and prompts.
-- Add transcription post-processing in `_post_process_text`.
-- Integrate local workflows through `/transcribe` instead of driving the UI.
-- Add model metadata in `MODEL_INFO` while keeping validation strict.
+Static assets exist twice: root `static/` for source-tree compatibility and `src/voicecode/static/` for wheel execution. Tests require byte-for-byte synchronization, including external JSON catalogs. See [PACKAGING.md](PACKAGING.md) and [RELEASING.md](RELEASING.md).

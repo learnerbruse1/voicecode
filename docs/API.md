@@ -14,6 +14,18 @@ Error responses use:
 
 Each response also includes `X-VoiceCode-Request-ID`. The server logs request start/completion with method, path, status, duration, and request ID so UI/API failures can be correlated with log lines.
 
+## Local API token
+
+Mutating requests (`POST`, `PUT`, `PATCH`, and `DELETE`) require the per-process local API token in the `X-VoiceCode-Token` header during normal desktop runtime. The token is generated at startup, injected only into the same-origin HTML shell as a non-cacheable meta tag, and automatically attached by `static/js/api.js`. This reduces the risk of another local webpage driving VoiceCode through `127.0.0.1`.
+
+For trusted local integrations, either read the token from the running desktop page context or launch VoiceCode with `VOICECODE_API_TOKEN` set to a known high-entropy value and send:
+
+```http
+X-VoiceCode-Token: your-token
+```
+
+`VOICECODE_DISABLE_API_TOKEN=1` is available for isolated tests and controlled development environments only. Do not disable token checks in normal desktop use.
+
 ## Endpoints
 
 ### `GET /health`
@@ -155,30 +167,71 @@ JSON samples:
 
 `audio` must be a non-empty numeric sample array. One-dimensional mono arrays and two-dimensional mono/stereo arrays are accepted. `output_format` can be `json`, `txt`, `srt`, or `vtt` when the `exporters` extension is enabled.
 
+### `GET /onboarding`
+
+Returns whether first-start setup is required, the persisted setup version, selected core preferences, and readiness summaries for runtime dependencies, microphone devices, and the active model.
+
+### `POST /onboarding/complete`
+
+Persists supported first-start preferences and marks the guide complete. Body:
+
+```json
+{
+  "config": {
+    "ui_language": "zh",
+    "language": "zh",
+    "model": "base",
+    "device": "auto",
+    "audio_device": ""
+  },
+  "skipped": false
+}
+```
+
+Only onboarding-safe config keys are accepted. `skipped` records that the user intentionally finished without resolving every readiness warning.
+
+### `POST /onboarding/reset`
+
+Clears onboarding completion so the guide opens again. Other user settings are preserved.
+
 ### `GET /extensions`
 
-Returns extension status, availability, optional dependencies, missing dependencies, and effective config.
+Returns effective extension status, UI config schema, installable dependencies, config-aware required dependency IDs, missing required IDs, and current config.
 
 ```json
 {
   "extensions": [
     {
       "id": "hotwords",
-      "name": "Hotwords",
       "enabled": true,
-      "available": true,
-      "optional_dependencies": [],
-      "missing_dependencies": [],
+      "ready": true,
+      "dependencies": [],
+      "missing_dependency_ids": [],
+      "config_schema": [
+        {"name": "enabled", "type": "boolean", "default": true},
+        {"name": "phrases", "type": "string_list", "default": []}
+      ],
       "config": {"enabled": true, "phrases": []}
     }
   ]
 }
 ```
 
+### `POST /extensions/<extension_id>`
+
+Validates and persists a single extension config. Use either the config object directly or wrap it under `config`:
+
+```json
+{"config": {"enabled": true, "phrases": ["VoiceCode", "CTranslate2"]}}
+```
+
+### `POST /extensions/<extension_id>/install`
+
+Starts isolated install tasks for the extension's cataloged optional dependencies. Returns `tasks`; poll each task through `/dependencies/tasks/<task_id>`.
 
 ### `GET /dependencies`
 
-Returns downloadable dependency status and the isolated install directory. The default install directory is `<project>/VOICE_DEP`; `VOICECODE_DEP_DIR` is honored for tests and release overrides. Missing required dependencies and missing dependencies for enabled extensions are listed in `action_required_missing` so the UI can show a closeable warning dialog at startup.
+Returns downloadable dependency status and the isolated install directory. Source checkouts default to `<project>/VOICE_DEP`; normal installed packages use a user-writable config `dependencies/` directory; `VOICECODE_DEP_DIR` is honored for tests and release overrides. Missing required dependencies and missing dependencies for enabled extensions are listed in `action_required_missing` so the UI can show a closeable warning dialog at startup.
 
 ```json
 {
@@ -189,7 +242,6 @@ Returns downloadable dependency status and the isolated install directory. The d
       "name": "Whisper runtime",
       "installed": false,
       "installed_in_voice_dep": false,
-      "managed_by_voice_dep": false,
       "missing_modules": ["faster_whisper", "ctranslate2"],
       "github_preferred": true
     }
@@ -198,6 +250,10 @@ Returns downloadable dependency status and the isolated install directory. The d
   "action_required_missing": []
 }
 ```
+
+### `POST /dependencies/install-required`
+
+Starts tasks for every missing dependency marked as required by the core runtime. The endpoint is used by the first-start guide and the Dependencies page. It returns an empty task list when the runtime is already provisioned.
 
 ### `POST /dependencies/<dependency_id>/install`
 
@@ -226,9 +282,31 @@ Uninstalls files managed for that dependency from `VOICE_DEP`. The request must 
 
 ### `GET /models`
 
-Returns supported model metadata, current model, active inference device, compute type, CUDA availability, model load state, and per-model compatibility advice.
+Returns supported model metadata, current model, active inference device, compute type, CUDA availability, model load state, model cache directory/status, and per-model compatibility advice.
 
 Each model metadata entry includes size, description, minimum VRAM, recommended VRAM, and a short recommendation. The `compatibility` object marks models as not selectable when the current manual CUDA configuration has less VRAM than the model minimum.
+
+
+### `GET /models/cache`
+
+Returns the model cache directory and per-model cache summary. VoiceCode uses `VOICECODE_MODEL_DIR` when set, otherwise `<VOICECODE_RUNTIME_DIR>/models` when a runtime directory is configured, otherwise the source-tree `models/` folder for development runs.
+
+```json
+{
+  "cache_dir": "E:/path/to/voicecode/models",
+  "models": {
+    "base": {"model": "base", "cached": true, "paths": [".../base"], "size_mb": 148.2}
+  }
+}
+```
+
+### `POST /models/<model_name>/download`
+
+Downloads and loads a supported Whisper model. This reuses the normal model loader, so a successful operation makes the model active and immediately usable. If another model load is already running, returns `409`.
+
+### `DELETE /models/<model_name>/cache`
+
+Deletes cached files for a supported model from the managed model cache directory. The body must include `{"confirm": true}`. Deletion is refused for the currently loaded model or while any model load is in progress.
 
 ### `GET /hardware`
 
@@ -250,6 +328,10 @@ Returns hardware capability and active inference profile. When the UI hardware s
 
 Returns available input devices and the default input index.
 
+### `POST /audio/test`
+
+Captures a short local microphone sample and returns peak/RMS/percentage plus `has_signal`. Body accepts `audio_device` and `duration_ms` (50-5000). It returns `409` while recording is active.
+
 ### `POST /log`
 
 Writes frontend diagnostic messages through Python logging.
@@ -269,11 +351,28 @@ Notable fields:
 
 ### `GET /history`
 
-Returns recent transcript history. Query parameter: `limit` from 1 to 500.
+Returns recent transcript history. Query parameters:
+
+| Parameter | Purpose |
+| --- | --- |
+| `limit` | Max entries from 1 to 500 |
+| `q` | Case-insensitive text search |
+| `language` | Filter by `auto`, `zh`, `en`, or `ja` |
+| `model` | Filter by model name |
+
+Each entry includes a stable `id` suitable for single-entry deletion.
+
+### `GET /history/export`
+
+Exports filtered transcript history. Supports the same filter query parameters as `GET /history` plus `format=json`, `format=txt`, or `format=md`. The response is returned as an attachment.
+
+### `DELETE /history/<entry_id>`
+
+Deletes one transcript history entry. The JSON body must include `{"confirm": true}`. `POST /history/<entry_id>` is also accepted for clients that cannot send `DELETE`.
 
 ### `POST /history/clear`
 
-Deletes transcript history.
+Deletes all transcript history.
 
 ### `GET /diagnostics`
 

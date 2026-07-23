@@ -23,3 +23,11 @@ Returns privacy-safe diagnostic paths, platform, model state, hardware state, an
 ## `POST /log`
 
 Receives frontend logs with optional `component`, `level`, and `msg` fields.
+
+## `GET /audio/devices`
+
+Lists usable input devices and the default input index.
+
+## `POST /audio/test`
+
+Samples local microphone level for setup/settings diagnostics. Accepts `audio_device` and `duration_ms`.

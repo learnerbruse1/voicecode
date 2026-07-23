@@ -149,3 +149,34 @@ async function warnMissingDependenciesOnce() {
 }
 
 if (dependenciesRefreshBtn) dependenciesRefreshBtn.onclick = () => loadDependenciesPanel();
+
+async function waitForDependencyTask(taskId, timeoutMs = 600000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const result = await requestJSON("GET", `/dependencies/tasks/${encodeURIComponent(taskId)}`, {}, {suppressPopup: true, timeout: 10000});
+    if (!result.ok) throw new Error(result.error || t("request_failed"));
+    const task = result.task || {};
+    updateProgress(`${task.progress || 0}% ? ${task.message || task.status || ""}`);
+    if (task.status === "completed") return task;
+    if (task.status === "failed") throw new Error(task.error || task.message || t("dependency_install_failed"));
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }
+  throw new Error(t("request_timeout_detail"));
+}
+
+
+const dependenciesInstallRequiredBtn = document.getElementById("dependencies-install-required");
+if (dependenciesInstallRequiredBtn) dependenciesInstallRequiredBtn.onclick = async () => {
+  const result = await requestJSON("POST", "/dependencies/install-required", {}, {errorTitle: t("dependency_install_failed"), timeout: 20000});
+  if (!result.ok) return;
+  if (!(result.tasks || []).length) { await loadDependenciesPanel(); return; }
+  showProgress(t("dependency_install_all_required"), t("onboarding_installing"));
+  try {
+    for (const task of result.tasks) await waitForDependencyTask(task.id);
+    await loadDependenciesPanel();
+  } catch (error) {
+    showError(t("dependency_install_failed"), error.message || String(error));
+  } finally {
+    hideProgress();
+  }
+};

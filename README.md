@@ -9,7 +9,11 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 - Local transcription powered by Whisper-compatible `faster-whisper` models.
 - Automatic NVIDIA CUDA detection with safe CPU fallback.
 - Automatic hardware selection UI with manual CPU/CUDA override and blocking progress overlay for long operations.
-- English, Chinese, and Japanese UI languages with language-aware responsive layout.
+- Guided first launch for language, runtime dependencies, microphone, and model/hardware setup.
+- English, Chinese, and Japanese UI languages loaded from external JSON catalogs.
+- Operable extension cards with enable/disable controls, validated configuration, and one-click dependency installation.
+- Model cache management page for downloading/loading models and deleting non-active local caches.
+- Searchable transcript history with language filters, single-entry deletion, and JSON/TXT/Markdown export.
 - Configurable inference device (`auto`, `cpu`, `cuda`) and compute type (`auto`, `int8`, `float16`, `float32`, `int8_float16`).
 - Cross-platform Python package layout for Windows, macOS, and Linux development.
 - Local-only Flask/Waitress API bound to `127.0.0.1`.
@@ -36,7 +40,9 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m voicecode
 ```
 
-On first launch, if Whisper or audio capture packages are missing, open **Dependencies** in the left sidebar and install them into the project-local `VOICE_DEP` folder. The installer tries GitHub sources first and falls back to PyPI.
+On first launch, the setup guide checks runtime dependencies, microphone devices, language, model, and hardware preferences. Missing Whisper/audio packages can be installed in one click into the isolated dependency directory. The installer tries GitHub sources first and falls back to PyPI. The guide can be reopened from **About**.
+
+The **Extensions** page supports real enable/disable and validated per-extension settings. Optional packages are installed into the same isolated directory without modifying the package installation.
 
 Use **Settings -> Language** to switch the UI between English, Chinese, and Japanese. English is the default.
 
@@ -103,6 +109,7 @@ Additional overrides: `VOICECODE_CONFIG_FILE`, `VOICECODE_STATIC_DIR`, `VOICECOD
 - [Hardware and model selection](docs/HARDWARE.md) for CPU/GPU, CUDA, compute types, and VRAM guidance
 - [Error handling and resilience](docs/ERROR_HANDLING.md) for request IDs, JSON errors, progress overlays, and fallback behavior
 - [Troubleshooting](docs/TROUBLESHOOTING.md) for common model, CUDA, and UI issues
+- [Packaging](docs/PACKAGING.md) and [release process](docs/RELEASING.md) for wheel/sdist contents, validation, and release gates
 - [Roadmap](docs/ROADMAP.md) for optional extension ideas and future work
 - [FAQ](docs/FAQ.md) for user-facing answers
 
@@ -112,13 +119,15 @@ See [docs/API.md](docs/API.md). Important endpoints include:
 
 - `GET /health`
 - `GET /status`
-- `GET /extensions`
+- `GET /onboarding`, `POST /onboarding/complete`
+- `GET /extensions`, `POST /extensions/<extension_id>`
 - `GET /hardware`
 - `GET /models`
 - `POST /reload_model`
 - `POST /record/start`, `POST /record/stop`, `POST /record/cancel`
 - `POST /transcribe`
-- `GET /audio/devices`
+- `GET /dependencies`, `POST /dependencies/install-required`
+- `GET /audio/devices`, `POST /audio/test`
 - `GET /history`, `POST /history/clear`
 - `GET /diagnostics`
 
@@ -130,21 +139,22 @@ All non-empty JSON request bodies must be JSON objects. Malformed JSON and non-o
 
 ```text
 voicecode/
-??? src/voicecode/          # Authoritative package implementation
-?   ??? app.py              # Local API and Whisper orchestration
-?   ??? audio.py            # Recorder and microphone device parsing
-?   ??? history.py          # Transcript history persistence
-?   ??? settings.py         # Config schema, validation, paths, model metadata
-?   ??? text_processing.py  # Transcript post-processing modes
-?   ??? extensions/         # Optional feature modules and registry
-?   ??? main.py             # Desktop window, hotkey integration, startup checks
-?   ??? runtime.py          # Runtime/cache path helpers
-?   ??? static/             # Packaged web UI assets
-??? static/                 # Source-tree UI assets mirrored with package assets
-??? tests/                  # Smoke/API/runtime tests with fake Whisper/audio modules
-??? docs/                   # API, developer, hardware, error-handling, and module docs
-??? app.py, main.py         # Compatibility wrappers
-??? pyproject.toml          # Packaging, dependencies, tool config
+|-- src/voicecode/                 # Authoritative package implementation
+|   |-- app.py                     # Core Flask/model orchestration and blueprint wiring
+|   |-- management_api.py          # Onboarding, extensions, dependencies
+|   |-- history_api.py             # History query/export/mutation routes
+|   |-- system_api.py              # Hardware, audio test, diagnostics, stats
+|   |-- dependency_*.py            # Catalog, environment, installer, shared types
+|   |-- audio.py, history.py       # Recorder and persistence services
+|   |-- settings.py                # Config schema, validation, paths, model metadata
+|   |-- extensions/                # Optional feature modules and registry
+|   |-- main.py, runtime.py        # Desktop startup and runtime/cache paths
+|   `-- static/                    # Packaged UI, JS feature modules, JSON catalogs
+|-- static/                        # Source-tree mirror of packaged UI assets
+|-- tests/                         # Smoke/API/runtime/static synchronization tests
+|-- docs/                          # API, architecture, packaging, release documentation
+|-- app.py, main.py                # Compatibility wrappers
+`-- pyproject.toml                 # Packaging, dependencies, tool config
 ```
 
 ## Contributing

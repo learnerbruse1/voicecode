@@ -35,3 +35,35 @@ A long operation is running, usually model reload or transcription. Wait for it 
 ## The API returns a request ID
 
 Include the `request_id` from the popup/API response when reporting an issue. It maps to backend logs.
+
+## Model downloads or cache deletion fail
+
+Open **Models** and check the cache directory shown at the top. Common causes:
+
+- another model load is already in progress
+- offline mode is enabled and the model is not cached
+- the selected model is currently active, so its cache cannot be deleted
+- the cache directory is not writable
+- network access to the model host is blocked
+
+Try choosing a smaller model, switching hardware to Auto, confirming that `VOICECODE_MODEL_DIR` points to a writable folder, or deleting only non-active model caches.
+
+## History search or export does not show expected entries
+
+The History page applies search text and language filters before exporting. Clear the search box and set language to **All languages** to export everything within the configured history limit. If history is empty, confirm that `history_enabled` is on and that `VOICECODE_HISTORY_FILE` points to a writable file if overridden.
+
+## The first-start guide keeps returning
+
+Call `GET /onboarding` or inspect the config `onboarding` object. Completion is written only after `POST /onboarding/complete` succeeds. Confirm the config directory is writable and no environment override points to a read-only file.
+
+## An extension is enabled but not ready
+
+Open **Extensions** and inspect its dependency summary. Some settings make a dependency conditionally required, such as Silero VAD or Chinese script conversion. Use **Install dependencies**, wait for every task to complete, then refresh. Heavy adapters may also require external models/credentials not provided by package installation.
+
+## A dependency install fails
+
+Open **Dependencies**, retry, and inspect the task message/log through `/dependencies/tasks/<id>`. Verify network/proxy/Git access, available disk space, and write access to `VOICECODE_DEP_DIR` or the packaged runtime dependency directory. GitHub sources fall back to PyPI when cataloged.
+
+## Translations fail to load
+
+Confirm `static/i18n/en.json`, `zh.json`, and `ja.json` exist in both source and packaged trees. For wheels/bundles, inspect package contents and verify `/static/i18n/en.json` returns a JSON object.

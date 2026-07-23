@@ -62,6 +62,7 @@ class DummyStream:
 @pytest.fixture()
 def app_module(monkeypatch):
     monkeypatch.setenv("VOICECODE_DEP_DIR", str(Path(tempfile.mkdtemp()) / "VOICE_DEP"))
+    monkeypatch.setenv("VOICECODE_MODEL_DIR", str(Path(tempfile.mkdtemp()) / "models"))
     monkeypatch.setitem(sys.modules, "ctranslate2", DummyCT)
     faster_whisper = types.ModuleType("faster_whisper")
     faster_whisper.WhisperModel = DummyWhisperModel
@@ -77,13 +78,16 @@ def app_module(monkeypatch):
 
     sys.modules.pop("app", None)
     module = importlib.import_module("app")
+    module.app.config["TESTING"] = True
     module.CONFIG_FILE = os.path.join(tempfile.mkdtemp(), "config.json")
     module.model = DummyWhisperModel("base", device="cpu", compute_type="int8")
     module._set_model_state("ready")
     DummyStream.fail_start = False
     DummyWhisperModel.fail_load = False
     DummyWhisperModel.last_transcribe_kwargs = None
+    module._recorder.stop_and_get()
     yield module
+    module._recorder.stop_and_get()
     sys.modules.pop("app", None)
 
 
@@ -100,6 +104,31 @@ def test_unknown_route_returns_json_error(client):
     assert "error" in body
     assert "request_id" in body
     assert response.headers.get("X-VoiceCode-Request-ID") == body["request_id"]
+
+
+def test_index_injects_local_api_token(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'name="voicecode-api-token"' in response.get_data(as_text=True)
+    assert response.headers.get("Cache-Control") == "no-store"
+
+
+def test_mutating_api_can_require_local_api_token(client, app_module):
+    app_module.app.config["VOICECODE_FORCE_API_TOKEN"] = True
+    try:
+        missing = client.post("/config", json={})
+        assert missing.status_code == 403
+        assert "local API token" in missing.get_json()["error"]
+
+        accepted = client.post(
+            "/config",
+            json={},
+            headers={"X-VoiceCode-Token": app_module._API_TOKEN},
+        )
+        assert accepted.status_code == 200
+    finally:
+        app_module.app.config.pop("VOICECODE_FORCE_API_TOKEN", None)
 
 
 def test_config_post_handles_empty_and_rejects_unknown_keys(client):
@@ -131,6 +160,50 @@ def test_reload_model_validates_input(client):
     response = client.post("/reload_model", json={"model": "bad-model"})
     assert response.status_code == 400
     assert response.get_json()["error"] == "Unsupported model: bad-model"
+
+
+def test_models_endpoint_reports_cache_directory(client):
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["cache_dir"].endswith("models")
+    assert "base" in body["cache"]
+    assert body["cache"]["base"]["cached"] is False
+
+
+def test_model_cache_delete_requires_confirmation_and_keeps_active_model(client, app_module):
+    cache_dir = Path(app_module._model_cache_dir())
+    base_dir = cache_dir / "base"
+    base_dir.mkdir(parents=True)
+    (base_dir / "config.json").write_text("{}", encoding="utf-8")
+
+    response = client.post("/models/base/cache", json={})
+    assert response.status_code == 400
+    assert "confirm=true" in response.get_json()["error"]
+
+    response = client.delete("/models/base/cache", json={"confirm": True})
+    assert response.status_code == 409
+    assert "currently loaded" in response.get_json()["error"]
+    assert base_dir.exists()
+
+
+def test_model_cache_delete_removes_only_selected_model(client, app_module):
+    cache_dir = Path(app_module._model_cache_dir())
+    tiny_dir = cache_dir / "tiny"
+    small_dir = cache_dir / "small"
+    tiny_dir.mkdir(parents=True)
+    small_dir.mkdir(parents=True)
+    (tiny_dir / "model.bin").write_bytes(b"tiny")
+    (small_dir / "model.bin").write_bytes(b"small")
+
+    response = client.delete("/models/tiny/cache", json={"confirm": True})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "deleted"
+    assert not tiny_dir.exists()
+    assert small_dir.exists()
 
 
 def test_dependencies_endpoint_reports_isolated_directory(client):
@@ -285,6 +358,10 @@ def test_package_launcher_and_static_asset_are_importable():
         "settings.js",
         "recorder.js",
         "history.js",
+        "models.js",
+        "dependencies.js",
+        "extensions.js",
+        "onboarding.js",
         "status.js",
         "app.js",
     ]:
@@ -347,7 +424,13 @@ def test_distribution_static_assets_stay_synchronized():
         Path("static/js/settings.js"),
         Path("static/js/recorder.js"),
         Path("static/js/history.js"),
+        Path("static/js/models.js"),
         Path("static/js/dependencies.js"),
+        Path("static/js/extensions.js"),
+        Path("static/js/onboarding.js"),
+        Path("static/i18n/en.json"),
+        Path("static/i18n/zh.json"),
+        Path("static/i18n/ja.json"),
         Path("static/js/status.js"),
         Path("static/js/app.js"),
     ]:
@@ -402,6 +485,94 @@ def test_extensions_endpoint_lists_default_extensions(client):
     assert extensions["quality"]["enabled"] is False
     assert extensions["diarization"]["enabled"] is False
     assert extensions["punctuation"]["enabled"] is False
+
+
+def test_extension_endpoint_updates_real_config(client):
+    response = client.post(
+        "/extensions/hotwords",
+        json={"config": {"enabled": False, "phrases": ["Voice Code", "pytest"]}},
+    )
+
+    assert response.status_code == 200
+    extension = response.get_json()["extension"]
+    assert extension["enabled"] is False
+    assert extension["config"]["phrases"] == ["Voice Code", "pytest"]
+
+    config = client.get("/config").get_json()
+    assert config["extensions"]["hotwords"]["enabled"] is False
+
+
+def test_onboarding_status_complete_and_reset(client):
+    response = client.get("/onboarding")
+    assert response.status_code == 200
+    assert response.get_json()["required"] is True
+    assert set(response.get_json()["steps"]) == {"runtime", "audio", "model"}
+
+    response = client.post(
+        "/onboarding/complete",
+        json={"config": {"ui_language": "zh", "model": "tiny"}, "skipped": False},
+    )
+    assert response.status_code == 200
+    assert response.get_json()["config"]["onboarding"]["completed"] is True
+
+    response = client.get("/onboarding")
+    assert response.get_json()["required"] is False
+    assert response.get_json()["config"]["ui_language"] == "zh"
+
+    response = client.post("/onboarding/reset", json={})
+    assert response.status_code == 200
+    assert response.get_json()["onboarding"]["completed"] is False
+
+
+def test_extension_dependency_install_starts_catalog_tasks(client, app_module, monkeypatch):
+    started = []
+
+    class Task:
+        def __init__(self, dependency_id):
+            self.dependency_id = dependency_id
+
+        def public_dict(self):
+            return {"id": "task-1", "dependency_id": self.dependency_id, "status": "queued"}
+
+    monkeypatch.setattr(
+        app_module.dependency_manager,
+        "dependencies_for_feature_status",
+        lambda feature_id: (
+            [{"id": "jiwer", "installed_in_voice_dep": False, "installed": False}]
+            if feature_id == "quality"
+            else []
+        ),
+    )
+    monkeypatch.setattr(
+        app_module.dependency_manager,
+        "start_install",
+        lambda dependency_id: started.append(dependency_id) or Task(dependency_id),
+    )
+
+    response = client.post("/extensions/quality/install", json={})
+
+    assert response.status_code == 202
+    assert started == ["jiwer"]
+    assert response.get_json()["tasks"][0]["dependency_id"] == "jiwer"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/extensions/quality",
+        "/extensions/quality/install",
+        "/dependencies/install-required",
+        "/dependencies/jiwer/uninstall",
+        "/onboarding/complete",
+        "/onboarding/reset",
+        "/history/clear",
+    ],
+)
+def test_new_mutating_routes_reject_malformed_json(client, path):
+    response = client.post(path, data="{", content_type="application/json")
+
+    assert response.status_code == 400
+    assert "JSON payload" in response.get_json()["error"]
 
 
 def test_config_validates_extension_ids_and_keys(client):
@@ -503,6 +674,9 @@ def test_static_ui_exposes_three_language_controls():
     assert 'data-i18n="lang_ja"' in html
     assert 'class="sidebar"' in html
     assert 'data-view="home"' in html
+    assert 'data-view="models"' in html
+    assert 'id="view-models"' in html
+    assert 'src="/js/models.js"' in html
     assert 'id="content-scroll"' in html
     assert 'id="win-close"' in html
     assert 'id="auto-device-toggle"' in html
@@ -512,6 +686,11 @@ def test_static_ui_exposes_three_language_controls():
     assert 'id="model-description"' in html
     assert 'id="model-button-list"' in html
     assert 'id="reset-defaults-btn"' in html
+    assert 'id="history-search"' in html
+    assert 'id="history-language"' in html
+    assert 'id="history-export-json"' in html
+    assert 'id="mic-test-btn"' in html
+    assert 'id="mic-level-bar"' in html
 
 
 def test_localized_readmes_exist():
@@ -542,6 +721,31 @@ def test_audio_devices_endpoint_lists_input_devices(client):
     assert body["devices"][0]["name"] == "Dummy Microphone"
 
 
+def test_audio_test_reports_microphone_level(client):
+    response = client.post("/audio/test", json={"duration_ms": 50})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["samples"] > 0
+    assert body["peak"] > 0
+    assert body["level_percent"] == 100
+    assert body["has_signal"] is True
+
+
+def test_audio_test_validates_duration_and_recording_state(client):
+    response = client.post("/audio/test", json={"duration_ms": True})
+    assert response.status_code == 400
+    assert "duration_ms" in response.get_json()["error"]
+
+    response = client.post("/record/start", json={"language": "en"})
+    assert response.status_code == 200
+    response = client.post("/audio/test", json={"duration_ms": 50})
+    assert response.status_code == 409
+    assert "while recording" in response.get_json()["error"]
+    response = client.post("/record/cancel")
+    assert response.status_code == 200
+
+
 def test_text_post_processing_modes(app_module):
     assert app_module._post_process_text("open parenthesis equals", "coding") == "( ="
     assert (
@@ -567,6 +771,60 @@ def test_history_and_diagnostics_endpoints(client):
     response = client.post("/history/clear")
     assert response.status_code == 200
     assert response.get_json()["status"] == "cleared"
+
+
+def test_history_filters_export_and_entry_delete(client, app_module):
+    history_file = app_module._history_file()
+    app_module.history_store.append_history(
+        history_file,
+        {
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "language": "en",
+            "model": "base",
+            "text": "hello world",
+        },
+    )
+    app_module.history_store.append_history(
+        history_file,
+        {
+            "created_at": "2026-01-02T00:00:00+00:00",
+            "language": "zh",
+            "model": "small",
+            "text": "?? ??",
+        },
+    )
+
+    response = client.get("/history?q=hello&language=en")
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["total"] == 1
+    assert body["entries"][0]["text"] == "hello world"
+    entry_id = body["entries"][0]["id"]
+
+    response = client.get("/history/export?format=txt&q=hello")
+    assert response.status_code == 200
+    assert response.mimetype == "text/plain"
+    assert "hello world" in response.get_data(as_text=True)
+    assert "?? ??" not in response.get_data(as_text=True)
+
+    response = client.get("/history/export?format=md")
+    assert response.status_code == 200
+    assert response.mimetype == "text/markdown"
+    assert "# VoiceCode History" in response.get_data(as_text=True)
+
+    response = client.delete(f"/history/{entry_id}", json={})
+    assert response.status_code == 400
+    assert "confirm=true" in response.get_json()["error"]
+
+    response = client.delete(f"/history/{entry_id}", json={"confirm": True})
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "deleted"
+
+    response = client.get("/history")
+    assert response.status_code == 200
+    remaining_texts = [entry["text"] for entry in response.get_json()["entries"]]
+    assert "hello world" not in remaining_texts
+    assert "?? ??" in remaining_texts
 
 
 def test_history_rejects_non_integer_limit(client):
@@ -854,13 +1112,17 @@ def test_dependency_uninstall_uses_manifest_and_removes_transitives(app_module):
 
 def test_i18n_catalogs_cover_supported_languages_and_layout_hooks():
     repo_root = Path(__file__).resolve().parents[1]
-    i18n_text = (repo_root / "static" / "js" / "i18n.js").read_text(encoding="utf-8").strip()
-    catalogs = json.loads(i18n_text.removeprefix("window.I18N=").removesuffix(";"))
+    catalogs = {
+        language: json.loads(
+            (repo_root / "static" / "i18n" / f"{language}.json").read_text(encoding="utf-8")
+        )
+        for language in ("en", "zh", "ja")
+    }
+    loader = (repo_root / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
 
-    assert set(catalogs) == {"en", "zh", "ja"}
+    assert "ensureI18nCatalog" in loader
     english_keys = set(catalogs["en"])
-    assert "settings_language" in english_keys
-    assert "settings_language_hint" in english_keys
+    assert {"settings_language", "settings_language_hint", "onboarding_title"} <= english_keys
     for language in ("zh", "ja"):
         assert english_keys <= set(catalogs[language])
         assert catalogs[language]["settings_language"] != catalogs["en"]["settings_language"]

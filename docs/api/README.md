@@ -7,6 +7,6 @@ Split API references:
 - [System API](system.md): health, status, stats, hardware, diagnostics, frontend logs.
 - [Configuration API](config.md): config read/write/reset.
 - [Transcription API](transcription.md): recording and direct file/sample transcription.
-- [Extensions API](extensions.md): extension status and extension-backed config.
+- [Extensions API](extensions.md): onboarding, operable extension config, and isolated dependency tasks.
 
 The complete single-file reference remains available at [../API.md](../API.md).

@@ -44,3 +44,7 @@ The UI also displays CPU/GPU/memory status on the Home page and top status bar.
 - VoiceCode cannot make an incompatible NVIDIA driver usable.
 - NVML is optional; if missing, transcription may still work but detailed GPU telemetry may be unavailable.
 - Actual memory use varies by driver, CUDA version, compute type, beam size, and audio length.
+
+## First-start recommendations
+
+The guide defaults to `base` with automatic hardware selection. Resolve required runtime packages before judging model readiness. The microphone step checks enumeration and can sample a short local signal; no audio is uploaded.

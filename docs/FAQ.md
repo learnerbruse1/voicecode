@@ -47,3 +47,15 @@ No. VoiceCode transcribes locally with the selected Whisper model. Model downloa
 ## Can I use VoiceCode from another local tool?
 
 Yes. Use `POST /transcribe` with a multipart `file` upload or JSON float samples. See [API.md](API.md).
+
+## What happens on first launch?
+
+VoiceCode opens a local setup guide for language, required runtime packages, microphone selection/test, and model/hardware preferences. You can skip and return later from **About**.
+
+## Can extensions install their own packages?
+
+Yes. The Extensions page uses the dependency catalog to install optional packages into an isolated directory. It does not write into the installed package directory. Some heavyweight extensions expose configuration/dependency boundaries before their full inference adapter is enabled by default.
+
+## Where do translations live?
+
+English, Chinese, and Japanese catalogs are JSON files under `static/i18n/` and the packaged `src/voicecode/static/i18n/` mirror.

@@ -9,6 +9,8 @@ VoiceCode 是一个本地优先的桌面语音转文字应用，面向编程、�
 - 基于 Whisper 兼容模型的本地语音转文字。
 - 自动检测 NVIDIA CUDA，并在 GPU 初始化或推理失败时安全回退到 CPU。
 - 支持英文、中文、日文界面，并针对不同语言的文本长度自动调整布局。
+- 模型管理页支持下载/加载模型，并可删除非当前使用的本地缓存。
+- 可搜索的转写历史，支持语言筛选、单条删除以及 JSON/TXT/Markdown 导出。
 - 可配置推理设备：`auto`、`cpu`、`cuda`。
 - 可配置计算精度：`auto`、`int8`、`float16`、`float32`、`int8_float16`。
 - 面向 Windows、macOS、Linux 的标准 Python 开源项目结构。

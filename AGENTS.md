@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 Repository-specific guidance for coding agents working on VoiceCode.
 
@@ -23,7 +23,9 @@ Use PowerShell with UTF-8 enabled on Windows. This repository intentionally does
 - Root compatibility entry points: `app.py`, `main.py`
 - Installable package: `src/voicecode/`
 - Runtime path helper: `src/voicecode/runtime.py`
-- Static UI: `static/` and packaged copy `src/voicecode/static/`
+- Route blueprints: `management_api.py`, `history_api.py`, `system_api.py`
+- Dependency services: `dependency_catalog.py`, `dependency_environment.py`, `dependency_installer.py`, facade `dependencies.py`
+- Static UI: `static/` and packaged copy `src/voicecode/static/`, including `i18n/*.json` catalogs
 - Tests: `tests/test_app_smoke.py`
 - Release metadata: `pyproject.toml`, `MANIFEST.in`, CI workflow, docs, contribution/security files
 
@@ -68,6 +70,8 @@ flowchart TD
 | Model reload state | `_model_state_lock` |
 | Cancellation token | `_cancel_lock` |
 | Global typing flag | `_typing_lock` |
+| Dependency task map | dependency installer `_task_lock` |
+| pip install serialization | dependency installer `_install_lock` |
 | Hotkey modifier set | listener-local lock |
 
 ## API Summary
@@ -84,8 +88,20 @@ flowchart TD
 - `POST /transcribe`
 - `POST /log`
 - `GET /stats`
+- `GET /onboarding`
+- `POST /onboarding/complete`
+- `POST /onboarding/reset`
+- `GET /extensions`
+- `POST /extensions/<id>`
+- `POST /extensions/<id>/install`
+- `GET /dependencies`
+- `POST /dependencies/install-required`
+- `POST /dependencies/<id>/install`
+- `GET /dependencies/tasks/<id>`
+- `POST /dependencies/<id>/uninstall`
 - `GET /models`
 - `GET /audio/devices`
+- `POST /audio/test`
 - `GET /history`
 - `POST /history/clear`
 - `GET /diagnostics`

@@ -35,6 +35,75 @@ def _sounddevice():  # noqa: ANN202
     return sd
 
 
+def test_input_level(device: int | str | None = None, *, duration_ms: int = 1000) -> dict[str, Any]:
+    """Record a short microphone sample and return simple level metrics."""
+    if duration_ms < 50 or duration_ms > 5000:
+        raise ValueError("duration_ms must be an integer between 50 and 5000.")
+    runtime = _sounddevice()
+    samples: list[np.ndarray] = []
+    lock = threading.Lock()
+    seen_audio = threading.Event()
+
+    def callback(indata, frames, time_info, status) -> None:  # noqa: ANN001, ARG001
+        if status:
+            logger.warning("Audio test recorder status: %s", status)
+        data = np.asarray(indata, dtype=np.float32)
+        if data.ndim == 2:
+            data = data[:, 0]
+        else:
+            data = data.reshape(-1)
+        with lock:
+            samples.append(data.copy())
+        seen_audio.set()
+
+    stream_kwargs: dict[str, Any] = {
+        "samplerate": Recorder.RATE,
+        "channels": 1,
+        "dtype": "float32",
+        "blocksize": 1024,
+        "callback": callback,
+    }
+    if device is not None:
+        stream_kwargs["device"] = device
+
+    stream: Any | None = None
+    try:
+        stream = runtime.InputStream(**stream_kwargs)
+        stream.start()
+        seen_audio.wait(timeout=max(0.1, duration_ms / 1000))
+        threading.Event().wait(timeout=duration_ms / 1000)
+    finally:
+        if stream is not None:
+            try:
+                stream.stop()
+            finally:
+                stream.close()
+
+    with lock:
+        audio = np.concatenate(samples) if samples else np.array([], dtype=np.float32)
+    if audio.size == 0:
+        return {
+            "duration_ms": duration_ms,
+            "sample_rate": Recorder.RATE,
+            "samples": 0,
+            "rms": 0.0,
+            "peak": 0.0,
+            "level_percent": 0,
+            "has_signal": False,
+        }
+    rms = float(np.sqrt(np.mean(np.square(audio))))
+    peak = float(np.max(np.abs(audio)))
+    return {
+        "duration_ms": duration_ms,
+        "sample_rate": Recorder.RATE,
+        "samples": int(audio.size),
+        "rms": rms,
+        "peak": peak,
+        "level_percent": int(max(0, min(100, round(peak * 100)))),
+        "has_signal": peak >= 0.01 or rms >= 0.005,
+    }
+
+
 def normalize_audio_device(value: Any) -> int | str | None:
     if value in (None, ""):
         return None

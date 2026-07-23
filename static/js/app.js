@@ -36,6 +36,7 @@ function setActiveView(viewName) {
   if (contentScroll) contentScroll.scrollTop = 0;
   if (viewName === "history") loadHistoryPanel();
   if (viewName === "diagnostics") loadDiagnosticsPanel();
+  if (viewName === "models") loadModelsPanel();
   if (viewName === "extensions") loadExtensionsPanel();
   if (viewName === "dependencies") loadDependenciesPanel();
 }
@@ -58,11 +59,22 @@ function setupWindowControls() {
   if (winCloseBtn) winCloseBtn.onclick = () => callWindowApi("close_window");
 }
 
-setupNavigation();
-setupWindowControls();
-setActiveView(initialViewName());
-loadAudioDevices().then(loadConfig).then(() => pollModelStatus(true)).then(updateAutoDeviceLabel).then(warnMissingDependenciesOnce);
-setInterval(() => pollModelStatus(false), 3000);
-setInterval(updateStats, 3000);
-applyTranslations();
-updateStats();
+async function bootstrapVoiceCode() {
+  await initializeI18n("en");
+  applyTranslations();
+  setupNavigation();
+  setupWindowControls();
+  setupOnboarding();
+  setActiveView(initialViewName());
+  await loadAudioDevices();
+  await loadConfig();
+  await pollModelStatus(true);
+  await updateAutoDeviceLabel();
+  await warnMissingDependenciesOnce();
+  await loadOnboarding(false);
+  updateStats();
+  setInterval(() => pollModelStatus(false), 3000);
+  setInterval(updateStats, 3000);
+}
+
+bootstrapVoiceCode().catch(error => showError(t("operation_failed"), error.message || String(error)));

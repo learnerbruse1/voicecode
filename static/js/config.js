@@ -14,6 +14,7 @@ async function loadConfig() {
     vadFilterSel.value = String(cfg.vad_filter !== false);
     langSel.value = cfg.language || "zh";
     uiLanguage = ["en", "zh", "ja"].includes(cfg.ui_language) ? cfg.ui_language : "en";
+    await ensureI18nCatalog(uiLanguage);
     audioDeviceSel.value = String(cfg.audio_device || "");
     textModeSel.value = cfg.text_mode || "plain";
     historyEnabledSel.value = String(cfg.history_enabled !== false);

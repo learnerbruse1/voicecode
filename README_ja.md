@@ -11,6 +11,9 @@ VoiceCode は、コーディング、文章作成、プロンプト作成向け�
 - 推論デバイス設定：`auto`、`cpu`、`cuda`。
 - 計算精度設定：`auto`、`int8`、`float16`、`float32`、`int8_float16`。
 - `127.0.0.1` のみにバインドするローカル API。
+- 英語、中国語、日本語 UI と言語別のレイアウト調整。
+- モデル管理ページでモデルのダウンロード/読み込みと非アクティブなローカルキャッシュ削除が可能。
+- 検索可能な文字起こし履歴。言語フィルター、単一項目削除、JSON/TXT/Markdown エクスポートに対応。
 - `pywebview` デスクトップ UI、`pynput` グローバルホットキー、`sounddevice` マイク録音。
 - ファイルアップロードや統合向けの `/transcribe` API。
 - 設定、ログ、履歴はユーザー書き込み可能なディレクトリに保存。
@@ -41,6 +44,8 @@ python -m venv .venv
 既定では、CTranslate2 が CUDA GPU を検出すると `cuda/float16` を使用し、検出できない場合は `cpu/int8` を使用します。CUDA 推論が失敗した場合も `cpu/int8` にフォールバックします。
 
 詳しい API と開発情報は [docs/API.md](docs/API.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) を参照してください。
+
+?????? [Architecture](docs/ARCHITECTURE.md)?[Packaging](docs/PACKAGING.md)?[Releasing](docs/RELEASING.md) ??????????
 
 ## License
 

@@ -1,12 +1,20 @@
+function localApiToken() {
+  const meta = document.querySelector('meta[name="voicecode-api-token"]');
+  return meta ? meta.getAttribute("content") || "" : "";
+}
+
 async function requestJSON(method, url, body = {}, opts = {}) {
   const controller = new AbortController();
   const timeout = opts.timeout || 30000;
   const timer = setTimeout(() => controller.abort(), timeout);
   if (opts.abortable) currentRequest = controller;
+  const headers = {"Content-Type": "application/json"};
+  const token = localApiToken();
+  if (method !== "GET" && token) headers["X-VoiceCode-Token"] = token;
   try {
     const resp = await fetch(url, {
       method,
-      headers: {"Content-Type": "application/json"},
+      headers,
       body: method === "GET" ? undefined : JSON.stringify(body),
       signal: controller.signal,
     });

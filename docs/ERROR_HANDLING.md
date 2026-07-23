@@ -91,3 +91,9 @@ When adding a new route or feature:
 3. Log enough context to reproduce the failure.
 4. Include request ID in any user-facing troubleshooting guidance.
 5. Add regression tests for malformed input and expected failure modes.
+
+## Dependency and onboarding resilience
+
+Dependency installation is asynchronous and reports bounded progress/log output. Failed GitHub attempts are cleaned before PyPI fallback. Uninstall requires explicit confirmation and refuses paths outside the isolated root.
+
+Onboarding completion records user intent; it does not hide dependency, microphone, or model failures. Readiness warnings remain visible through status/dependency pages, and the guide can be rerun.

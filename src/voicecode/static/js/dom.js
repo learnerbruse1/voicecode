@@ -18,6 +18,9 @@ var computeTypeSel = $("compute-type");
 var langSel = $("lang");
 var uiLangSel = $("uilang");
 var audioDeviceSel = $("audio-device");
+var micTestBtn = $("mic-test-btn");
+var micTestStatusEl = $("mic-test-status");
+var micLevelBarEl = $("mic-level-bar");
 var textModeSel = $("text-mode");
 var beamSizeSel = $("beam-size");
 var vadFilterSel = $("vad-filter");
@@ -43,7 +46,16 @@ var viewSubtitle = $("view-subtitle");
 var systemStatusEl = $("system-status");
 var homeMetricsEl = $("home-metrics");
 var historyListEl = $("history-list");
+var historySearchEl = $("history-search");
+var historyLanguageEl = $("history-language");
+var historySummaryEl = $("history-summary");
+var historyExportJsonBtn = $("history-export-json");
+var historyExportMdBtn = $("history-export-md");
+var historyExportTxtBtn = $("history-export-txt");
 var diagnosticsOutputEl = $("diagnostics-output");
+var modelsListEl = $("models-list");
+var modelsRefreshBtn = $("models-refresh");
+var modelsCacheDirEl = $("models-cache-dir");
 var extensionsListEl = $("extensions-list");
 var extensionsRefreshBtn = $("extensions-refresh");
 var dependenciesListEl = $("dependencies-list");
@@ -76,7 +88,9 @@ var modelInfoCache = null;
 var dbgLines = [];
 
 function t(key) {
-  return (window.I18N[uiLanguage] && window.I18N[uiLanguage][key]) || window.I18N.en[key] || key;
+  const current = window.I18N[uiLanguage] || {};
+  const fallback = window.I18N.en || {};
+  return current[key] || fallback[key] || key;
 }
 
 function applyTranslations() {

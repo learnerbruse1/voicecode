@@ -20,3 +20,13 @@ Please include:
 - Any relevant logs, screenshots, or crash traces with private transcripts and local secrets removed
 
 We will respond as quickly as possible.
+
+## Local API hardening
+
+VoiceCode's HTTP server must bind only to `127.0.0.1`. During normal desktop runtime, mutating HTTP requests require the per-process `X-VoiceCode-Token` header. The token is generated at startup unless `VOICECODE_API_TOKEN` is explicitly provided for a trusted local integration. Do not run with `VOICECODE_DISABLE_API_TOKEN=1` outside isolated testing or development environments.
+
+Please report any path traversal, cross-origin local API, dependency installation, or token exposure issue as a security vulnerability.
+
+## In-app dependency installation
+
+Dependency installs execute local `pip` subprocesses against cataloged GitHub/PyPI specs and write only to the isolated dependency directory. Treat catalog changes as supply-chain-sensitive. Uninstall uses manifests and path containment checks; report any path escape, arbitrary package spec injection, token bypass, or unsafe subprocess behavior privately.

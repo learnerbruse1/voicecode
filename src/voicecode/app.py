@@ -4,6 +4,8 @@ import logging
 import multiprocessing
 import platform
 import os
+import secrets
+import shutil
 import sys
 import threading
 import time
@@ -40,6 +42,10 @@ from flask import Flask, Response, g, jsonify, request, send_from_directory  # n
 from werkzeug.exceptions import BadRequest, HTTPException, UnsupportedMediaType  # noqa: E402
 
 from . import dependencies as dependency_manager  # noqa: E402
+from . import __version__  # noqa: E402
+from .management_api import ManagementContext, create_management_blueprint  # noqa: E402
+from .history_api import HistoryContext, create_history_blueprint  # noqa: E402
+from .system_api import SystemContext, create_system_blueprint  # noqa: E402
 from . import history as history_store  # noqa: E402
 from . import settings as settings_store  # noqa: E402
 
@@ -69,6 +75,7 @@ from .audio import (  # noqa: E402
     Recorder,
     normalize_audio_device as _normalize_audio_device,
     query_input_devices as _query_input_devices,
+    test_input_level as _test_input_level,
 )
 from .extensions import audio_io, exporters, hotwords, registry as extension_registry, vad  # noqa: E402
 from .extensions import punctuation, zh_normalizer  # noqa: E402
@@ -95,6 +102,29 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
 app = Flask(__name__, static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = _env_int("VOICECODE_MAX_UPLOAD_MB", 512) * 1024 * 1024
 
+_API_TOKEN = os.environ.get("VOICECODE_API_TOKEN") or secrets.token_urlsafe(32)
+_API_TOKEN_HEADER = "X-VoiceCode-Token"
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _token_protection_disabled() -> bool:
+    if app.config.get("VOICECODE_DISABLE_API_TOKEN") is True:
+        return True
+    if app.config.get("TESTING") and not app.config.get("VOICECODE_FORCE_API_TOKEN"):
+        return True
+    return os.environ.get("VOICECODE_DISABLE_API_TOKEN", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _token_is_valid(value: str | None) -> bool:
+    if value is None:
+        return False
+    return secrets.compare_digest(value, _API_TOKEN)
+
 
 @app.before_request
 def _log_request_start() -> None:
@@ -108,6 +138,13 @@ def _log_request_start() -> None:
         request.remote_addr,
         request.content_type,
     )
+    if (
+        request.method in _MUTATING_METHODS
+        and not _token_protection_disabled()
+        and not _token_is_valid(request.headers.get(_API_TOKEN_HEADER))
+    ):
+        return _error("Invalid or missing local API token.", 403)
+    return None
 
 
 @app.after_request
@@ -311,15 +348,23 @@ def _set_model_state(status_value: str, error: str | None = None) -> None:
         _model_state["error"] = error
 
 
+def _model_cache_dir() -> Path:
+    configured = os.environ.get("VOICECODE_MODEL_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    runtime_dir = os.environ.get("VOICECODE_RUNTIME_DIR")
+    if runtime_dir:
+        return (Path(runtime_dir).expanduser().resolve() / "models").resolve()
+    return (dependency_manager.project_root() / "models").resolve()
+
+
 def _whisper_model_kwargs(device: str, compute_type: str, cpu_threads: int) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "device": device,
         "compute_type": compute_type,
         "cpu_threads": cpu_threads,
+        "download_root": str(_model_cache_dir()),
     }
-    model_dir = os.environ.get("VOICECODE_MODEL_DIR")
-    if model_dir:
-        kwargs["download_root"] = str(Path(model_dir).expanduser())
     if _env_flag("VOICECODE_OFFLINE"):
         kwargs["local_files_only"] = True
     return kwargs
@@ -560,7 +605,17 @@ STATIC_DIR = os.environ.get("VOICECODE_STATIC_DIR") or os.path.join(
 
 @app.route("/")
 def index():
-    return send_from_directory(STATIC_DIR, "index.html")
+    index_path = Path(STATIC_DIR) / "index.html"
+    try:
+        html = index_path.read_text(encoding="utf-8")
+    except OSError:
+        return send_from_directory(STATIC_DIR, "index.html")
+    token_meta = f'<meta name="voicecode-api-token" content="{_API_TOKEN}">'
+    if "voicecode-api-token" not in html:
+        html = html.replace("<head>", f"<head>\n{token_meta}", 1)
+    response = Response(html, mimetype="text/html")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/css/<path:filename>")
@@ -715,8 +770,16 @@ def _append_history(entry: dict[str, Any]) -> None:
     history_store.append_history(_history_file(), entry)
 
 
-def _read_history(limit: int = 50) -> list[dict[str, Any]]:
-    return history_store.read_history(_history_file(), limit)
+def _read_history(
+    limit: int = 50, *, query: str = "", language: str = "", model_name: str = ""
+) -> list[dict[str, Any]]:
+    return history_store.read_history(
+        _history_file(), limit, query=query, language=language, model=model_name
+    )
+
+
+def _read_all_history() -> list[dict[str, Any]]:
+    return history_store.read_all_history(_history_file())
 
 
 _recorder = Recorder()
@@ -964,6 +1027,113 @@ def transcribe_upload():
                 logger.debug("Failed to delete temporary upload: %s", tmp_path)
 
 
+def _safe_path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _normalized_model_name(value: str) -> str:
+    return value.lower().replace("/", "-").replace("_", "-")
+
+
+def _model_cache_name_candidates(model_name: str) -> set[str]:
+    normalized = _normalized_model_name(model_name)
+    return {
+        normalized,
+        normalized.replace("-", "_"),
+        f"faster-whisper-{normalized}",
+        f"faster_whisper_{normalized.replace('-', '_')}",
+        f"models--systran--faster-whisper-{normalized}",
+    }
+
+
+def _model_cache_path_matches(path: Path, model_name: str) -> bool:
+    entry_name = path.name.lower()
+    normalized_entry = _normalized_model_name(entry_name)
+    candidates = _model_cache_name_candidates(model_name)
+    return entry_name in candidates or normalized_entry in candidates
+
+
+def _directory_size_bytes(path: Path) -> int:
+    if not path.exists():
+        return 0
+    if path.is_file():
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
+    total = 0
+    for child in path.rglob("*"):
+        if child.is_file():
+            try:
+                total += child.stat().st_size
+            except OSError:
+                logger.debug("Skipping model cache file while sizing: %s", child)
+    return total
+
+
+def _model_cache_candidates(model_name: str) -> list[Path]:
+    root = _model_cache_dir()
+    if not root.exists():
+        return []
+    candidates: list[Path] = []
+    for entry in root.iterdir():
+        if _model_cache_path_matches(entry, model_name):
+            candidates.append(entry.resolve())
+    return sorted(candidates, key=lambda item: str(item).lower())
+
+
+def _model_cache_status(model_name: str) -> dict[str, Any]:
+    candidates = _model_cache_candidates(model_name)
+    size_bytes = sum(_directory_size_bytes(path) for path in candidates)
+    return {
+        "model": model_name,
+        "cached": bool(candidates),
+        "paths": [str(path) for path in candidates],
+        "size_bytes": size_bytes,
+        "size_mb": round(size_bytes / 1024**2, 1) if size_bytes else 0,
+    }
+
+
+def _all_model_cache_statuses() -> dict[str, dict[str, Any]]:
+    return {model_name: _model_cache_status(model_name) for model_name in MODEL_INFO}
+
+
+def _model_operation_in_progress() -> bool:
+    with _model_state_lock:
+        return _model_state["status"] == "loading"
+
+
+def _delete_model_cache(model_name: str, *, confirm: bool = False) -> dict[str, Any]:
+    if not confirm:
+        raise ValueError("Model cache deletion requires confirm=true.")
+    if model_name not in VALID_MODELS:
+        raise ValueError(f"Unsupported model: {model_name}")
+    with model_lock:
+        active_model_name = MODEL_SIZE if model is not None else None
+    if active_model_name == model_name:
+        raise RuntimeError("Cannot delete the cache for the currently loaded model.")
+    if _model_operation_in_progress():
+        raise RuntimeError("Cannot delete model cache while a model load is in progress.")
+    root = _model_cache_dir().resolve()
+    removed: list[str] = []
+    for candidate in _model_cache_candidates(model_name):
+        resolved = candidate.resolve()
+        if resolved == root or not _safe_path_is_relative_to(resolved, root):
+            raise RuntimeError(
+                f"Refusing to remove model cache path outside model directory: {resolved}"
+            )
+        if resolved.is_dir():
+            shutil.rmtree(resolved)
+        elif resolved.exists():
+            resolved.unlink()
+        removed.append(str(resolved))
+    return {"status": "deleted", "removed": removed, "cache": _model_cache_status(model_name)}
+
+
 def _model_compatibility() -> dict[str, dict[str, Any]]:
     cfg = load_config()
     configured_device = str(cfg.get("device", "auto"))
@@ -994,11 +1164,6 @@ def _model_compatibility() -> dict[str, dict[str, Any]]:
             "reason": reason,
         }
     return compatibility
-
-
-@app.route("/extensions")
-def extensions():
-    return jsonify({"extensions": extension_registry.statuses(load_config())})
 
 
 def _action_required_dependencies() -> list[dict[str, object]]:
@@ -1041,58 +1206,6 @@ def _reset_dependency_runtime_cache(dependency_id: str) -> None:
             logger.debug("Failed to reset audio dependency cache: %s", exc)
 
 
-@app.route("/dependencies", methods=["GET"])
-def dependencies():
-    return jsonify(
-        {
-            "install_dir": str(dependency_manager.dependency_dir()),
-            "dependencies": dependency_manager.all_dependency_statuses(),
-            "missing": dependency_manager.missing_dependencies(),
-            "action_required_missing": _action_required_dependencies(),
-        }
-    )
-
-
-@app.route("/dependencies/<dependency_id>/install", methods=["POST"])
-def dependency_install(dependency_id: str):
-    try:
-        _json_payload()
-        task = dependency_manager.start_install(dependency_id)
-        status_code = 200 if task.status == "completed" else 202
-        return jsonify({"task": task.public_dict()}), status_code
-    except ValueError as exc:
-        return _error(str(exc), 400)
-    except Exception as exc:
-        logger.exception("Failed to start dependency install: %s", dependency_id)
-        return _error(f"Failed to start dependency install: {exc}", 500)
-
-
-@app.route("/dependencies/<dependency_id>/uninstall", methods=["POST"])
-def dependency_uninstall(dependency_id: str):
-    try:
-        payload = _json_payload()
-        result = dependency_manager.uninstall_dependency(
-            dependency_id, confirm=payload.get("confirm") is True
-        )
-        _reset_dependency_runtime_cache(dependency_id)
-        return jsonify(result)
-    except ValueError as exc:
-        return _error(str(exc), 400)
-    except RuntimeError as exc:
-        return _error(str(exc), 409)
-    except Exception as exc:
-        logger.exception("Failed to uninstall dependency: %s", dependency_id)
-        return _error(f"Failed to uninstall dependency: {exc}", 500)
-
-
-@app.route("/dependencies/tasks/<task_id>", methods=["GET"])
-def dependency_task(task_id: str):
-    try:
-        return jsonify({"task": dependency_manager.get_task(task_id).public_dict()})
-    except ValueError as exc:
-        return _error(str(exc), 404)
-
-
 @app.route("/models")
 def models():
     with _model_state_lock:
@@ -1107,6 +1220,8 @@ def models():
             "model_loaded": model_loaded,
             "model_state": model_state,
             "models": MODEL_INFO,
+            "cache_dir": str(_model_cache_dir()),
+            "cache": _all_model_cache_statuses(),
             "compatibility": _model_compatibility(),
             "device_options": sorted(VALID_DEVICES),
             "compute_type_options": sorted(VALID_COMPUTE_TYPES),
@@ -1116,91 +1231,55 @@ def models():
     )
 
 
-@app.route("/hardware")
-def hardware():
-    cuda_count = _cuda_device_count()
-    return jsonify(
-        {
-            "cpu_threads": _default_cpu_threads(),
-            "cuda_available": cuda_count > 0,
-            "cuda_device_count": cuda_count,
-            "active_device": _device,
-            "active_compute_type": _compute_type,
-            "supported_devices": sorted(VALID_DEVICES),
-            "supported_compute_types": sorted(VALID_COMPUTE_TYPES),
-            "runtime_supported_compute_types": {
-                "cpu": sorted(_supported_compute_types("cpu")),
-                "cuda": sorted(_supported_compute_types("cuda")) if cuda_count > 0 else [],
-            },
-        }
-    )
+@app.route("/models/cache")
+def models_cache():
+    return jsonify({"cache_dir": str(_model_cache_dir()), "models": _all_model_cache_statuses()})
 
 
-@app.route("/audio/devices")
-def audio_devices():
+@app.route("/models/<model_name>/download", methods=["POST"])
+def model_download(model_name: str):
     try:
-        devices, default_input = _query_input_devices()
-        return jsonify({"devices": devices, "default_input": default_input})
-    except Exception as exc:
-        logger.exception("Failed to enumerate audio input devices.")
-        return _error(f"Failed to enumerate audio input devices: {exc}", 503)
+        _json_payload()
+        if model_name not in VALID_MODELS:
+            return _error(f"Unsupported model: {model_name}", 400)
+    except ValueError as exc:
+        return _error(str(exc), 400)
 
+    if _env_flag("VOICECODE_SKIP_MODEL_LOAD"):
+        return _error("Model loading is disabled by VOICECODE_SKIP_MODEL_LOAD.", 409)
 
-@app.route("/history", methods=["GET"])
-def get_history():
-    cfg = load_config()
-    try:
-        limit = int(request.args.get("limit", cfg.get("history_limit", 50)))
-    except (TypeError, ValueError):
-        return _error("limit must be an integer between 1 and 500.", 400)
-    limit = max(1, min(limit, 500))
-    return jsonify({"entries": _read_history(limit)})
-
-
-@app.route("/history/clear", methods=["POST"])
-def clear_history():
-    history_file = _history_file()
-    try:
-        if history_file.exists():
-            history_file.unlink()
-        return jsonify({"status": "cleared"})
-    except Exception as exc:
-        logger.exception("Failed to clear transcript history.")
-        return _error(f"Failed to clear transcript history: {exc}", 500)
-
-
-@app.route("/diagnostics")
-def diagnostics():
     with _model_state_lock:
-        model_state = dict(_model_state)
-    with model_lock:
-        model_loaded = model is not None
+        if _model_state["status"] == "loading":
+            return _error("A model load is already in progress.", 409)
+        _model_state["status"] = "loading"
+        _model_state["error"] = None
+
+    try:
+        _model_cache_dir().mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        _set_model_state("error", str(exc))
+        return _error(f"Failed to create model cache directory: {exc}", 500)
+
+    future = _executor.submit(_load_model_sync, model_name)
+    future.add_done_callback(lambda f: _model_reload_done(f, model_name))
     return jsonify(
-        {
-            "app": "VoiceCode",
-            "python": sys.version.split()[0],
-            "platform": platform.platform(),
-            "port": PORT,
-            "config_file": CONFIG_FILE,
-            "log_file": str(_log_file()),
-            "history_file": str(_history_file()),
-            "static_dir": STATIC_DIR,
-            "model": MODEL_SIZE,
-            "model_loaded": model_loaded,
-            "model_state": model_state,
-            "device": _device,
-            "compute_type": _compute_type,
-            "cuda_device_count": _cuda_device_count(),
-            "cpu_threads": _cpu_threads,
-            "runtime_dir": os.environ.get("VOICECODE_RUNTIME_DIR"),
-            "model_dir": os.environ.get("VOICECODE_MODEL_DIR"),
-            "extensions": extension_registry.statuses(load_config()),
-            "dependencies": {
-                "install_dir": str(dependency_manager.dependency_dir()),
-                "missing": dependency_manager.missing_dependencies(),
-            },
-        }
-    )
+        {"status": "loading", "model": model_name, "cache_dir": str(_model_cache_dir())}
+    ), 202
+
+
+@app.route("/models/<model_name>/cache", methods=["DELETE", "POST"])
+def model_cache_delete(model_name: str):
+    try:
+        payload = _json_payload()
+        result = _delete_model_cache(model_name, confirm=payload.get("confirm") is True)
+        return jsonify(result)
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    except RuntimeError as exc:
+        return _error(str(exc), 409)
+    except Exception as exc:
+        logger.exception("Failed to delete model cache: %s", model_name)
+        return _error(f"Failed to delete model cache: {exc}", 500)
 
 
 def start_server() -> None:
@@ -1212,91 +1291,119 @@ def start_server() -> None:
     serve(app, host="127.0.0.1", port=PORT, threads=4)
 
 
-@app.route("/stats")
-def stats():
-    cpu = -1.0
-    process_cpu = -1.0
-    process_memory_mb = -1.0
-    system_memory_total_mb = -1.0
-    system_memory_available_mb = -1.0
-    system_memory_percent = -1.0
-    cpu_info = {
-        "name": platform.processor() or platform.machine() or "CPU",
-        "logical_cores": os.cpu_count(),
-        "physical_cores": None,
+def _system_runtime_snapshot() -> dict[str, Any]:
+    cuda_count = _cuda_device_count()
+    return {
+        "cpu_threads": _default_cpu_threads(),
+        "cuda_device_count": cuda_count,
+        "active_device": _device,
+        "active_compute_type": _compute_type,
+        "model": MODEL_SIZE,
+        "supported_devices": sorted(VALID_DEVICES),
+        "supported_compute_types": sorted(VALID_COMPUTE_TYPES),
+        "runtime_supported_compute_types": {
+            "cpu": sorted(_supported_compute_types("cpu")),
+            "cuda": sorted(_supported_compute_types("cuda")) if cuda_count > 0 else [],
+        },
     }
+
+
+def _system_diagnostics_snapshot() -> dict[str, Any]:
+    with _model_state_lock:
+        model_state = dict(_model_state)
+    with model_lock:
+        model_loaded = model is not None
+    return {
+        "app": "VoiceCode",
+        "version": __version__,
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "port": PORT,
+        "config_file": CONFIG_FILE,
+        "log_file": str(_log_file()),
+        "history_file": str(_history_file()),
+        "static_dir": STATIC_DIR,
+        "model": MODEL_SIZE,
+        "model_loaded": model_loaded,
+        "model_state": model_state,
+        "device": _device,
+        "compute_type": _compute_type,
+        "cuda_device_count": _cuda_device_count(),
+        "cpu_threads": _cpu_threads,
+        "runtime_dir": os.environ.get("VOICECODE_RUNTIME_DIR"),
+        "model_dir": os.environ.get("VOICECODE_MODEL_DIR"),
+        "extensions": extension_registry.statuses(load_config()),
+        "dependencies": {
+            "install_dir": str(dependency_manager.dependency_dir()),
+            "missing": dependency_manager.missing_dependencies(),
+        },
+    }
+
+
+def _management_model_summary() -> dict[str, Any]:
+    with _model_state_lock:
+        state = dict(_model_state)
+    with model_lock:
+        loaded = model is not None
+    config = load_config()
+    return {
+        "ready": loaded and state.get("status") == "ready",
+        "loaded": loaded,
+        "state": state,
+        "configured_model": config.get("model", "base"),
+        "device": _device,
+        "compute_type": _compute_type,
+    }
+
+
+def _management_audio_summary() -> dict[str, Any]:
     try:
-        import psutil
-
-        proc = psutil.Process(os.getpid())
-        cpu = round(psutil.cpu_percent(interval=0.2), 1)
-        process_cpu = round(proc.cpu_percent(interval=None), 1)
-        process_memory_mb = round(proc.memory_info().rss / 1024**2, 1)
-        virtual_memory = psutil.virtual_memory()
-        system_memory_total_mb = round(virtual_memory.total / 1024**2, 1)
-        system_memory_available_mb = round(virtual_memory.available / 1024**2, 1)
-        system_memory_percent = round(virtual_memory.percent, 1)
-        cpu_info["logical_cores"] = psutil.cpu_count(logical=True)
-        cpu_info["physical_cores"] = psutil.cpu_count(logical=False)
-        cpu_freq = psutil.cpu_freq()
-        if cpu_freq:
-            cpu_info["current_mhz"] = round(cpu_freq.current, 1)
-            cpu_info["max_mhz"] = round(cpu_freq.max, 1)
+        devices, default_input = _query_input_devices()
     except Exception as exc:
-        logger.warning("Failed to collect CPU/RAM stats: %s", exc)
+        return {"ready": False, "devices": [], "default_input": None, "error": str(exc)}
+    return {
+        "ready": bool(devices),
+        "devices": devices,
+        "default_input": default_input,
+        "error": None,
+    }
 
-    gpu_info = None
-    try:
-        if _cuda_device_count() > 0:
-            try:
-                import pynvml
-            except Exception:
-                pynvml = None
-            if pynvml is not None:
-                try:
-                    pynvml.nvmlInit()
-                    driver_version = pynvml.nvmlSystemGetDriverVersion()
-                    if isinstance(driver_version, bytes):
-                        driver_version = driver_version.decode("utf-8", errors="replace")
-                    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                    gpu_util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
-                    gpu_mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-                    gpu_mem_used = round(gpu_mem_info.used / 1024**2)
-                    gpu_mem_total = round(gpu_mem_info.total / 1024**2)
-                    gpu_name = pynvml.nvmlDeviceGetName(handle)
-                    if isinstance(gpu_name, bytes):
-                        gpu_name = gpu_name.decode("utf-8", errors="replace")
-                    gpu_info = {
-                        "util": gpu_util,
-                        "mem_used": gpu_mem_used,
-                        "mem_total": gpu_mem_total,
-                        "mem_percent": round((gpu_mem_used / gpu_mem_total) * 100, 1)
-                        if gpu_mem_total
-                        else -1,
-                        "name": gpu_name,
-                        "driver": driver_version,
-                    }
-                except Exception as exc:
-                    logger.debug("GPU stats unavailable: %s", exc)
-                    gpu_info = {"util": -1, "name": "NVIDIA GPU", "driver": None}
-            else:
-                gpu_info = {"util": -1, "name": "NVIDIA GPU", "driver": None}
-    except Exception as exc:
-        logger.debug("CUDA device check failed: %s", exc)
 
-    return jsonify(
-        {
-            "device": _device,
-            "compute_type": _compute_type,
-            "model": MODEL_SIZE,
-            "cpu_percent": cpu,
-            "process_cpu_percent": process_cpu,
-            "ram_mb": process_memory_mb,
-            "process_memory_mb": process_memory_mb,
-            "system_memory_total_mb": system_memory_total_mb,
-            "system_memory_available_mb": system_memory_available_mb,
-            "system_memory_percent": system_memory_percent,
-            "cpu": cpu_info,
-            "gpu": gpu_info,
-        }
+app.register_blueprint(
+    create_system_blueprint(
+        SystemContext(
+            json_payload=_json_payload,
+            error=_error,
+            load_config=load_config,
+            query_input_devices=_query_input_devices,
+            normalize_audio_device=_normalize_audio_device,
+            test_input_level=_test_input_level,
+            recorder_is_recording=_recorder.is_recording,
+            runtime_snapshot=_system_runtime_snapshot,
+            diagnostics_snapshot=_system_diagnostics_snapshot,
+        )
     )
+)
+
+
+app.register_blueprint(
+    create_history_blueprint(
+        HistoryContext(history_file=_history_file, json_payload=_json_payload, error=_error)
+    )
+)
+
+
+app.register_blueprint(
+    create_management_blueprint(
+        ManagementContext(
+            load_config=load_config,
+            save_config=save_config,
+            json_payload=_json_payload,
+            error=_error,
+            reset_dependency_runtime_cache=_reset_dependency_runtime_cache,
+            model_summary=_management_model_summary,
+            audio_summary=_management_audio_summary,
+            version=__version__,
+        )
+    )
+)

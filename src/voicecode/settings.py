@@ -88,6 +88,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "font_size": "1rem",
     "append_mode": "append",
     "on_top": False,
+    "onboarding": {"completed": False, "completed_version": "", "skipped": False},
     "extensions": copy.deepcopy(DEFAULT_EXTENSIONS),
 }
 ALLOWED_CONFIG_KEYS = set(DEFAULT_CONFIG)
@@ -343,6 +344,26 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Unsupported font size.")
     if "on_top" in patch and not isinstance(patch["on_top"], bool):
         raise ValueError("on_top must be a boolean.")
+    if "onboarding" in patch:
+        onboarding = patch["onboarding"]
+        if not isinstance(onboarding, dict):
+            raise ValueError("onboarding must be an object.")
+        allowed_onboarding = {"completed", "completed_version", "skipped"}
+        unknown_onboarding = set(onboarding) - allowed_onboarding
+        if unknown_onboarding:
+            raise ValueError("Unknown onboarding keys: " + ", ".join(sorted(unknown_onboarding)))
+        normalized_onboarding = dict(onboarding)
+        for bool_key in ("completed", "skipped"):
+            if bool_key in normalized_onboarding:
+                normalized_onboarding[bool_key] = _validate_bool(
+                    normalized_onboarding[bool_key], f"onboarding.{bool_key}"
+                )
+        if "completed_version" in normalized_onboarding:
+            version = normalized_onboarding["completed_version"]
+            if not isinstance(version, str) or len(version) > 64:
+                raise ValueError("onboarding.completed_version must be a short string.")
+            normalized_onboarding["completed_version"] = version.strip()
+        patch["onboarding"] = normalized_onboarding
     if "hotkey" in patch:
         hotkey = patch["hotkey"]
         if not isinstance(hotkey, dict):

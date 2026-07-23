@@ -2,14 +2,14 @@
 
 ## Unreleased
 
-- Reworked VoiceCode as a cleaner open-source Python project without one-click setup/installer scripts or generated installer artifacts.
-- Added configurable Whisper inference controls for model, device, compute type, beam size, and VAD.
-- Added CUDA auto-detection, environment overrides, and safe CPU `int8` fallback for NVIDIA GPU load/inference failures.
-- Added `large-v3` and `distil-large-v3` model options.
-- Added `POST /transcribe` for local integrations and batch/test transcription without the recorder.
-- Added `GET /hardware` and expanded diagnostics/model metadata for CPU/GPU compatibility troubleshooting.
-- Removed the hard-coded Hugging Face mirror default; users can still set `HF_ENDPOINT` themselves.
-- Updated README, API, architecture, development, FAQ, contributing, and agent guidance for the new project shape.
+- Added a persisted first-start guide for language, required dependencies, microphone, model, and hardware setup.
+- Made the Extensions page operable with validated enable/config controls and one-click isolated dependency installation.
+- Added install-all-required dependency tasks and config-aware extension readiness.
+- Moved UI catalogs to packaged external JSON files with asynchronous loading and parity tests.
+- Split Flask routes into management, history, and system Blueprints.
+- Split dependency management into catalog, environment, installer, types, and compatibility facade modules.
+- Added packaging and release guides; release CI now builds and validates wheels and source distributions.
+- Updated architecture diagrams, API references, configuration, troubleshooting, module, hardware, FAQ, and multilingual README documentation on July 23, 2026.
 
 ## 0.1.0
 

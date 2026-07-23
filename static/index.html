@@ -19,6 +19,7 @@
     <nav class="nav-list">
       <button class="nav-item active" type="button" data-view="home" data-i18n="nav_home">Home</button>
       <button class="nav-item" type="button" data-view="settings" data-i18n="nav_settings">Settings</button>
+      <button class="nav-item" type="button" data-view="models" data-i18n="nav_models">Models</button>
       <button class="nav-item" type="button" data-view="extensions" data-i18n="nav_extensions">Extensions</button>
       <button class="nav-item" type="button" data-view="dependencies" data-i18n="nav_dependencies">Dependencies</button>
       <button class="nav-item" type="button" data-view="history" data-i18n="nav_history">History</button>
@@ -133,6 +134,8 @@
             <div class="form-grid">
               <label for="audio-device" data-i18n="label_audio_device">Microphone</label>
               <select id="audio-device"><option value="" data-i18n="audio_default">System default</option></select>
+              <label for="mic-test-btn" data-i18n="mic_test">Microphone test</label>
+              <div class="mic-test-card"><div class="button-row"><button class="sm" id="mic-test-btn" type="button" data-i18n="mic_test_start">Test microphone</button><span id="mic-test-status" class="muted-text" data-i18n="mic_test_idle">Not tested yet.</span></div><div class="mic-level-track" aria-hidden="true"><div id="mic-level-bar" class="mic-level-bar"></div></div></div>
               <label for="text-mode" data-i18n="label_text_mode">Text mode</label>
               <select id="text-mode"><option value="plain" data-i18n="text_plain">Plain</option><option value="coding" data-i18n="text_coding">Coding</option><option value="markdown" data-i18n="text_markdown">Markdown</option><option value="prompt" data-i18n="text_prompt">Prompt</option></select>
               <label for="appendmode" data-i18n="label_result_mode">Result</label>
@@ -160,13 +163,24 @@
         </div>
       </section>
 
+      <section class="view" id="view-models" data-title-key="nav_models" data-subtitle-key="models_subtitle"><section class="panel"><div class="panel-heading"><div><h3 data-i18n="models">Models</h3><p id="models-cache-dir" class="muted-text"></p></div><button class="sm" id="models-refresh" type="button" data-i18n="refresh">Refresh</button></div><div id="models-list" class="managed-model-list"></div></section></section>
       <section class="view" id="view-extensions" data-title-key="nav_extensions" data-subtitle-key="extensions_subtitle"><section class="panel"><div class="panel-heading"><h3 data-i18n="nav_extensions">Extensions</h3><button class="sm" id="extensions-refresh" type="button" data-i18n="refresh">Refresh</button></div><div id="extensions-list" class="list-panel"></div></section></section>
-      <section class="view" id="view-dependencies" data-title-key="nav_dependencies" data-subtitle-key="dependencies_subtitle"><section class="panel"><div class="panel-heading"><div><h3 data-i18n="dependencies">Dependencies</h3><p id="dependency-dir" class="muted-text"></p></div><button class="sm" id="dependencies-refresh" type="button" data-i18n="refresh">Refresh</button></div><div id="dependencies-list" class="dependency-list"></div></section></section>
-      <section class="view" id="view-history" data-title-key="nav_history" data-subtitle-key="history_subtitle"><section class="panel"><div class="panel-heading"><h3 data-i18n="history">History</h3><div class="button-row"><button class="sm" id="history-btn" type="button" data-i18n="refresh">Refresh</button><button class="sm danger" id="clear-history-btn" type="button" data-i18n="clear_history">Clear history</button></div></div><div id="history-list" class="list-panel"></div></section></section>
+      <section class="view" id="view-dependencies" data-title-key="nav_dependencies" data-subtitle-key="dependencies_subtitle"><section class="panel"><div class="panel-heading"><div><h3 data-i18n="dependencies">Dependencies</h3><p id="dependency-dir" class="muted-text"></p></div><div class="button-row"><button class="sm" id="dependencies-install-required" type="button" data-i18n="dependency_install_all_required">Install all required</button><button class="sm" id="dependencies-refresh" type="button" data-i18n="refresh">Refresh</button></div></div><div id="dependencies-list" class="dependency-list"></div></section></section>
+      <section class="view" id="view-history" data-title-key="nav_history" data-subtitle-key="history_subtitle"><section class="panel"><div class="panel-heading"><div><h3 data-i18n="history">History</h3><p id="history-summary" class="muted-text"></p></div><div class="button-row"><button class="sm" id="history-btn" type="button" data-i18n="refresh">Refresh</button><button class="sm danger" id="clear-history-btn" type="button" data-i18n="clear_history">Clear history</button></div></div><div class="history-toolbar"><input id="history-search" type="search" data-i18n-placeholder="history_search_placeholder" placeholder="Search history"><select id="history-language"><option value="" data-i18n="history_filter_all_languages">All languages</option><option value="auto" data-i18n="lang_auto">Auto detect</option><option value="zh" data-i18n="lang_zh">Chinese</option><option value="en" data-i18n="lang_en">English</option><option value="ja" data-i18n="lang_ja">Japanese</option></select><button class="sm" id="history-export-json" type="button" data-format="json" data-i18n="export_json">Export JSON</button><button class="sm" id="history-export-md" type="button" data-format="md" data-i18n="export_markdown">Export Markdown</button><button class="sm" id="history-export-txt" type="button" data-format="txt" data-i18n="export_text">Export text</button></div><div id="history-list" class="list-panel"></div></section></section>
       <section class="view" id="view-diagnostics" data-title-key="nav_diagnostics" data-subtitle-key="diagnostics_subtitle"><section class="panel"><div class="panel-heading"><h3 data-i18n="diagnostics">Diagnostics</h3><button class="sm" id="diagnostics-btn" type="button" data-i18n="refresh">Refresh</button></div><pre id="diagnostics-output" class="code-output"></pre></section></section>
-      <section class="view" id="view-about" data-title-key="nav_about" data-subtitle-key="about_subtitle"><section class="panel about-panel"><h3>VoiceCode</h3><p data-i18n="about_text">A local-first speech-to-text desktop app powered by faster-whisper.</p><div class="info-grid"><div><strong>Runtime</strong><span>Python / Flask / pywebview</span></div><div><strong>Inference</strong><span>faster-whisper / CTranslate2</span></div><div><strong>Privacy</strong><span>Local transcription by default</span></div></div></section></section>
+      <section class="view" id="view-about" data-title-key="nav_about" data-subtitle-key="about_subtitle"><section class="panel about-panel"><h3>VoiceCode</h3><p data-i18n="about_text">A local-first speech-to-text desktop app powered by faster-whisper.</p><div class="info-grid"><div><strong>Runtime</strong><span>Python / Flask / pywebview</span></div><div><strong>Inference</strong><span>faster-whisper / CTranslate2</span></div><div><strong>Privacy</strong><span>Local transcription by default</span></div><button id="rerun-onboarding" class="sm" type="button" data-i18n="onboarding_open_again">Run first-start guide</button></div></section></section>
     </main>
   </section>
+</div>
+
+
+<div id="onboarding-overlay" class="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-hidden="true">
+  <div class="onboarding-dialog">
+    <header class="onboarding-header"><div><span class="eyebrow" data-i18n="setup">Setup</span><h2 id="onboarding-title" data-i18n="onboarding_title">Welcome to VoiceCode</h2></div><span id="onboarding-step-count">1 / 5</span></header>
+    <div class="onboarding-progress" aria-hidden="true"><span class="onboarding-dot active"></span><span class="onboarding-dot"></span><span class="onboarding-dot"></span><span class="onboarding-dot"></span><span class="onboarding-dot"></span></div>
+    <section class="onboarding-content"><h3 id="onboarding-step-title"></h3><div id="onboarding-body"></div></section>
+    <footer class="onboarding-actions"><button id="onboarding-skip" class="secondary" type="button" data-i18n="onboarding_skip">Skip setup</button><div><button id="onboarding-back" class="secondary" type="button" data-i18n="onboarding_back">Back</button><button id="onboarding-next" class="primary" type="button" data-i18n="onboarding_next">Next</button></div></footer>
+  </div>
 </div>
 
 <div id="progress-overlay" class="progress-overlay" aria-hidden="true">
@@ -178,6 +192,6 @@
 </div>
 
 <div id="error-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="error-title" aria-hidden="true"><div class="modal"><h2 id="error-title" data-i18n="operation_failed">Operation failed</h2><p id="error-message">An unexpected error occurred.</p><div class="modal-actions"><button class="secondary" id="error-copy" type="button" data-i18n="copy_details">Copy details</button><button id="error-close" type="button" data-i18n="ok">OK</button></div></div></div>
-<script src="/js/i18n.js"></script><script src="/js/dom.js"></script><script src="/js/modal.js"></script><script src="/js/api.js"></script><script src="/js/config.js"></script><script src="/js/hotkey.js"></script><script src="/js/settings.js"></script><script src="/js/recorder.js"></script><script src="/js/history.js"></script><script src="/js/dependencies.js"></script><script src="/js/status.js"></script><script src="/js/app.js"></script>
+<script src="/js/i18n.js"></script><script src="/js/dom.js"></script><script src="/js/modal.js"></script><script src="/js/api.js"></script><script src="/js/config.js"></script><script src="/js/hotkey.js"></script><script src="/js/settings.js"></script><script src="/js/recorder.js"></script><script src="/js/history.js"></script><script src="/js/models.js"></script><script src="/js/dependencies.js"></script><script src="/js/extensions.js"></script><script src="/js/onboarding.js"></script><script src="/js/status.js"></script><script src="/js/app.js"></script>
 </body>
 </html>

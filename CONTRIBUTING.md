@@ -32,6 +32,14 @@ python -m pip wheel . --no-deps -w dist
 - Do not commit generated caches or outputs such as `__pycache__`, `.pytest_cache`, `htmlcov`, `dist/`, `build/`, or `*.egg-info`.
 - Do not reintroduce repository-specific one-click setup or installer scripts without a documented maintenance plan.
 
+## Frontend and extensions
+
+Keep root and packaged static trees synchronized. Add visible copy to all external JSON catalogs. New extension fields require defaults, validation, registry schema, dependency mapping when needed, API tests, and documentation.
+
+## Packaging and release changes
+
+For package-data, runtime-path, or release workflow changes, follow `docs/PACKAGING.md` and `docs/RELEASING.md`, build both wheel and sdist, and inspect catalog/static inclusion.
+
 ## Documentation
 
 Update README and docs when you change:

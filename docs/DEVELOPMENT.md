@@ -30,6 +30,7 @@ python -m ruff format --check app.py main.py tests src/voicecode
 python -m ruff check app.py main.py tests src/voicecode
 python -m mypy app.py main.py src/voicecode
 python -X utf8 -m pytest -q
+Get-ChildItem src/voicecode/static/js/*.js | ForEach-Object { node --check $_.FullName }
 ```
 
 Build a wheel when packaging metadata changes:
@@ -75,6 +76,10 @@ python -m voicecode
 
 Use `GET /hardware`, `GET /models`, and `GET /diagnostics` to inspect the resolved profile.
 
+## Backend route modules
+
+Route groups live in `management_api.py`, `history_api.py`, and `system_api.py`. Pass mutable runtime state through context callables instead of importing app globals. Dependency management is split across catalog, environment, installer, and facade modules.
+
 ## Static assets
 
 The source-tree UI under `static/` and the packaged UI under `src/voicecode/static/` must stay byte-for-byte synchronized. The test suite enforces this.
@@ -83,6 +88,7 @@ The source-tree UI under `static/` and the packaged UI under `src/voicecode/stat
 
 - Keep error messages in English.
 - Keep the server local-only.
+- Preserve local API token checks on mutating endpoints unless a test explicitly disables or forces them.
 - Validate JSON bodies before side effects.
 - Preserve compatibility wrappers unless a major-version migration removes them.
 

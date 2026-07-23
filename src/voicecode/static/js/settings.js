@@ -11,17 +11,45 @@ async function refreshLanguageSensitiveContent() {
   await updateModelDescription(true);
   await updateAutoDeviceLabel();
   const activeView = document.querySelector(".view.active");
+  if (activeView && activeView.id === "view-models" && typeof loadModelsPanel === "function") await loadModelsPanel();
   if (activeView && activeView.id === "view-extensions" && typeof loadExtensionsPanel === "function") await loadExtensionsPanel();
   if (activeView && activeView.id === "view-dependencies" && typeof loadDependenciesPanel === "function") await loadDependenciesPanel();
   if (activeView && activeView.id === "view-history" && typeof loadHistoryPanel === "function") await loadHistoryPanel();
 }
 
+if (micTestBtn) micTestBtn.onclick = testMicrophone;
+
 uiLangSel.onchange = async () => {
   uiLanguage = ["en", "zh", "ja"].includes(uiLangSel.value) ? uiLangSel.value : "en";
+  await ensureI18nCatalog(uiLanguage);
   applyTranslations();
   await saveConfig({ui_language: uiLanguage});
   await refreshLanguageSensitiveContent();
 };
+
+function setMicLevel(percent, statusKey, detail = "") {
+  const clamped = Math.max(0, Math.min(100, Number(percent || 0)));
+  if (micLevelBarEl) micLevelBarEl.style.width = `${clamped}%`;
+  if (micTestStatusEl) micTestStatusEl.textContent = detail || t(statusKey);
+}
+
+async function testMicrophone() {
+  if (!micTestBtn) return;
+  micTestBtn.disabled = true;
+  setMicLevel(0, "mic_test_running");
+  const r = await requestJSON("POST", "/audio/test", {
+    audio_device: audioDeviceSel ? audioDeviceSel.value : "",
+    duration_ms: 1000
+  }, {errorTitle: t("mic_test_failed"), timeout: 8000});
+  micTestBtn.disabled = false;
+  if (!r.ok) {
+    setMicLevel(0, "mic_test_failed");
+    return;
+  }
+  const percent = Number(r.level_percent || 0);
+  const detail = `${r.has_signal ? t("mic_test_signal") : t("mic_test_no_signal")} ? ${percent}% ? peak ${Number(r.peak || 0).toFixed(3)}`;
+  setMicLevel(percent, r.has_signal ? "mic_test_signal" : "mic_test_no_signal", detail);
+}
 
 async function loadModelInfo(force = false) {
   if (!force && modelInfoCache) return modelInfoCache;
