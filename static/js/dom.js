@@ -32,6 +32,7 @@ var resetDefaultsBtn = $("reset-defaults-btn");
 var historyBtn = $("history-btn");
 var clearHistoryBtn = $("clear-history-btn");
 var diagnosticsBtn = $("diagnostics-btn");
+var diagnosticsExportBtn = $("diagnostics-export");
 var hkDisplay = $("hk-display");
 var hkRecordBtn = $("hk-record-btn");
 var errorModal = $("error-modal");
@@ -61,6 +62,7 @@ var extensionsRefreshBtn = $("extensions-refresh");
 var dependenciesListEl = $("dependencies-list");
 var dependenciesRefreshBtn = $("dependencies-refresh");
 var dependencyDirEl = $("dependency-dir");
+var sidebarVersionEl = $("sidebar-version");
 var winMinBtn = $("win-min");
 var winMaxBtn = $("win-max");
 var winCloseBtn = $("win-close");
@@ -134,6 +136,7 @@ function showProgress(title, detail) {
   progressOverlay.classList.add("show");
   progressOverlay.setAttribute("aria-hidden", "false");
   document.body.classList.add("progress-active");
+  activateDialog(progressOverlay, progressClose);
 }
 
 function updateProgress(detail) {
@@ -145,6 +148,7 @@ function hideProgress() {
   progressOverlay.classList.remove("show");
   progressOverlay.setAttribute("aria-hidden", "true");
   document.body.classList.remove("progress-active");
+  deactivateDialog(progressOverlay);
 }
 
 if (progressClose) progressClose.onclick = hideProgress;

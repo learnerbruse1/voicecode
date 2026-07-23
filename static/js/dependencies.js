@@ -1,3 +1,5 @@
+var dependencyTaskState = {};
+
 ﻿function escapeHtml(value) {
   return String(value || "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 }
@@ -12,7 +14,7 @@ function translatedDependency(dep, field) {
 function renderDependencyProgress(dep, task) {
   const pct = task ? Math.max(0, Math.min(100, Number(task.progress || 0))) : 0;
   const message = task ? escapeHtml(task.message || task.status || "") : "";
-  const visible = task && !["completed", "failed"].includes(task.status);
+  const visible = task && !["completed", "failed", "cancelled"].includes(task.status);
   return `<div class="dependency-progress ${visible ? "active" : ""}" aria-label="${escapeHtml(t("dependency_progress"))}"><div class="dependency-progress-bar" style="width:${pct}%"></div></div><small class="dependency-progress-text">${message}</small>`;
 }
 
@@ -41,9 +43,10 @@ function renderDependencies(data, taskByDependency = {}) {
     const installed = dep.installed ? "installed" : "missing";
     const missing = (dep.missing_modules || []).join(", ");
     const features = (dep.feature_ids || []).join(", ");
-    const busy = task && !["completed", "failed"].includes(task.status);
+    const busy = task && !["completed", "failed", "cancelled"].includes(task.status);
     const disabled = busy || dep.installed_in_voice_dep ? "disabled" : "";
     const uninstallVisible = dep.installed_in_voice_dep ? "" : "hidden";
+    const cancelButton = busy ? `<button type="button" class="sm danger dependency-cancel-btn" data-task-id="${escapeHtml(task.id)}">${t("dependency_cancel")}</button>` : "";
     const installHint = dep.github_preferred ? t("dependency_github_preferred") : t("dependency_pypi_source");
     const depName = translatedDependency(dep, "name") || dep.name;
     const depDescription = translatedDependency(dep, "description") || dep.description;
@@ -59,6 +62,7 @@ function renderDependencies(data, taskByDependency = {}) {
         </div>
         <div class="dependency-actions">
           <button type="button" class="sm dependency-install-btn" data-dependency-id="${escapeHtml(dep.id)}" ${disabled}>${dependencyActionLabel(dep)}</button>
+          ${cancelButton}
           <button type="button" class="sm danger dependency-uninstall-btn ${uninstallVisible}" data-dependency-id="${escapeHtml(dep.id)}" data-confirm="false">${t("dependency_uninstall")}</button>
         </div>
       </div>
@@ -72,36 +76,59 @@ function renderDependencies(data, taskByDependency = {}) {
   dependenciesListEl.querySelectorAll(".dependency-uninstall-btn").forEach(btn => {
     btn.onclick = () => uninstallDependency(btn);
   });
+  dependenciesListEl.querySelectorAll(".dependency-cancel-btn").forEach(btn => {
+    btn.onclick = () => cancelDependencyTask(btn.dataset.taskId);
+  });
 }
 
-async function loadDependenciesPanel(taskByDependency = {}) {
-  const r = await requestJSON("GET", "/dependencies", {}, {errorTitle: t("request_failed"), suppressPopup: true});
+export async function loadDependenciesPanel(taskByDependency = null) {
+  const [r, taskResult] = await Promise.all([
+    requestJSON("GET", "/dependencies", {}, {errorTitle: t("request_failed"), suppressPopup: true}),
+    taskByDependency ? Promise.resolve(null) : requestJSON("GET", "/dependencies/tasks", {}, {suppressPopup: true})
+  ]);
   if (!dependenciesListEl) return;
   if (!r.ok) {
     dependenciesListEl.innerHTML = `<div class="list-item"><p>${escapeHtml(r.error || "Dependencies unavailable")}</p></div>`;
     return;
   }
-  renderDependencies(r, taskByDependency);
+  const taskMap = taskByDependency || dependencyTaskState;
+  if (taskResult && taskResult.ok) {
+    for (const task of taskResult.tasks || []) {
+      if (!["completed", "failed", "cancelled"].includes(task.status) && !taskMap[task.dependency_id]) {
+        taskMap[task.dependency_id] = task;
+        dependencyTaskState[task.dependency_id] = task;
+      }
+    }
+  }
+  renderDependencies(r, taskMap);
+}
+
+async function cancelDependencyTask(taskId) {
+  if (!taskId) return;
+  const result = await requestJSON("POST", `/dependencies/tasks/${encodeURIComponent(taskId)}/cancel`, {}, {errorTitle: t("dependency_cancel_failed")});
+  if (result.ok) await loadDependenciesPanel();
 }
 
 async function pollDependencyTask(taskId, dependencyId) {
-  const tasks = {};
   for (;;) {
     const r = await requestJSON("GET", `/dependencies/tasks/${encodeURIComponent(taskId)}`, {}, {suppressPopup: true, timeout: 10000});
     if (!r.ok) {
       showError(t("dependency_install_failed"), r.error || t("request_failed"));
+      delete dependencyTaskState[dependencyId];
       await loadDependenciesPanel();
       return;
     }
-    tasks[dependencyId] = r.task;
-    await loadDependenciesPanel(tasks);
-    if (["completed", "failed"].includes(r.task.status)) {
+    dependencyTaskState[dependencyId] = r.task;
+    await loadDependenciesPanel(dependencyTaskState);
+    if (["completed", "failed", "cancelled"].includes(r.task.status)) {
       if (r.task.status === "failed") showError(t("dependency_install_failed"), r.task.error || r.task.message || t("operation_failed"));
+      if (r.task.status === "cancelled") showError(t("dependency_cancel"), t("dependency_cancelled"));
+      if (r.task.status === "completed" && r.task.restart_required) showError(t("dependency_restart_required"), t("dependency_restart_required_detail"));
+      delete dependencyTaskState[dependencyId];
       await loadDependenciesPanel();
       if (typeof loadExtensionsPanel === "function") await loadExtensionsPanel();
       if (typeof loadAudioDevices === "function") await loadAudioDevices();
       await pollModelStatus(true);
-      if (r.task.status === "completed") reloadAfterDependencyChange();
       return;
     }
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -137,7 +164,7 @@ async function uninstallDependency(btn) {
   reloadAfterDependencyChange();
 }
 
-async function warnMissingDependenciesOnce() {
+export async function warnMissingDependenciesOnce() {
   if (shownDependencyWarning) return;
   const r = await requestJSON("GET", "/dependencies", {}, {suppressPopup: true, timeout: 10000});
   if (!r.ok) return;
@@ -150,7 +177,7 @@ async function warnMissingDependenciesOnce() {
 
 if (dependenciesRefreshBtn) dependenciesRefreshBtn.onclick = () => loadDependenciesPanel();
 
-async function waitForDependencyTask(taskId, timeoutMs = 600000) {
+export async function waitForDependencyTask(taskId, timeoutMs = 600000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     const result = await requestJSON("GET", `/dependencies/tasks/${encodeURIComponent(taskId)}`, {}, {suppressPopup: true, timeout: 10000});
@@ -159,11 +186,22 @@ async function waitForDependencyTask(taskId, timeoutMs = 600000) {
     updateProgress(`${task.progress || 0}% ? ${task.message || task.status || ""}`);
     if (task.status === "completed") return task;
     if (task.status === "failed") throw new Error(task.error || task.message || t("dependency_install_failed"));
+    if (task.status === "cancelled") throw new Error(t("dependency_cancelled"));
     await new Promise(resolve => setTimeout(resolve, 800));
   }
   throw new Error(t("request_timeout_detail"));
 }
 
+
+export async function resumeDependencyTasks() {
+  const result = await requestJSON("GET", "/dependencies/tasks", {}, {suppressPopup: true});
+  if (!result.ok) return;
+  const active = (result.tasks || []).filter(task => !["completed", "failed", "cancelled"].includes(task.status));
+  if (active.length) {
+    await loadDependenciesPanel();
+    for (const task of active) pollDependencyTask(task.id, task.dependency_id);
+  }
+}
 
 const dependenciesInstallRequiredBtn = document.getElementById("dependencies-install-required");
 if (dependenciesInstallRequiredBtn) dependenciesInstallRequiredBtn.onclick = async () => {
@@ -180,3 +218,5 @@ if (dependenciesInstallRequiredBtn) dependenciesInstallRequiredBtn.onclick = asy
     hideProgress();
   }
 };
+
+Object.assign(window, {loadDependenciesPanel, warnMissingDependenciesOnce, waitForDependencyTask, resumeDependencyTasks});

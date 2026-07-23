@@ -59,7 +59,9 @@ async function waitForManagedModel(modelName, timeoutMs = 240000) {
     const status = await requestJSON("GET", "/status", {}, {suppressPopup: true, timeout: 10000});
     if (!status.ok) throw new Error(status.error || t("request_failed"));
     const state = status.model_state || {};
-    updateProgress(`${t("model_downloading")} ${modelName} ? ${Math.round((Date.now() - started) / 1000)}s`);
+    const progress = Number(state.progress || 0);
+    const speed = Number(state.download_speed_bps || 0);
+    updateProgress(`${t("model_downloading")} ${modelName} ? ${progress}%${speed ? ` ? ${formatBytes(speed)}/s` : ""}`);
     if (state.status === "ready") return status;
     if (state.status === "error") throw new Error(state.error || t("model_unavailable"));
     await new Promise(resolve => setTimeout(resolve, 1000));

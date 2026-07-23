@@ -41,7 +41,7 @@ def _extension_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
             if str(item["id"]) in required_ids and not bool(item["installed"])
         ]
         status["config_schema"] = extension_registry.config_schema(str(status["id"]))
-        status["ready"] = not status["missing_dependency_ids"]
+        status["ready"] = bool(status.get("operational")) and not status["missing_dependency_ids"]
     return statuses
 
 
@@ -159,6 +159,20 @@ def create_management_blueprint(context: ManagementContext) -> Blueprint:
         except RuntimeError as exc:
             return context.error(str(exc), 409)
         return jsonify(result)
+
+    @blueprint.get("/dependencies/tasks")
+    def dependency_tasks():
+        return jsonify({"tasks": [task.public_dict() for task in dependency_manager.list_tasks()]})
+
+    @blueprint.post("/dependencies/tasks/<task_id>/cancel")
+    def dependency_task_cancel(task_id: str):
+        try:
+            context.json_payload()
+            task = dependency_manager.cancel_task(task_id)
+        except ValueError as exc:
+            status = 404 if str(exc).startswith("Unknown dependency task") else 400
+            return context.error(str(exc), status)
+        return jsonify({"task": task.public_dict()})
 
     @blueprint.get("/dependencies/tasks/<task_id>")
     def dependency_task(task_id: str):

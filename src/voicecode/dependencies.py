@@ -17,7 +17,13 @@ from .dependency_environment import (
     uninstall_dependency as _uninstall_dependency,
 )
 from . import dependency_installer as _installer
-from .dependency_installer import dependency_operation_in_progress, get_task
+from .dependency_installer import (
+    cancel_task,
+    dependency_operation_in_progress,
+    get_task,
+    list_tasks,
+    shutdown_tasks,
+)
 from .dependency_types import DependencySpec, DependencyTask
 
 _run_pip_install = _installer._run_pip_install
@@ -41,6 +47,7 @@ __all__ = [
     "DependencyTask",
     "_write_manifest",
     "all_dependency_statuses",
+    "cancel_task",
     "dependencies_for_feature",
     "dependencies_for_feature_status",
     "dependency_dir",
@@ -48,8 +55,10 @@ __all__ = [
     "ensure_dependency_path",
     "get_dependency_spec",
     "get_task",
+    "list_tasks",
     "missing_dependencies",
     "project_root",
+    "shutdown_tasks",
     "start_install",
     "uninstall_dependency",
 ]

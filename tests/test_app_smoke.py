@@ -350,6 +350,7 @@ def test_package_launcher_and_static_asset_are_importable():
     assert static_root.joinpath("css", "app.css").is_file()
     for script in [
         "i18n.js",
+        "accessibility.js",
         "dom.js",
         "modal.js",
         "api.js",
@@ -416,6 +417,7 @@ def test_distribution_static_assets_stay_synchronized():
         Path("static/index.html"),
         Path("static/css/app.css"),
         Path("static/js/i18n.js"),
+        Path("static/js/accessibility.js"),
         Path("static/js/dom.js"),
         Path("static/js/modal.js"),
         Path("static/js/api.js"),
@@ -659,11 +661,16 @@ def test_static_ui_exposes_three_language_controls():
     html = (repo_root / "static" / "index.html").read_text(encoding="utf-8")
 
     assert 'href="/css/app.css"' in html
-    assert 'src="/js/i18n.js"' in html
+    assert 'type="module" src="/js/app.js"' in html
+    assert 'import {initializeI18n} from "./i18n.js"' in (
+        repo_root / "static" / "js" / "app.js"
+    ).read_text(encoding="utf-8")
     assert 'src="/js/dom.js"' in html
-    assert 'src="/js/api.js"' in html
+    assert 'import "./api.js"' in (repo_root / "static" / "js" / "app.js").read_text(
+        encoding="utf-8"
+    )
     assert 'src="/js/recorder.js"' in html
-    assert 'src="/js/app.js"' in html
+    assert 'type="module" src="/js/app.js"' in html
     assert 'class="panel language-panel"' in html
     assert 'data-i18n="settings_language"' in html
     assert 'id="uilang"' in html
@@ -1052,18 +1059,15 @@ def test_reload_model_rejects_second_request_while_load_is_in_progress(
     assert calls == [("tiny", True)]
 
 
-def test_dependency_install_cleans_failed_attempt_and_writes_manifest(app_module, monkeypatch):
+def test_dependency_install_uses_catalog_pypi_spec_and_writes_manifest(app_module, monkeypatch):
     from voicecode import dependencies as dependency_manager
 
     dep_dir = dependency_manager.dependency_dir()
     calls = []
 
     def fake_pip_install(task, spec, candidate, attempt):
-        calls.append(candidate)
+        calls.append((candidate, attempt))
         dep_dir.mkdir(parents=True, exist_ok=True)
-        if attempt == 0:
-            (dep_dir / "partial-download").mkdir()
-            return False
         (dep_dir / "jiwer.py").write_text("VALUE = 1\n", encoding="utf-8")
         return True
 
@@ -1075,13 +1079,53 @@ def test_dependency_install_cleans_failed_attempt_and_writes_manifest(app_module
         time.sleep(0.01)
 
     assert task.status == "completed"
-    assert calls[0].startswith("git+https://github.com/")
-    assert calls[-1] == "jiwer>=3,<5"
-    assert not (dep_dir / "partial-download").exists()
+    assert calls == [("jiwer>=3,<5", 0)]
     manifest = dep_dir / ".voicecode" / "jiwer.json"
     assert manifest.exists()
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     assert "jiwer.py" in payload["paths"]
+    assert payload["source"] == "jiwer>=3,<5"
+
+
+def test_dependency_failed_attempt_cleanup_is_contained(tmp_path):
+    from voicecode.dependency_environment import cleanup_new_entries, top_level_snapshot
+
+    root = tmp_path / "dependencies"
+    root.mkdir()
+    existing = root / "existing"
+    existing.mkdir()
+    before = top_level_snapshot(root)
+    partial = root / "partial-download"
+    partial.mkdir()
+
+    cleanup_new_entries(root, before)
+
+    assert existing.exists()
+    assert not partial.exists()
+
+
+def test_dependency_task_can_be_cancelled(app_module, monkeypatch):
+    from voicecode import dependencies as dependency_manager
+
+    entered = threading.Event()
+
+    def cancellable_install(task, spec, candidate, attempt):
+        entered.set()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not task.cancel_requested:
+            time.sleep(0.01)
+        return False
+
+    monkeypatch.setattr(dependency_manager, "_run_pip_install", cancellable_install)
+    task = dependency_manager.start_install("jiwer")
+    assert entered.wait(timeout=1)
+    dependency_manager.cancel_task(task.id)
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and task.status not in {"cancelled", "failed"}:
+        time.sleep(0.01)
+
+    assert task.status == "cancelled"
+    assert task.cancelled is True
 
 
 def test_dependency_uninstall_uses_manifest_and_removes_transitives(app_module):
@@ -1131,3 +1175,226 @@ def test_i18n_catalogs_cover_supported_languages_and_layout_hooks():
     assert 'html[data-ui-language="en"] .form-grid' in css
     assert 'html[data-ui-language="zh"] .form-grid' in css
     assert 'html[data-ui-language="ja"] .form-grid' in css
+
+
+def test_security_headers_host_and_origin_protection(client):
+    response = client.get("/health")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+
+    response = client.get("/health", headers={"Host": "evil.example"})
+    assert response.status_code == 421
+
+    response = client.post(
+        "/config",
+        json={},
+        headers={"Origin": "https://evil.example", "Host": "localhost"},
+    )
+    assert response.status_code == 403
+
+
+def test_config_migrates_legacy_version(tmp_path):
+    from voicecode import settings
+
+    path = tmp_path / "legacy.json"
+    path.write_text(
+        json.dumps({"model": "tiny", "extensions": {"vad": {"enabled": True}}}), encoding="utf-8"
+    )
+
+    config = settings.load_config(str(path))
+
+    assert config["config_version"] == settings.CONFIG_VERSION
+    assert config["model"] == "tiny"
+    assert "threshold" in config["extensions"]["vad"]
+    assert "onboarding" in config
+
+
+def test_silero_vad_preprocesses_audio(monkeypatch):
+    from voicecode.extensions import vad
+
+    class Tensor:
+        def __init__(self, values):
+            self.values = np.asarray(values, dtype=np.float32)
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self.values
+
+    silero = types.ModuleType("silero_vad")
+    silero.load_silero_vad = lambda: object()
+    silero.get_speech_timestamps = lambda waveform, model, **kwargs: [{"start": 1, "end": 3}]
+    silero.collect_chunks = lambda timestamps, waveform: Tensor([0.2, 0.3])
+    torch = types.ModuleType("torch")
+    torch.from_numpy = lambda values: Tensor(values)
+    monkeypatch.setitem(sys.modules, "silero_vad", silero)
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    vad.reset_runtime_cache()
+
+    audio, metadata = vad.preprocess_audio(
+        np.asarray([0.0, 0.2, 0.3, 0.0], dtype=np.float32),
+        {"enabled": True, "engine": "silero"},
+    )
+
+    assert np.allclose(audio, [0.2, 0.3])
+    assert metadata["engine"] == "silero"
+    assert metadata["speech_segments"] == [{"start": 1, "end": 3}]
+
+
+def test_punctuation_adapter_runs_nemo_model(monkeypatch):
+    from voicecode.extensions import punctuation
+
+    class Model:
+        @classmethod
+        def from_pretrained(cls, model_name):
+            return cls()
+
+        def to(self, device):
+            return self
+
+        def eval(self):
+            return None
+
+        def add_punctuation_capitalization(self, values):
+            return ["Hello, world!"]
+
+    models = types.ModuleType("nemo.collections.nlp.models")
+    models.PunctuationCapitalizationModel = Model
+    monkeypatch.setitem(sys.modules, "nemo", types.ModuleType("nemo"))
+    monkeypatch.setitem(sys.modules, "nemo.collections", types.ModuleType("nemo.collections"))
+    monkeypatch.setitem(
+        sys.modules, "nemo.collections.nlp", types.ModuleType("nemo.collections.nlp")
+    )
+    monkeypatch.setitem(sys.modules, "nemo.collections.nlp.models", models)
+    punctuation.reset_runtime_cache()
+
+    result = punctuation.restore(
+        "hello world", "en", {"model_name": "test", "device": "cpu", "supported_languages": ["en"]}
+    )
+
+    assert result == "Hello, world!"
+
+
+def test_diarization_adapter_assigns_maximum_overlap_speaker(monkeypatch):
+    from voicecode.extensions import diarization
+
+    class Segment:
+        def __init__(self, start, end):
+            self.start = start
+            self.end = end
+
+    class Annotation:
+        def itertracks(self, yield_label=False):
+            yield Segment(0.0, 1.5), None, "SPEAKER_00"
+            yield Segment(1.5, 4.0), None, "SPEAKER_01"
+
+    class Output:
+        exclusive_speaker_diarization = Annotation()
+
+    class PipelineInstance:
+        def to(self, device):
+            return None
+
+        def __call__(self, audio, **kwargs):
+            return Output()
+
+    class Pipeline:
+        @classmethod
+        def from_pretrained(cls, model_name, **kwargs):
+            return PipelineInstance()
+
+    pyannote = types.ModuleType("pyannote.audio")
+    pyannote.Pipeline = Pipeline
+    torch = types.ModuleType("torch")
+    torch.device = lambda value: value
+    torch.from_numpy = lambda value: value
+    torch.cuda = types.SimpleNamespace(is_available=lambda: False)
+    monkeypatch.setitem(sys.modules, "pyannote", types.ModuleType("pyannote"))
+    monkeypatch.setitem(sys.modules, "pyannote.audio", pyannote)
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    monkeypatch.setenv("HF_TOKEN", "test-token")
+    diarization.reset_runtime_cache()
+
+    segments = diarization.assign_speakers(
+        [{"start": 0.2, "end": 1.0, "text": "a"}, {"start": 2.0, "end": 3.0, "text": "b"}],
+        "audio.wav",
+        {
+            "model_name": "test",
+            "token_env": "HF_TOKEN",
+            "device": "cpu",
+            "min_speakers": 1,
+            "max_speakers": 2,
+            "exclusive": True,
+        },
+    )
+
+    assert [segment["speaker"] for segment in segments] == ["SPEAKER_00", "SPEAKER_01"]
+
+
+def test_config_schema_and_dynamic_version_metadata(client):
+    import voicecode
+
+    response = client.get("/config/schema")
+    assert response.status_code == 200
+    assert response.get_json()["version"] >= 2
+    assert "model" in response.get_json()["fields"]
+
+    response = client.get("/")
+    html = response.get_data(as_text=True)
+    assert f'name="voicecode-version" content="{voicecode.__version__}"' in html
+
+    response = client.get("/status")
+    assert response.get_json()["version"] == voicecode.__version__
+
+
+def test_diagnostics_export_is_redacted_zip(client):
+    import io
+    import zipfile
+
+    response = client.get("/diagnostics/export")
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+        assert {"diagnostics.json", "config-redacted.json", "dependency-tasks.json"} <= set(
+            archive.namelist()
+        )
+        config = json.loads(archive.read("config-redacted.json"))
+        assert config["hotkey"]["key"] == "<redacted>"
+
+
+def test_dependency_manifest_ignores_paths_outside_root(tmp_path, monkeypatch):
+    from voicecode import dependency_environment
+
+    root = tmp_path / "dependencies"
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep", encoding="utf-8")
+    monkeypatch.setenv("VOICECODE_DEP_DIR", str(root))
+    manifest = root / ".voicecode" / "jiwer.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "dependency_id": "jiwer",
+                "paths": ["../outside.txt"],
+                "source": "test",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = dependency_environment.uninstall_dependency("jiwer", confirm=True)
+
+    assert result["removed"] == []
+    assert outside.read_text(encoding="utf-8") == "keep"
+
+
+def test_dependency_task_list_endpoint(client):
+    response = client.get("/dependencies/tasks")
+    assert response.status_code == 200
+    assert isinstance(response.get_json()["tasks"], list)

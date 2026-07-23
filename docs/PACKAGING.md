@@ -19,7 +19,7 @@ The wheel must include:
 - `voicecode` Python modules and `voicecode.extensions`;
 - `voicecode/static/index.html`;
 - `voicecode/static/css/*.css`;
-- `voicecode/static/js/*.js`;
+- `voicecode/static/js/*.js`, including ES Module bootstrap files;
 - `voicecode/static/i18n/en.json`, `zh.json`, and `ja.json`.
 
 `pyproject.toml` declares package data and `MANIFEST.in` supplies documentation/static files to source distributions. Run the static synchronization test before building because `static/` and `src/voicecode/static/` must be byte-identical.
@@ -96,3 +96,7 @@ PyInstaller, Nuitka, MSI/DMG/AppImage, and code signing are downstream release c
 | Dependency install/uninstall | Isolated test | Isolated test | Full |
 | CPU transcription | Optional CI | Optional CI | Release gate |
 | CUDA transcription | Hardware CI/manual | Hardware CI/manual | Release gate when advertised |
+
+## Supply-chain artifacts
+
+Tagged release CI creates SHA-256 checksums, a CycloneDX JSON SBOM, and GitHub build-provenance attestations. It installs the built wheel into a clean virtual environment and verifies packaged catalogs/onboarding assets before upload. In-app dependency catalog entries must use bounded package-index specs; mutable GitHub branches are not accepted.

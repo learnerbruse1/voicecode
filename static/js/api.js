@@ -1,9 +1,9 @@
-function localApiToken() {
+export function localApiToken() {
   const meta = document.querySelector('meta[name="voicecode-api-token"]');
   return meta ? meta.getAttribute("content") || "" : "";
 }
 
-async function requestJSON(method, url, body = {}, opts = {}) {
+export async function requestJSON(method, url, body = {}, opts = {}) {
   const controller = new AbortController();
   const timeout = opts.timeout || 30000;
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -37,3 +37,5 @@ async function requestJSON(method, url, body = {}, opts = {}) {
     if (currentRequest === controller) currentRequest = null;
   }
 }
+
+Object.assign(window, {localApiToken, requestJSON});

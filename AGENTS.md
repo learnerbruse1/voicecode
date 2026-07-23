@@ -23,13 +23,14 @@ Use PowerShell with UTF-8 enabled on Windows. This repository intentionally does
 - Root compatibility entry points: `app.py`, `main.py`
 - Installable package: `src/voicecode/`
 - Runtime path helper: `src/voicecode/runtime.py`
-- Route blueprints: `management_api.py`, `history_api.py`, `system_api.py`
+- Route blueprints: `management_api.py`, `history_api.py`, `system_api.py`, `recording_api.py`
+- Model services: `model_runtime.py`, `model_cache.py`, `transcription_service.py`
 - Dependency services: `dependency_catalog.py`, `dependency_environment.py`, `dependency_installer.py`, facade `dependencies.py`
 - Static UI: `static/` and packaged copy `src/voicecode/static/`, including `i18n/*.json` catalogs
 - Tests: `tests/test_app_smoke.py`
 - Release metadata: `pyproject.toml`, `MANIFEST.in`, CI workflow, docs, contribution/security files
 
-The installable package under `src/voicecode` is authoritative. Static assets are mirrored for source-tree and packaged execution, and tests require them to stay synchronized.
+The installable package under `src/voicecode` is authoritative. Static assets are mirrored for source-tree and packaged execution. Edit `src/voicecode/static`, then run `python -X utf8 tools/sync_static.py`; tests require synchronization.
 
 ## Runtime Model
 
@@ -81,6 +82,7 @@ flowchart TD
 - `GET /hardware`
 - `GET /config`
 - `POST /config`
+- `GET /config/schema`
 - `POST /reload_model`
 - `POST /record/start`
 - `POST /record/stop`
@@ -96,6 +98,8 @@ flowchart TD
 - `POST /extensions/<id>/install`
 - `GET /dependencies`
 - `POST /dependencies/install-required`
+- `GET /dependencies/tasks`
+- `POST /dependencies/tasks/<id>/cancel`
 - `POST /dependencies/<id>/install`
 - `GET /dependencies/tasks/<id>`
 - `POST /dependencies/<id>/uninstall`
@@ -105,6 +109,7 @@ flowchart TD
 - `GET /history`
 - `POST /history/clear`
 - `GET /diagnostics`
+- `GET /diagnostics/export`
 
 See `docs/API.md` for request/response details.
 

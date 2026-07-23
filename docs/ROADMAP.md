@@ -136,7 +136,7 @@ Suggested design:
 
 ## Current implementation status
 
-Completed foundation work includes a persisted first-start guide, operable schema-driven extension settings, isolated one-click dependency tasks, external JSON i18n catalogs, split Flask route modules, and split dependency services. Heavy diarization/punctuation model adapters remain future work.
+Completed foundation work includes a persisted first-start guide, operable schema-driven extension settings, isolated one-click dependency tasks, external JSON i18n catalogs, split Flask route modules, and split dependency services. Silero preprocessing, pyannote diarization, and NeMo punctuation adapters are implemented with lazy model loading and explicit experimental/runtime states.
 
 Implemented extension framework and switchable modules:
 
@@ -146,8 +146,8 @@ Implemented extension framework and switchable modules:
 - `vad`: enabled by default, configures faster-whisper VAD.
 - `zh_normalizer`: disabled by default, normalizes Chinese spacing/punctuation and lazily uses OpenCC for script conversion.
 - `quality`: disabled by default, optional WER/CER helper shell using jiwer.
-- `diarization`: disabled by default, optional pyannote adapter shell.
-- `punctuation`: disabled by default, optional NeMo adapter shell.
+- `diarization`: disabled by default, real pyannote pipeline with environment-referenced credentials and overlap-based segment labeling.
+- `punctuation`: disabled by default, real lazy NeMo punctuation/capitalization inference for configured languages.
 
 ## Near-term implementation order
 
@@ -155,9 +155,9 @@ Implemented extension framework and switchable modules:
 2. Add a small frontend extension settings panel.
 3. Add `voicecode.audio_io` duration probing when an optional decoder is installed.
 4. Add higher-quality SRT/VTT output with word timestamps when available.
-5. Add optional Silero VAD preprocessing adapter.
+5. Improve Silero timestamp remapping so compacted-audio segment times can be projected back to original media time.
 6. Add optional real-audio WER/CER fixtures behind an environment flag.
-7. Consider real diarization only after batch/file transcription is solid.
+7. Add richer diarization exports and speaker-aware subtitle formatting.
 
 ## Non-goals
 

@@ -31,3 +31,7 @@ Lists usable input devices and the default input index.
 ## `POST /audio/test`
 
 Samples local microphone level for setup/settings diagnostics. Accepts `audio_device` and `duration_ms`.
+
+## `GET /diagnostics/export`
+
+Downloads a redacted diagnostic ZIP containing system status, config, recent dependency tasks, and the available application-log tail.

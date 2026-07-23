@@ -15,3 +15,7 @@ Restores default configuration, saves it, and returns the restored config. The U
 ## Onboarding state
 
 The config includes `onboarding.completed`, `onboarding.completed_version`, and `onboarding.skipped`. Normal clients should update these through the onboarding endpoints rather than posting arbitrary state.
+
+## `GET /config/schema`
+
+Returns `config_version` and core field constraints used by clients.

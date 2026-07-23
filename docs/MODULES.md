@@ -17,7 +17,11 @@ VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry 
 
 | Module | Public responsibility |
 | --- | --- |
-| `voicecode.app` | Flask setup, security/error policy, Whisper lifecycle, recording/transcription, model cache routes, blueprint registration |
+| `voicecode.app` | Flask setup, security/error policy, model load orchestration, model routes, blueprint registration |
+| `voicecode.model_runtime` | model state/profile locks and executor ownership |
+| `voicecode.model_cache` | safe model cache discovery, cached size calculation, deletion |
+| `voicecode.transcription_service` | extension-aware VAD, normalization, punctuation, diarization finalization |
+| `voicecode.recording_api` | record and direct transcription routes |
 | `voicecode.management_api` | onboarding, extension update/install, dependency listing/install/task/uninstall |
 | `voicecode.history_api` | history filters, exports, entry deletion, clear route |
 | `voicecode.system_api` | hardware, audio device/test, diagnostics, stats routes |
@@ -39,7 +43,8 @@ VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry 
 
 | Asset | Responsibility |
 | --- | --- |
-| `static/js/app.js` | guarded bootstrap, navigation, window controls, polling |
+| `static/js/app.js` | ES Module bootstrap, navigation, window controls, adaptive polling |
+| `static/js/accessibility.js` | reusable focus trapping and focus restoration for dialogs |
 | `static/js/i18n.js` | asynchronous external catalog loader |
 | `static/i18n/*.json` | complete English/Chinese/Japanese translation catalogs |
 | `static/js/dom.js` | DOM references, translation application, shared state/helpers |
@@ -68,7 +73,7 @@ VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry 
 | `diarization` | dependency/config boundary for pyannote adapter work |
 | `punctuation` | dependency/config boundary for NeMo restoration work |
 
-`diarization` and `punctuation` expose real enable/config/dependency behavior, but their heavy inference adapters remain intentionally conservative placeholders.
+`vad`, `diarization`, and `punctuation` now have real lazy adapters. Silero preprocesses speech, pyannote labels timestamped segments, and NeMo restores punctuation for configured languages. They remain opt-in because dependencies and models are large.
 
 ## Adding a new extension
 

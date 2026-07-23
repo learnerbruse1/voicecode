@@ -62,8 +62,24 @@ Open **Extensions** and inspect its dependency summary. Some settings make a dep
 
 ## A dependency install fails
 
-Open **Dependencies**, retry, and inspect the task message/log through `/dependencies/tasks/<id>`. Verify network/proxy/Git access, available disk space, and write access to `VOICECODE_DEP_DIR` or the packaged runtime dependency directory. GitHub sources fall back to PyPI when cataloged.
+Open **Dependencies**, retry, and inspect the task message/log through `/dependencies/tasks/<id>`. Verify package-index/proxy access, available disk space, and write access to `VOICECODE_DEP_DIR` or the packaged runtime dependency directory.
 
 ## Translations fail to load
 
 Confirm `static/i18n/en.json`, `zh.json`, and `ja.json` exist in both source and packaged trees. For wheels/bundles, inspect package contents and verify `/static/i18n/en.json` returns a JSON object.
+
+## A dependency task is stuck or was interrupted
+
+Use the cancel button or `POST /dependencies/tasks/<id>/cancel`. Tasks exceeding `VOICECODE_DEP_INSTALL_TIMEOUT_SECONDS` fail automatically. After an application restart, previously queued/running tasks are restored as failed with an interruption message. If another process owns the dependency lock, close the other VoiceCode instance rather than deleting a fresh lock file.
+
+## An extension is installed but asks for a restart
+
+Binary-heavy packages can already be imported or partially loaded in the current process. Restart the full VoiceCode application, not only the web page.
+
+## Pyannote diarization reports a token error
+
+Set the environment variable named by `extensions.diarization.token_env` (default `HF_TOKEN`) before starting VoiceCode, and ensure access to the configured gated model. Tokens are intentionally not stored in `config.json`.
+
+## The API rejects Host or Origin
+
+VoiceCode accepts loopback Host names and same-port loopback Origins. Use `127.0.0.1`, `localhost`, or `::1`; proxies and embedded clients must preserve a valid local Host and must not send a foreign Origin on mutation requests.

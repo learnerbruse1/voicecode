@@ -50,3 +50,7 @@ Update README and docs when you change:
 - environment variables
 - API endpoints or response shapes
 - user-visible troubleshooting steps
+
+## Static and browser changes
+
+Edit packaged assets first, run `python -X utf8 tools/sync_static.py`, run Node syntax checks, and update every language catalog. Bootstrap infrastructure should use ES Modules; compatibility feature scripts should move gradually rather than introduce new implicit globals. UI behavior changes should update the optional Playwright E2E smoke test.

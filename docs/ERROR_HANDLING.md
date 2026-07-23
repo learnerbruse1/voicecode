@@ -94,6 +94,10 @@ When adding a new route or feature:
 
 ## Dependency and onboarding resilience
 
-Dependency installation is asynchronous and reports bounded progress/log output. Failed GitHub attempts are cleaned before PyPI fallback. Uninstall requires explicit confirmation and refuses paths outside the isolated root.
+Dependency installation is asynchronous and reports bounded progress/log output. Tasks persist across UI reloads, interrupted tasks are marked failed after application restart, and running tasks can be cancelled. Installs enforce disk-space checks, timeout limits, thread/process locks, and process-tree termination. Uninstall requires explicit confirmation and refuses paths outside the isolated root.
 
 Onboarding completion records user intent; it does not hide dependency, microphone, or model failures. Readiness warnings remain visible through status/dependency pages, and the guide can be rerun.
+
+## Browser/API security errors
+
+Invalid Host headers return `421`; foreign Origins on mutations and invalid API tokens return `403`. Security headers are applied to successful and error responses.

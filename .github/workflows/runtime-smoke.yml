@@ -1,0 +1,72 @@
+name: Runtime Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_gpu:
+        description: "Run the self-hosted NVIDIA GPU smoke job"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  cpu-tiny-model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[runtime]"
+      - name: Load and run tiny model on CPU
+        env:
+          WHISPER_MODEL: tiny
+          WHISPER_DEVICE: cpu
+          WHISPER_COMPUTE_TYPE: int8
+          VOICECODE_CONFIG_FILE: ${{ runner.temp }}/voicecode-config.json
+          VOICECODE_MODEL_DIR: ${{ runner.temp }}/voicecode-models
+        run: |
+          python -X utf8 - <<'PY'
+          import numpy as np
+          from voicecode import app
+          app.save_config({**app.DEFAULT_CONFIG, "model": "tiny", "device": "cpu", "compute_type": "int8"})
+          app._load_model_sync("tiny", allow_cpu_fallback=False)
+          result = app._transcribe_audio(np.zeros(16000, dtype=np.float32), "en")
+          assert "text" in result
+          print(result)
+          PY
+
+  nvidia-gpu:
+    if: ${{ inputs.run_gpu }}
+    runs-on: [self-hosted, linux, x64, gpu]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install GPU runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[runtime,gpu]"
+      - name: Load and run tiny model on CUDA
+        env:
+          WHISPER_MODEL: tiny
+          WHISPER_DEVICE: cuda
+          WHISPER_COMPUTE_TYPE: float16
+          VOICECODE_CONFIG_FILE: ${{ runner.temp }}/voicecode-config.json
+          VOICECODE_MODEL_DIR: ${{ runner.temp }}/voicecode-models
+        run: |
+          python -X utf8 - <<'PY'
+          import numpy as np
+          from voicecode import app
+          assert app._cuda_device_count() > 0
+          app.save_config({**app.DEFAULT_CONFIG, "model": "tiny", "device": "cuda", "compute_type": "float16"})
+          app._load_model_sync("tiny", allow_cpu_fallback=False)
+          result = app._transcribe_audio(np.zeros(16000, dtype=np.float32), "en")
+          assert app._device == "cuda"
+          assert "text" in result
+          print(result)
+          PY

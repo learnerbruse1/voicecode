@@ -34,7 +34,7 @@ Starts all missing core runtime dependency installs.
 
 ## `POST /dependencies/<dependency_id>/install`
 
-Starts one background install into the isolated dependency directory.
+Starts one persistent, cancellable, time-limited background install into the isolated dependency directory. Only catalog-defined package-index specs are accepted; API clients cannot submit arbitrary package specifications.
 
 ## `GET /dependencies/tasks/<task_id>`
 
@@ -45,3 +45,11 @@ Returns status, percentage, message, error, and recent pip output.
 Requires `{ "confirm": true }`. Only manifest-owned paths below the isolated dependency directory may be removed.
 
 Current extension IDs: `audio_io`, `exporters`, `hotwords`, `vad`, `zh_normalizer`, `quality`, `diarization`, and `punctuation`.
+
+## `GET /dependencies/tasks`
+
+Lists recent persisted tasks.
+
+## `POST /dependencies/tasks/<task_id>/cancel`
+
+Cancels a queued/running install and terminates its pip process tree.

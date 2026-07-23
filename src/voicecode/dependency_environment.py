@@ -9,7 +9,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
-import site
+import time
 import sys
 from typing import Any
 
@@ -54,19 +54,35 @@ def ensure_dependency_path() -> Path:
     target = dependency_dir()
     target_text = str(target)
     if target.exists():
-        try:
-            site.addsitedir(target_text)
-        except Exception as exc:
-            logger.debug("Failed to process dependency directory .pth files: %s", exc)
         if target_text in sys.path:
             sys.path.remove(target_text)
-        sys.path.insert(0, target_text)
+        insertion_index = len(sys.path)
+        for index, existing in enumerate(sys.path):
+            lowered = existing.lower()
+            if "site-packages" in lowered or "dist-packages" in lowered:
+                insertion_index = index
+                break
+        # Keep the application, working directory, and standard library ahead of optional
+        # packages while still preferring the isolated directory over global site-packages.
+        sys.path.insert(insertion_index, target_text)
         importlib.invalidate_caches()
     return target
 
 
-def _manifest_root() -> Path:
+def manifest_root() -> Path:
     return dependency_dir() / _MANIFEST_DIR_NAME
+
+
+def _manifest_root() -> Path:
+    return manifest_root()
+
+
+def task_state_path() -> Path:
+    return manifest_root() / "tasks.json"
+
+
+def install_lock_path() -> Path:
+    return manifest_root() / "install.lock"
 
 
 def _manifest_path(spec: DependencySpec) -> Path:
@@ -102,6 +118,12 @@ def created_entries(
     return sorted(name for name in after if name not in before)
 
 
+def changed_entries(
+    before: dict[str, tuple[bool, int, int]], after: dict[str, tuple[bool, int, int]]
+) -> list[str]:
+    return sorted(name for name, metadata in after.items() if before.get(name) != metadata)
+
+
 def cleanup_new_entries(root: Path, before: dict[str, tuple[bool, int, int]]) -> None:
     if not root.exists():
         return
@@ -117,7 +139,14 @@ def cleanup_new_entries(root: Path, before: dict[str, tuple[bool, int, int]]) ->
 def _write_manifest(spec: DependencySpec, paths: list[str], source: str) -> None:
     root = _manifest_root()
     root.mkdir(parents=True, exist_ok=True)
-    payload = {"dependency_id": spec.id, "paths": sorted(set(paths)), "source": source}
+    payload = {
+        "dependency_id": spec.id,
+        "paths": sorted(set(paths)),
+        "source": source,
+        "pip_spec": spec.pip_spec,
+        "installed_at": time.time(),
+        "restart_required": spec.restart_required,
+    }
     path = _manifest_path(spec)
     temp_path = path.with_suffix(".tmp")
     temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -205,7 +234,10 @@ def dependency_status(spec: DependencySpec) -> dict[str, object]:
         "pip_spec": spec.pip_spec,
         "required": spec.required,
         "feature_ids": list(spec.feature_ids),
-        "github_preferred": bool(spec.github_specs),
+        "github_preferred": False,
+        "trusted_source": "pypi",
+        "estimated_install_mb": spec.estimated_install_mb,
+        "restart_required": spec.restart_required,
         "notes": spec.notes,
         "installed": installed,
         "installed_in_voice_dep": installed and installed_in_voice_dep,

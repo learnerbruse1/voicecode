@@ -13,6 +13,8 @@ from .extensions.registry import default_extension_config
 
 logger = logging.getLogger("voicecode.settings")
 
+CONFIG_VERSION = 2
+
 VALID_MODELS = {"tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"}
 VALID_LANGUAGES = {"", "auto", "zh", "en", "ja", None}
 VALID_UI_LANGUAGES = {"en", "zh", "ja"}
@@ -73,6 +75,7 @@ MODEL_INFO = {
 DEFAULT_EXTENSIONS = default_extension_config()
 
 DEFAULT_CONFIG: dict[str, Any] = {
+    "config_version": CONFIG_VERSION,
     "hotkey": {"modifiers": ["alt"], "key": "z"},
     "model": "base",
     "device": "auto",
@@ -177,6 +180,21 @@ def _validate_positive_int(value: Any, name: str, minimum: int, maximum: int) ->
     return value
 
 
+def _validate_number(value: Any, name: str, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number between {minimum} and {maximum}.")
+    normalized = float(value)
+    if not minimum <= normalized <= maximum:
+        raise ValueError(f"{name} must be a number between {minimum} and {maximum}.")
+    return normalized
+
+
+def _validate_short_string(value: Any, name: str, maximum: int = 200) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > maximum:
+        raise ValueError(f"{name} must be a non-empty string up to {maximum} characters.")
+    return value.strip()
+
+
 def validate_extensions_patch(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("extensions must be an object.")
@@ -248,6 +266,14 @@ def validate_extensions_patch(value: Any) -> dict[str, Any]:
                     100,
                     5000,
                 )
+            if "speech_pad_ms" in item:
+                item["speech_pad_ms"] = _validate_positive_int(
+                    item["speech_pad_ms"], "extensions.vad.speech_pad_ms", 0, 2000
+                )
+            if "threshold" in item:
+                item["threshold"] = _validate_number(
+                    item["threshold"], "extensions.vad.threshold", 0.0, 1.0
+                )
         elif extension_id == "zh_normalizer":
             if "script" in item and item["script"] not in {"none", "simplified", "traditional"}:
                 raise ValueError(
@@ -274,9 +300,45 @@ def validate_extensions_patch(value: Any) -> dict[str, Any]:
         elif extension_id == "diarization":
             if "engine" in item and item["engine"] != "pyannote":
                 raise ValueError("extensions.diarization.engine must be pyannote.")
+            for key in ("model_name", "token_env"):
+                if key in item:
+                    item[key] = _validate_short_string(item[key], f"extensions.diarization.{key}")
+            if "device" in item and item["device"] not in {"auto", "cpu", "cuda"}:
+                raise ValueError("extensions.diarization.device must be auto, cpu, or cuda.")
+            for key in ("min_speakers", "max_speakers"):
+                if key in item:
+                    item[key] = _validate_positive_int(
+                        item[key], f"extensions.diarization.{key}", 1, 32
+                    )
+            if "exclusive" in item:
+                item["exclusive"] = _validate_bool(
+                    item["exclusive"], "extensions.diarization.exclusive"
+                )
+            effective = {**DEFAULT_EXTENSIONS[extension_id], **item}
+            if effective["min_speakers"] > effective["max_speakers"]:
+                raise ValueError(
+                    "extensions.diarization.min_speakers must not exceed max_speakers."
+                )
         elif extension_id == "punctuation":
             if "engine" in item and item["engine"] != "nemo":
                 raise ValueError("extensions.punctuation.engine must be nemo.")
+            if "model_name" in item:
+                item["model_name"] = _validate_short_string(
+                    item["model_name"], "extensions.punctuation.model_name"
+                )
+            if "device" in item and item["device"] not in {"auto", "cpu", "cuda"}:
+                raise ValueError("extensions.punctuation.device must be auto, cpu, or cuda.")
+            if "supported_languages" in item:
+                languages = item["supported_languages"]
+                if not isinstance(languages, list) or not all(
+                    isinstance(language, str) for language in languages
+                ):
+                    raise ValueError(
+                        "extensions.punctuation.supported_languages must be a string array."
+                    )
+                item["supported_languages"] = [
+                    language.strip().lower() for language in languages if language.strip()
+                ]
         validated[extension_id] = item
     return validated
 
@@ -303,6 +365,12 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
     if unknown:
         raise ValueError(f"Unknown config keys: {', '.join(sorted(unknown))}")
 
+    if "config_version" in patch:
+        version = patch["config_version"]
+        if isinstance(version, bool) or not isinstance(version, int):
+            raise ValueError("config_version must be an integer.")
+        if version != CONFIG_VERSION:
+            raise ValueError(f"Unsupported config_version: {version}")
     if "model" in patch and patch["model"] not in VALID_MODELS:
         raise ValueError(f"Unsupported model: {patch['model']}")
     if "extensions" in patch:
@@ -386,6 +454,44 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
     return patch
 
 
+def migrate_config(data: dict[str, Any]) -> dict[str, Any]:
+    migrated = copy.deepcopy(data)
+    raw_version = migrated.get("config_version", 1)
+    if isinstance(raw_version, bool) or not isinstance(raw_version, int):
+        raise ValueError("config_version must be an integer.")
+    if raw_version > CONFIG_VERSION:
+        raise ValueError(
+            f"Config version {raw_version} is newer than supported version {CONFIG_VERSION}."
+        )
+    version = raw_version
+    if version == 1:
+        migrated.setdefault(
+            "onboarding", {"completed": False, "completed_version": "", "skipped": False}
+        )
+        migrated["extensions"] = merge_config(
+            {"extensions": copy.deepcopy(DEFAULT_EXTENSIONS)},
+            {"extensions": migrated.get("extensions", {})},
+        )["extensions"]
+        version = 2
+    migrated["config_version"] = version
+    return migrated
+
+
+def config_schema() -> dict[str, Any]:
+    return {
+        "version": CONFIG_VERSION,
+        "fields": {
+            "model": {"type": "select", "choices": sorted(VALID_MODELS)},
+            "device": {"type": "select", "choices": sorted(VALID_DEVICES)},
+            "compute_type": {"type": "select", "choices": sorted(VALID_COMPUTE_TYPES)},
+            "beam_size": {"type": "integer", "minimum": 1, "maximum": 10},
+            "language": {"type": "select", "choices": ["auto", "zh", "en", "ja"]},
+            "ui_language": {"type": "select", "choices": sorted(VALID_UI_LANGUAGES)},
+            "history_limit": {"type": "integer", "minimum": 1, "maximum": 500},
+        },
+    }
+
+
 def load_config(config_file: str | None = None) -> dict[str, Any]:
     resolved = config_file or CONFIG_FILE
     if os.path.exists(resolved):
@@ -393,6 +499,7 @@ def load_config(config_file: str | None = None) -> dict[str, Any]:
             with open(resolved, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
+                data = migrate_config(data)
                 known_data = {k: v for k, v in data.items() if k in ALLOWED_CONFIG_KEYS}
                 cfg = merge_config(copy.deepcopy(DEFAULT_CONFIG), known_data)
                 try:
@@ -407,7 +514,8 @@ def load_config(config_file: str | None = None) -> dict[str, Any]:
 
 
 def save_config(cfg: dict[str, Any], config_file: str | None = None) -> None:
-    cfg = validate_config_patch(dict(cfg))
+    cfg = {**dict(cfg), "config_version": CONFIG_VERSION}
+    cfg = validate_config_patch(cfg)
     config_path = Path(config_file or CONFIG_FILE).expanduser()
     config_dir(config_file or CONFIG_FILE).mkdir(parents=True, exist_ok=True)
     tmp = config_path.with_name(f"{config_path.name}.tmp")

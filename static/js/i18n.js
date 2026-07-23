@@ -1,7 +1,7 @@
 window.I18N = window.I18N || {};
 const SUPPORTED_I18N_LANGUAGES = ["en", "zh", "ja"];
 
-async function ensureI18nCatalog(language) {
+export async function ensureI18nCatalog(language) {
   const normalized = SUPPORTED_I18N_LANGUAGES.includes(language) ? language : "en";
   if (window.I18N[normalized]) return window.I18N[normalized];
   const response = await fetch(`/static/i18n/${normalized}.json`, {cache: "no-cache"});
@@ -14,7 +14,9 @@ async function ensureI18nCatalog(language) {
   return catalog;
 }
 
-async function initializeI18n(language = "en") {
+export async function initializeI18n(language = "en") {
   await ensureI18nCatalog("en");
   if (language !== "en") await ensureI18nCatalog(language);
 }
+
+Object.assign(window, {ensureI18nCatalog, initializeI18n});

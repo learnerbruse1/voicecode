@@ -20,8 +20,13 @@ function extensionFieldMarkup(extensionId, field, config) {
     const options = (field.choices || []).map(choice => `<option value="${htmlEscape(choice)}" ${selected.has(choice) ? "selected" : ""}>${htmlEscape(choice)}</option>`).join("");
     return `<label class="extension-field"><span>${htmlEscape(label)}</span><select id="${id}" data-field="${htmlEscape(field.name)}" data-type="multiselect" multiple>${options}</select></label>`;
   }
-  if (field.type === "integer") {
-    return `<label class="extension-field"><span>${htmlEscape(label)}</span><input id="${id}" data-field="${htmlEscape(field.name)}" data-type="integer" type="number" value="${Number(value || 0)}"></label>`;
+  if (["integer", "number"].includes(field.type)) {
+    const minimum = field.minimum === undefined ? "" : `min="${Number(field.minimum)}"`;
+    const maximum = field.maximum === undefined ? "" : `max="${Number(field.maximum)}"`;
+    const step = field.step === undefined ? (field.type === "integer" ? "1" : "any") : String(field.step);
+    const help = field.help_key ? t(field.help_key) : "";
+    const helpMarkup = help && help !== field.help_key ? `<small>${htmlEscape(help)}</small>` : "";
+    return `<label class="extension-field"><span>${htmlEscape(label)}</span><input id="${id}" data-field="${htmlEscape(field.name)}" data-type="${field.type}" type="number" ${minimum} ${maximum} step="${step}" value="${Number(value || 0)}">${helpMarkup}</label>`;
   }
   const textValue = Array.isArray(value) ? value.join("\n") : String(value ?? "");
   return `<label class="extension-field"><span>${htmlEscape(label)}</span><textarea id="${id}" data-field="${htmlEscape(field.name)}" data-type="${field.type}">${htmlEscape(textValue)}</textarea></label>`;
@@ -33,7 +38,7 @@ function readExtensionConfig(card) {
     const field = input.dataset.field;
     const type = input.dataset.type;
     if (type === "boolean") config[field] = input.checked;
-    else if (type === "integer") config[field] = Number(input.value);
+    else if (["integer", "number"].includes(type)) config[field] = Number(input.value);
     else if (type === "multiselect") config[field] = Array.from(input.selectedOptions).map(option => option.value);
     else if (type === "string_list") config[field] = input.value.split(/\r?\n|,/).map(item => item.trim()).filter(Boolean);
     else config[field] = input.value;
@@ -49,7 +54,8 @@ function renderExtensions(data) {
     return;
   }
   extensionsListEl.innerHTML = extensions.map(ext => {
-    const state = ext.enabled ? t("enabled") : t("disabled");
+    const stateKey = `extension_state_${ext.state || (ext.enabled ? "operational" : "disabled")}`;
+    const state = t(stateKey);
     const readiness = ext.ready ? t("onboarding_ready") : t("onboarding_not_ready");
     const name = translatedEntity("extension", ext.id, "name", ext.name);
     const description = translatedEntity("extension", ext.id, "description", ext.description || "");
@@ -60,7 +66,7 @@ function renderExtensions(data) {
     const installButton = (ext.dependencies || []).some(dep => !dep.installed_in_voice_dep)
       ? `<button type="button" class="sm extension-install" data-extension-id="${htmlEscape(ext.id)}">${t("extension_install_dependencies")}</button>` : "";
     return `<article class="extension-card ${ext.enabled ? "enabled" : "disabled"}" data-extension-id="${htmlEscape(ext.id)}">
-      <div class="extension-card-head"><div><h4>${htmlEscape(name)} <small>${state}</small></h4><p>${htmlEscape(description)}</p><small>${htmlEscape(readiness)} ? ${htmlEscape(dependencyText)}</small></div></div>
+      <div class="extension-card-head"><div><h4>${htmlEscape(name)} <small>${htmlEscape(state)}</small></h4><p>${htmlEscape(description)}</p><small>${htmlEscape(readiness)} ? ${htmlEscape(dependencyText)}</small>${ext.status_message ? `<small class="extension-status-message">${htmlEscape(ext.status_message)}</small>` : ""}${ext.restart_required ? `<small class="extension-warning">${t("dependency_restart_required")}</small>` : ""}</div></div>
       <div class="extension-config-grid">${fields}</div>
       <div class="extension-actions">${installButton}<button type="button" class="sm primary extension-save" data-extension-id="${htmlEscape(ext.id)}">${t("extension_save")}</button></div>
     </article>`;
@@ -73,7 +79,7 @@ function renderExtensions(data) {
   });
 }
 
-async function loadExtensionsPanel() {
+export async function loadExtensionsPanel() {
   const result = await requestJSON("GET", "/extensions", {}, {suppressPopup: true});
   if (!result.ok) {
     if (extensionsListEl) extensionsListEl.innerHTML = `<div class="list-item"><p>${htmlEscape(result.error || t("extensions_unavailable"))}</p></div>`;
@@ -111,3 +117,5 @@ async function installExtensionDependencies(extensionId) {
 }
 
 if (extensionsRefreshBtn) extensionsRefreshBtn.onclick = loadExtensionsPanel;
+
+Object.assign(window, {loadExtensionsPanel});

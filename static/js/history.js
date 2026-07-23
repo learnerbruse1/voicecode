@@ -97,3 +97,4 @@ if (historyExportJsonBtn) historyExportJsonBtn.onclick = () => exportHistory("js
 if (historyExportMdBtn) historyExportMdBtn.onclick = () => exportHistory("md");
 if (historyExportTxtBtn) historyExportTxtBtn.onclick = () => exportHistory("txt");
 diagnosticsBtn.onclick = loadDiagnosticsPanel;
+if (diagnosticsExportBtn) diagnosticsExportBtn.onclick = () => { window.location.href = "/diagnostics/export"; };

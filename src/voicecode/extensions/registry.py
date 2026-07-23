@@ -49,8 +49,31 @@ _CONFIG_CHOICES: dict[str, dict[str, list[str]]] = {
     "vad": {"engine": ["faster_whisper", "silero", "off"]},
     "zh_normalizer": {"script": ["none", "simplified", "traditional"]},
     "quality": {"metrics": ["wer", "cer"]},
-    "diarization": {"engine": ["pyannote"]},
-    "punctuation": {"engine": ["nemo"]},
+    "diarization": {"engine": ["pyannote"], "device": ["auto", "cpu", "cuda"]},
+    "punctuation": {"engine": ["nemo"], "device": ["auto", "cpu", "cuda"]},
+}
+
+_FIELD_METADATA: dict[str, dict[str, dict[str, Any]]] = {
+    "audio_io": {
+        "max_upload_mb": {"minimum": 1, "maximum": 2048},
+        "max_json_seconds": {"minimum": 1, "maximum": 7200},
+        "sample_rate": {"minimum": 8000, "maximum": 192000},
+    },
+    "vad": {
+        "min_silence_duration_ms": {"minimum": 100, "maximum": 5000},
+        "speech_pad_ms": {"minimum": 0, "maximum": 2000},
+        "threshold": {"type": "number", "minimum": 0.0, "maximum": 1.0, "step": 0.05},
+    },
+    "diarization": {
+        "model_name": {"advanced": True},
+        "token_env": {"advanced": True, "sensitive_reference": True},
+        "min_speakers": {"minimum": 1, "maximum": 32},
+        "max_speakers": {"minimum": 1, "maximum": 32},
+    },
+    "punctuation": {
+        "model_name": {"advanced": True},
+        "supported_languages": {"advanced": True},
+    },
 }
 
 
@@ -60,14 +83,22 @@ def config_schema(extension_id: str) -> list[dict[str, Any]]:
     choices = _CONFIG_CHOICES.get(extension_id, {})
     fields: list[dict[str, Any]] = []
     for name, default in defaults.items():
-        field: dict[str, Any] = {"name": name, "default": default}
+        field: dict[str, Any] = {
+            "name": name,
+            "default": default,
+            "label_key": f"extension_field_{name}",
+            "help_key": f"extension_field_{name}_help",
+        }
+        field.update(_FIELD_METADATA.get(extension_id, {}).get(name, {}))
         if name in choices:
             field["type"] = "multiselect" if isinstance(default, list) else "select"
             field["choices"] = choices[name]
         elif isinstance(default, bool):
             field["type"] = "boolean"
         elif isinstance(default, int):
-            field["type"] = "integer"
+            field.setdefault("type", "integer")
+        elif isinstance(default, float):
+            field.setdefault("type", "number")
         elif isinstance(default, list):
             field["type"] = "string_list"
         else:
@@ -103,15 +134,22 @@ def statuses(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     for extension in EXTENSIONS:
         ext_config = extension_config(config, extension.id)
         status = extension.status(ext_config)
-        missing = list(status.missing_dependencies)
-        available = status.available
-        if extension.id == "zh_normalizer":
-            if ext_config.get("script") in {"simplified", "traditional"}:
-                missing = extension.missing_dependencies()
-                available = not missing
-            else:
-                missing = []
-                available = True
+        required_ids = required_dependency_ids(extension.id, config)
+        missing = list(status.missing_dependencies) if required_ids else []
+        available = not missing
+        operational = status.operational if status.enabled else True
+        message = status.status_message
+        if not status.enabled:
+            state = "disabled"
+        elif missing:
+            state = "dependency_missing"
+            operational = False
+        elif not operational:
+            state = "error"
+        elif status.maturity != "stable":
+            state = "experimental"
+        else:
+            state = "operational"
         results.append(
             {
                 "id": status.id,
@@ -119,6 +157,11 @@ def statuses(config: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "description": status.description,
                 "enabled": status.enabled,
                 "available": available,
+                "operational": operational,
+                "state": state,
+                "maturity": status.maturity,
+                "restart_required": status.restart_required,
+                "status_message": message,
                 "optional_dependencies": status.optional_dependencies,
                 "missing_dependencies": missing,
                 "config": ext_config,

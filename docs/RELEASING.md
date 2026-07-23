@@ -1,6 +1,6 @@
 # Release Guide
 
-This guide describes the repository release process. The package version is declared in both `pyproject.toml` and `src/voicecode/__init__.py` and must stay synchronized.
+This guide describes the repository release process. The package version has a single source in `src/voicecode/__init__.py`; setuptools reads it dynamically and the UI receives it through injected metadata.
 
 ## 1. Prepare the release
 
@@ -50,7 +50,7 @@ For GPU releases, repeat model load and inference on every advertised CUDA/CuDNN
 
 ## 5. Tag and CI
 
-Create an annotated `vX.Y.Z` tag only after all gates pass. The release workflow builds a wheel and source distribution, runs `twine check`, and uploads them as GitHub Actions artifacts. Publishing to PyPI or attaching signed desktop installers is a maintainer-controlled follow-up.
+Create an annotated `vX.Y.Z` tag only after all gates pass. The release workflow runs quality gates, builds wheel/sdist, performs a clean-environment install smoke test, runs `twine check`, creates checksums and a CycloneDX SBOM, attests build provenance, and uploads the artifacts. Publishing to PyPI or attaching signed desktop installers is a maintainer-controlled follow-up.
 
 ## 6. Rollback
 
@@ -60,3 +60,7 @@ Do not reuse a published version number. If an artifact is broken:
 2. document the issue in `CHANGELOG.md` and the release notes;
 3. fix forward with a patch version;
 4. preserve checksums and provenance for any withdrawn artifact.
+
+## Runtime hardware smoke
+
+Use the manual **Runtime Smoke** workflow for an actual CPU tiny-model download/inference test. Its optional NVIDIA job targets a labeled self-hosted GPU runner so CUDA claims are never inferred from mocked CI.

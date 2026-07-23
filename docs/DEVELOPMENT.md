@@ -78,7 +78,7 @@ Use `GET /hardware`, `GET /models`, and `GET /diagnostics` to inspect the resolv
 
 ## Backend route modules
 
-Route groups live in `management_api.py`, `history_api.py`, and `system_api.py`. Pass mutable runtime state through context callables instead of importing app globals. Dependency management is split across catalog, environment, installer, and facade modules.
+Route groups live in `management_api.py`, `history_api.py`, `system_api.py`, and `recording_api.py`. Model state, cache operations, and transcription finalization live in `model_runtime.py`, `model_cache.py`, and `transcription_service.py`. Pass mutable runtime state through context callables instead of importing app globals. Dependency management is split across catalog, environment, installer, and facade modules.
 
 ## Static assets
 
@@ -109,3 +109,11 @@ Useful variables:
 ## Frontend layout
 
 The desktop UI uses a left navigation rail and a right-side scrollable content area. Keep primary speech-to-text controls on the Home page. Move settings, extensions, history, diagnostics, and project information into separate views. For operations that can take time, such as model reload or transcription, use the global progress overlay so the page is dimmed and accidental interactions are discouraged.
+
+## Static mirror workflow
+
+Treat `src/voicecode/static/` as the editing source, then run `python -X utf8 tools/sync_static.py`. CI runs `--check`; do not manually resolve drift by editing only the root mirror. Core bootstrap infrastructure uses ES Modules while feature scripts remain gradual compatibility modules.
+
+## Browser E2E
+
+Install `.[e2e]`, run `python -m playwright install chromium`, set `VOICECODE_RUN_E2E=1`, and run `pytest tests/e2e`. The smoke test starts a skip-model-load server, verifies first-start rendering, dynamic version metadata, and external catalog loading, and fails on page errors.

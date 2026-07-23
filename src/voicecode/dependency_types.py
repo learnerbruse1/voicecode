@@ -15,9 +15,10 @@ class DependencySpec:
     import_modules: tuple[str, ...]
     distributions: tuple[str, ...]
     feature_ids: tuple[str, ...] = ()
-    github_specs: tuple[str, ...] = ()
     required: bool = False
     notes: str = ""
+    estimated_install_mb: int = 256
+    restart_required: bool = False
 
 
 @dataclass
@@ -32,6 +33,12 @@ class DependencyTask:
     finished_at: float | None = None
     error: str | None = None
     log: list[str] = field(default_factory=list)
+    cancel_requested: bool = False
+    cancelled: bool = False
+    process_id: int | None = None
+    timeout_seconds: int = 1800
+    source: str | None = None
+    restart_required: bool = False
 
     def public_dict(self) -> dict[str, object]:
         result = asdict(self)

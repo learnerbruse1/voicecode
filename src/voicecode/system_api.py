@@ -4,13 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import io
+import json
 import importlib
 import logging
+import threading
 from typing import Any
+import zipfile
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, Response, jsonify
+
+from . import dependencies as dependency_manager
 
 logger = logging.getLogger("voicecode.system_api")
+_nvml_lock = threading.RLock()
+_nvml_initialized = False
 
 
 @dataclass(frozen=True)
@@ -64,7 +73,11 @@ def _performance_stats(runtime: dict[str, Any]) -> dict[str, Any]:
                 pynvml = None
             if pynvml is not None:
                 try:
-                    pynvml.nvmlInit()
+                    global _nvml_initialized
+                    with _nvml_lock:
+                        if not _nvml_initialized:
+                            pynvml.nvmlInit()
+                            _nvml_initialized = True
                     driver_version = pynvml.nvmlSystemGetDriverVersion()
                     if isinstance(driver_version, bytes):
                         driver_version = driver_version.decode("utf-8", errors="replace")
@@ -108,6 +121,63 @@ def _performance_stats(runtime: dict[str, Any]) -> dict[str, Any]:
         "cpu": cpu_info,
         "gpu": gpu_info,
     }
+
+
+def _redact_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _redact_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    if not isinstance(value, str):
+        return value
+    home = str(__import__("pathlib").Path.home())
+    return value.replace(home, "~")
+
+
+def _redacted_config(config: dict[str, Any]) -> dict[str, Any]:
+    redacted = json.loads(json.dumps(config))
+    hotkey = redacted.get("hotkey")
+    if isinstance(hotkey, dict):
+        hotkey["key"] = "<redacted>"
+    return redacted
+
+
+def _diagnostics_archive(context: SystemContext) -> bytes:
+    diagnostics = context.diagnostics_snapshot()
+    diagnostics = _redact_value(
+        {key: value for key, value in diagnostics.items() if key not in {"history_entries"}}
+    )
+    tasks = [task.public_dict() for task in dependency_manager.list_tasks()[:20]]
+    for task in tasks:
+        log_value = task.get("log", [])
+        log_lines = log_value if isinstance(log_value, list) else []
+        task["log"] = [_redact_value(str(line)[-500:]) for line in log_lines[-40:]]
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("diagnostics.json", json.dumps(diagnostics, ensure_ascii=False, indent=2))
+        archive.writestr(
+            "config-redacted.json",
+            json.dumps(_redacted_config(context.load_config()), ensure_ascii=False, indent=2),
+        )
+        archive.writestr("dependency-tasks.json", json.dumps(tasks, ensure_ascii=False, indent=2))
+        log_path_value = diagnostics.get("log_file") if isinstance(diagnostics, dict) else None
+        if isinstance(log_path_value, str):
+            original_log = context.diagnostics_snapshot().get("log_file")
+            if isinstance(original_log, str):
+                try:
+                    lines = (
+                        __import__("pathlib")
+                        .Path(original_log)
+                        .read_text(encoding="utf-8", errors="replace")
+                        .splitlines()[-200:]
+                    )
+                    archive.writestr(
+                        "voicecode-log-tail.txt",
+                        "\n".join(str(_redact_value(line)) for line in lines),
+                    )
+                except OSError:
+                    pass
+    return buffer.getvalue()
 
 
 def create_system_blueprint(context: SystemContext) -> Blueprint:
@@ -163,6 +233,17 @@ def create_system_blueprint(context: SystemContext) -> Blueprint:
     @blueprint.get("/diagnostics")
     def diagnostics():
         return jsonify(context.diagnostics_snapshot())
+
+    @blueprint.get("/diagnostics/export")
+    def diagnostics_export():
+        content = _diagnostics_archive(context)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        response = Response(content, mimetype="application/zip")
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="voicecode-diagnostics-{stamp}.zip"'
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @blueprint.get("/stats")
     def stats():

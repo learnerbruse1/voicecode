@@ -16,7 +16,7 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 - Searchable transcript history with language filters, single-entry deletion, and JSON/TXT/Markdown export.
 - Configurable inference device (`auto`, `cpu`, `cuda`) and compute type (`auto`, `int8`, `float16`, `float32`, `int8_float16`).
 - Cross-platform Python package layout for Windows, macOS, and Linux development.
-- Local-only Flask/Waitress API bound to `127.0.0.1`.
+- Local-only Flask/Waitress API bound to `127.0.0.1`, protected by a per-process mutation token, loopback Host/Origin validation, CSP, and defensive browser headers.
 - Desktop UI via `pywebview`, global hotkey via `pynput`, and isolated runtime dependency installs into `VOICE_DEP`.
 - Upload/API transcription endpoint for tests, integrations, and batch workflows.
 - User-writable config/log/history paths; no writes into the installed package directory.
@@ -40,9 +40,9 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m voicecode
 ```
 
-On first launch, the setup guide checks runtime dependencies, microphone devices, language, model, and hardware preferences. Missing Whisper/audio packages can be installed in one click into the isolated dependency directory. The installer tries GitHub sources first and falls back to PyPI. The guide can be reopened from **About**.
+On first launch, the setup guide checks runtime dependencies, microphone devices, language, model, and hardware preferences. Missing Whisper/audio packages can be installed in one click into the isolated dependency directory. Catalog dependencies install from the configured Python package index by default. Install tasks are persistent, cancellable, time-limited, disk-space checked, and may request an application restart for binary packages. The guide can be reopened from **About**.
 
-The **Extensions** page supports real enable/disable and validated per-extension settings. Optional packages are installed into the same isolated directory without modifying the package installation.
+The **Extensions** page supports real enable/disable and validated per-extension settings. Silero VAD preprocessing, pyannote speaker diarization, and NeMo punctuation restoration have lazy real adapters; heavyweight models remain opt-in and pyannote credentials are referenced through an environment variable rather than stored in config.
 
 Use **Settings -> Language** to switch the UI between English, Chinese, and Japanese. English is the default.
 
@@ -126,10 +126,10 @@ See [docs/API.md](docs/API.md). Important endpoints include:
 - `POST /reload_model`
 - `POST /record/start`, `POST /record/stop`, `POST /record/cancel`
 - `POST /transcribe`
-- `GET /dependencies`, `POST /dependencies/install-required`
+- `GET /dependencies`, `GET /dependencies/tasks`, task install/cancel/uninstall endpoints
 - `GET /audio/devices`, `POST /audio/test`
 - `GET /history`, `POST /history/clear`
-- `GET /diagnostics`
+- `GET /diagnostics`, `GET /diagnostics/export`
 
 See [docs/MODULES.md](docs/MODULES.md) for module boundaries and [docs/ROADMAP.md](docs/ROADMAP.md) for optional feature ideas.
 
@@ -141,6 +141,10 @@ All non-empty JSON request bodies must be JSON objects. Malformed JSON and non-o
 voicecode/
 |-- src/voicecode/                 # Authoritative package implementation
 |   |-- app.py                     # Core Flask/model orchestration and blueprint wiring
+|   |-- model_runtime.py           # Thread-safe model state/executor ownership
+|   |-- model_cache.py             # Safe cached-model discovery and deletion
+|   |-- transcription_service.py   # Extension-aware preprocessing/finalization
+|   |-- recording_api.py           # Recording and direct transcription routes
 |   |-- management_api.py          # Onboarding, extensions, dependencies
 |   |-- history_api.py             # History query/export/mutation routes
 |   |-- system_api.py              # Hardware, audio test, diagnostics, stats

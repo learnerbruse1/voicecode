@@ -4,7 +4,8 @@
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || resp.statusText || "Failed to read status");
     const state = data.model_state || {};
-    if (state.error && (force || !shownModelErrors.has(state.error))) {
+    const onboardingVisible = document.getElementById("onboarding-overlay")?.classList.contains("show");
+    if (state.error && !onboardingVisible && (force || !shownModelErrors.has(state.error))) {
       shownModelErrors.add(state.error);
       showError(state.status === "ready" ? t("model_warning") : t("model_unavailable"), state.error);
     }

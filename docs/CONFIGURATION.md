@@ -115,4 +115,12 @@ The guide can save only UI/transcription language, model, device, compute type, 
 
 ## Isolated dependency directory
 
-Resolution order is `VOICECODE_DEP_DIR`, `<VOICECODE_RUNTIME_DIR>/dependencies` for packaged runtime mode, then source-tree `<project>/VOICE_DEP`, or the user config `dependencies/` directory for a normal installed package. The directory is added ahead of the global environment when it exists. Install manifests live under `.voicecode/`; do not edit them while an install/uninstall is running.
+Resolution order is `VOICECODE_DEP_DIR`, `<VOICECODE_RUNTIME_DIR>/dependencies` for packaged runtime mode, then source-tree `<project>/VOICE_DEP`, or the user config `dependencies/` directory for a normal installed package. The directory is inserted after application and standard-library paths but before global site-packages; `.pth` files in the optional directory are not executed. Install manifests live under `.voicecode/`; do not edit them while an install/uninstall is running.
+
+## Configuration versions and migration
+
+The current schema is `config_version: 2`. Files without a version are treated as version 1, migrated to current extension defaults/onboarding fields, then validated. Config files from a future unsupported version are rejected rather than silently rewritten. `GET /config/schema` exposes core constraints.
+
+## Heavy extension credentials
+
+Diarization stores only the environment-variable name (`token_env`, default `HF_TOKEN`), never the token value. Set that variable before starting VoiceCode. NeMo and pyannote model names and execution devices are configurable, and binary dependency installation can require a full application restart.

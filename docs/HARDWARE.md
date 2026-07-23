@@ -48,3 +48,7 @@ The UI also displays CPU/GPU/memory status on the Home page and top status bar.
 ## First-start recommendations
 
 The guide defaults to `base` with automatic hardware selection. Resolve required runtime packages before judging model readiness. The microphone step checks enumeration and can sample a short local signal; no audio is uploaded.
+
+## Extension hardware
+
+Silero VAD runs as preprocessing and can add PyTorch memory use. Pyannote and NeMo have independent `device` settings (`auto`, `cpu`, `cuda`) and lazy-load their models. Enabling multiple GPU extensions alongside a large Whisper model can exceed VRAM even when Whisper alone is compatible.

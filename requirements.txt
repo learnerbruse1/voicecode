@@ -1,5 +1,5 @@
 # Core app dependencies. Heavy speech/audio runtimes are installed by the
-# in-app Dependencies page into ./VOICE_DEP to avoid polluting the environment.
+# in-app Dependencies page into the isolated VoiceCode dependency directory to avoid polluting the environment.
 flask>=3.1,<4
 numpy>=1.26,<3
 requests>=2.31,<3

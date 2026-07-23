@@ -12,7 +12,11 @@ flowchart TD
   Server --> Mgmt["management_api.py\nonboarding / extensions / dependencies"]
   Server --> HistoryAPI["history_api.py\nquery / export / delete"]
   Server --> SystemAPI["system_api.py\nhardware / audio test / diagnostics / stats"]
-  Server --> Whisper["faster-whisper / CTranslate2"]
+  Server --> ModelRuntime["model_runtime.py\nstate / locks / executor"]
+  Server --> Recording["recording_api.py\nrecord / upload routes"]
+  Server --> Transcription["transcription_service.py\nVAD / normalization / diarization / punctuation"]
+  Server --> ModelCache["model_cache.py\nsafe cache operations"]
+  ModelRuntime --> Whisper["faster-whisper / CTranslate2"]
   Server --> Audio["audio.py\nsounddevice recorder"]
   Server --> Settings["settings.py\nvalidation + persistence"]
   Server --> Extensions["extensions/\nfeature adapters + schema"]
@@ -31,7 +35,11 @@ The HTTP server binds only to `127.0.0.1`. Startup polls `/health` and verifies 
 
 | Module | Responsibility |
 | --- | --- |
-| `app.py` | Flask construction, request/error policy, config compatibility helpers, model lifecycle, recording/transcription, model cache routes, blueprint wiring |
+| `app.py` | Flask construction, request/security policy, compatibility helpers, model load orchestration, model routes, blueprint wiring |
+| `model_runtime.py` | model state lock, model lock, execution profile, single-worker executor lifecycle |
+| `model_cache.py` | cached model discovery, size caching, containment checks, safe deletion |
+| `transcription_service.py` | extension-aware audio preprocessing and transcript finalization |
+| `recording_api.py` | microphone recording and direct upload/sample transcription routes |
 | `management_api.py` | First-start state, extension config/action routes, dependency routes |
 | `history_api.py` | History filtering, export, single-entry deletion, clear |
 | `system_api.py` | Hardware, microphone device/test, diagnostics, process/GPU stats |
@@ -88,10 +96,12 @@ Skipping setup records intent but does not bypass normal runtime errors. The gui
 
 ## Dependency safety
 
+- The isolated path is inserted after application/standard-library paths but before global site-packages; `.pth` files are not executed.
 - The install target is `VOICECODE_DEP_DIR`, packaged runtime `runtime/dependencies`, or source-tree `VOICE_DEP`.
 - `pip --target` runs in a background task; one install executes at a time.
-- GitHub candidates are tried before the PyPI spec when cataloged.
-- Failed-attempt top-level paths are cleaned before fallback.
+- Catalog package-index specifications are used by default; mutable GitHub branches are not part of the normal install path.
+- Free disk space and a cross-process install lock are checked before pip starts.
+- Tasks are persisted, cancellable, time-limited, and terminate the pip process tree on cancellation.
 - Successful installs write manifests under `.voicecode/`.
 - Uninstall resolves every path and refuses removal outside the dependency root.
 - Files referenced by another manifest are retained.
@@ -138,3 +148,11 @@ Model state and the model object use separate locks. Reload work runs in the exe
 ## Packaging boundary
 
 Static assets exist twice: root `static/` for source-tree compatibility and `src/voicecode/static/` for wheel execution. Tests require byte-for-byte synchronization, including external JSON catalogs. See [PACKAGING.md](PACKAGING.md) and [RELEASING.md](RELEASING.md).
+
+## Web security boundary
+
+The server binds to loopback, validates loopback Host names, rejects foreign Origins on mutation requests, and requires the per-process API token for mutations. Responses apply CSP, anti-framing, `nosniff`, no-referrer, and restrictive permissions headers. Mutation audit logs contain request IDs and paths but never request bodies or tokens.
+
+## Extension execution pipeline
+
+Silero VAD compacts detected speech before Whisper. Punctuation restoration runs after text-mode and Chinese normalization. When timestamped segments and audio are available, pyannote diarization assigns the speaker with maximum temporal overlap to each Whisper segment. Heavy adapters are lazy-loaded and expose `operational`, `experimental`, dependency-missing, and runtime-error states.

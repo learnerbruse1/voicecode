@@ -59,3 +59,15 @@ Yes. The Extensions page uses the dependency catalog to install optional package
 ## Where do translations live?
 
 English, Chinese, and Japanese catalogs are JSON files under `static/i18n/` and the packaged `src/voicecode/static/i18n/` mirror.
+
+## Are extension installs cancellable?
+
+Yes. Tasks are persisted, expose progress/logs, have a configurable timeout, can be cancelled, and terminate the pip process tree. Some binary dependencies require restarting VoiceCode after completion.
+
+## Are diarization and punctuation still placeholders?
+
+No. Silero VAD, pyannote diarization, and NeMo punctuation have real lazy adapters. They remain disabled by default because packages and model downloads are large; pyannote can also require gated-model credentials.
+
+## What is included in a diagnostic export?
+
+System diagnostics, a redacted config, recent dependency tasks, and a recent redacted application-log tail when available. Transcript history, API tokens, token values, and the configured hotkey key are not included.

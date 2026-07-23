@@ -130,7 +130,7 @@ async function waitForModelReady(timeoutMs = 180000) {
     const state = data.model_state || {};
     if (state.status === "ready") return data;
     if (state.status === "error") throw new Error(state.error || t("model_unavailable"));
-    updateProgress(`${t("loading_model")} ${Math.round((Date.now() - started) / 1000)}s`);
+    updateProgress(`${t("loading_model")} ? ${Number(state.progress || 0)}%`);
     await new Promise(resolve => setTimeout(resolve, 900));
   }
   throw new Error(t("request_timeout_detail"));

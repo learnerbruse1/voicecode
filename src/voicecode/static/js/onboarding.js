@@ -1,5 +1,5 @@
 var onboardingState = null;
-var onboardingStep = 0;
+var onboardingStep = Number(sessionStorage.getItem("voicecode.onboardingStep") || 0);
 const onboardingSteps = ["language", "runtime", "audio", "model", "finish"];
 
 function onboardingElement(id) { return document.getElementById(id); }
@@ -12,6 +12,8 @@ function renderOnboarding() {
   const overlay = onboardingElement("onboarding-overlay");
   const body = onboardingElement("onboarding-body");
   if (!overlay || !body || !onboardingState) return;
+  onboardingStep = Math.max(0, Math.min(onboardingSteps.length - 1, onboardingStep));
+  sessionStorage.setItem("voicecode.onboardingStep", String(onboardingStep));
   const step = onboardingSteps[onboardingStep];
   const config = onboardingState.config || {};
   const steps = onboardingState.steps || {};
@@ -35,7 +37,7 @@ function renderOnboarding() {
     body.innerHTML = `<div class="setup-status ${audio.ready ? "ready" : "warning"}"><strong>${audio.ready ? t("onboarding_ready") : t("onboarding_not_ready")}</strong><span>${htmlEscape(audio.error || `${(audio.devices || []).length} device(s)`)}</span></div><label><span>${t("audio_device")}</span><select id="onboarding-audio-device">${options.map(option => `<option value="${htmlEscape(option.value)}" ${String(config.audio_device || "") === option.value ? "selected" : ""}>${htmlEscape(option.text || t(option.label))}</option>`).join("")}</select></label><button id="onboarding-mic-test" type="button">${t("mic_test_start")}</button><div class="mic-level"><div id="onboarding-mic-level"></div></div><p id="onboarding-mic-status" class="muted-text">${t("mic_test_idle")}</p>`;
     onboardingElement("onboarding-mic-test").onclick = testOnboardingMicrophone;
   } else if (step === "model") {
-    body.innerHTML = `<div class="onboarding-form-grid"><label><span>${t("model")}</span><select id="onboarding-model">${["tiny","base","small","medium","large-v3-turbo","large-v3","distil-large-v3"].map(model => `<option value="${model}" ${model === config.model ? "selected" : ""}>${model}</option>`).join("")}</select></label><label><span>${t("device")}</span><select id="onboarding-device"><option value="auto" ${config.device === "auto" ? "selected" : ""}>${t("device_auto")}</option><option value="cpu" ${config.device === "cpu" ? "selected" : ""}>CPU</option><option value="cuda" ${config.device === "cuda" ? "selected" : ""}>CUDA</option></select></label></div><p class="muted-text">${t("models_subtitle")}</p>`;
+    body.innerHTML = `<div class="onboarding-form-grid"><label><span>${t("model")}</span><select id="onboarding-model">${["tiny","base","small","medium","large-v3-turbo","large-v3","distil-large-v3"].map(model => `<option value="${model}" ${model === config.model ? "selected" : ""}>${model}</option>`).join("")}</select></label><label><span>${t("device")}</span><select id="onboarding-device"><option value="auto" ${config.device === "auto" ? "selected" : ""}>${t("device_auto")}</option><option value="cpu" ${config.device === "cpu" ? "selected" : ""}>CPU</option><option value="cuda" ${config.device === "cuda" ? "selected" : ""}>CUDA</option></select></label></div><p class="muted-text">${t("models_subtitle")}</p><p class="setup-recommendation">${t("onboarding_recommended_model")}: <strong>${htmlEscape((steps.model || {}).recommended_model || "base")}</strong></p>`;
   } else {
     const runtimeReady = Boolean(steps.runtime && steps.runtime.ready);
     const audioReady = Boolean(steps.audio && steps.audio.ready);
@@ -43,7 +45,9 @@ function renderOnboarding() {
   }
   onboardingElement("onboarding-back").disabled = onboardingStep === 0;
   onboardingElement("onboarding-next").textContent = onboardingStep === onboardingSteps.length - 1 ? t("onboarding_complete") : t("onboarding_next");
+  const wasVisible = overlay.classList.contains("show");
   overlay.classList.add("show"); overlay.setAttribute("aria-hidden", "false");
+  if (!wasVisible) activateDialog(overlay, onboardingElement("onboarding-step-title"));
 }
 
 function captureOnboardingStep() {
@@ -55,7 +59,7 @@ function captureOnboardingStep() {
   const device = onboardingElement("onboarding-device"); if (device) config.device = device.value;
 }
 
-async function loadOnboarding(force = false) {
+export async function loadOnboarding(force = false) {
   const result = await requestJSON("GET", "/onboarding", {}, {suppressPopup: true});
   if (!result.ok) return;
   onboardingState = result;
@@ -87,16 +91,22 @@ async function testOnboardingMicrophone() {
 
 async function completeOnboarding(skipped = false) {
   captureOnboardingStep();
+  const runtimeReady = Boolean(onboardingState.steps?.runtime?.ready);
+  const audioReady = Boolean(onboardingState.steps?.audio?.ready);
+  if (!skipped && (!runtimeReady || !audioReady) && !confirm(t("onboarding_finish_warning"))) return;
   const result = await requestJSON("POST", "/onboarding/complete", {config:onboardingState.config || {}, skipped}, {errorTitle:t("failed_save_settings")});
   if (!result.ok) return;
-  const overlay = onboardingElement("onboarding-overlay"); overlay.classList.remove("show"); overlay.setAttribute("aria-hidden", "true");
+  const overlay = onboardingElement("onboarding-overlay"); overlay.classList.remove("show"); overlay.setAttribute("aria-hidden", "true"); deactivateDialog(overlay); sessionStorage.removeItem("voicecode.onboardingStep");
   await loadAudioDevices(); await loadConfig(); await pollModelStatus(true);
 }
 
-function setupOnboarding() {
+export function setupOnboarding() {
+  document.addEventListener("keydown", event => trapDialogFocus(event, onboardingElement("onboarding-overlay")));
   const back = onboardingElement("onboarding-back"); const next = onboardingElement("onboarding-next"); const skip = onboardingElement("onboarding-skip");
   if (back) back.onclick = () => { captureOnboardingStep(); onboardingStep = Math.max(0, onboardingStep - 1); renderOnboarding(); };
   if (next) next.onclick = () => { captureOnboardingStep(); if (onboardingStep === onboardingSteps.length - 1) completeOnboarding(false); else { onboardingStep += 1; renderOnboarding(); } };
   if (skip) skip.onclick = () => completeOnboarding(true);
   const rerun = onboardingElement("rerun-onboarding"); if (rerun) rerun.onclick = async () => { await requestJSON("POST", "/onboarding/reset", {}); await loadOnboarding(true); };
 }
+
+Object.assign(window, {loadOnboarding, setupOnboarding});

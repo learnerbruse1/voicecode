@@ -5,16 +5,15 @@ import multiprocessing
 import platform
 import os
 import secrets
-import shutil
 import sys
 import threading
 import time
 import uuid
-from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime, timezone
+from concurrent.futures import Future
 from logging.handlers import RotatingFileHandler
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 
 def _configure_console_encoding() -> None:
@@ -44,6 +43,9 @@ from werkzeug.exceptions import BadRequest, HTTPException, UnsupportedMediaType 
 from . import dependencies as dependency_manager  # noqa: E402
 from . import __version__  # noqa: E402
 from .management_api import ManagementContext, create_management_blueprint  # noqa: E402
+from .model_cache import ModelCacheService  # noqa: E402
+from .model_runtime import ModelRuntime  # noqa: E402
+from .recording_api import RecordingContext, create_recording_blueprint  # noqa: E402
 from .history_api import HistoryContext, create_history_blueprint  # noqa: E402
 from .system_api import SystemContext, create_system_blueprint  # noqa: E402
 from . import history as history_store  # noqa: E402
@@ -77,9 +79,9 @@ from .audio import (  # noqa: E402
     query_input_devices as _query_input_devices,
     test_input_level as _test_input_level,
 )
-from .extensions import audio_io, exporters, hotwords, registry as extension_registry, vad  # noqa: E402
-from .extensions import punctuation, zh_normalizer  # noqa: E402
+from .extensions import registry as extension_registry  # noqa: E402
 from .text_processing import post_process_text as _post_process_text  # noqa: E402
+from .transcription_service import TranscriptionService  # noqa: E402
 
 logging.basicConfig(
     level=os.environ.get("VOICECODE_LOG_LEVEL", "INFO"),
@@ -126,6 +128,29 @@ def _token_is_valid(value: str | None) -> bool:
     return secrets.compare_digest(value, _API_TOKEN)
 
 
+def _loopback_hostname(value: str) -> bool:
+    return value.lower().rstrip(".") in {"127.0.0.1", "localhost", "::1"}
+
+
+def _request_host_is_allowed() -> bool:
+    hostname = urlsplit(f"//{request.host}").hostname
+    return bool(hostname and _loopback_hostname(hostname))
+
+
+def _request_origin_is_allowed() -> bool:
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+    parsed = urlsplit(origin)
+    request_port = urlsplit(f"//{request.host}").port or (443 if request.scheme == "https" else 80)
+    origin_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.hostname and _loopback_hostname(parsed.hostname))
+        and origin_port == request_port
+    )
+
+
 @app.before_request
 def _log_request_start() -> None:
     g.request_id = uuid.uuid4().hex[:12]
@@ -138,6 +163,10 @@ def _log_request_start() -> None:
         request.remote_addr,
         request.content_type,
     )
+    if not _request_host_is_allowed():
+        return _error("Invalid local Host header.", 421)
+    if request.method in _MUTATING_METHODS and not _request_origin_is_allowed():
+        return _error("Cross-origin mutation requests are not allowed.", 403)
     if (
         request.method in _MUTATING_METHODS
         and not _token_protection_disabled()
@@ -161,6 +190,29 @@ def _log_request_done(response):  # noqa: ANN001
         elapsed_ms,
     )
     response.headers.setdefault("X-VoiceCode-Request-ID", getattr(g, "request_id", "unknown"))
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy", "camera=(), geolocation=(), payment=(), usb=()"
+    )
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; connect-src 'self'; font-src 'self'; "
+        "object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    )
+    if request.path.startswith(("/static/", "/css/", "/js/")):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    if request.method in _MUTATING_METHODS:
+        logger.info(
+            "AUDIT mutation: id=%s method=%s path=%s status=%s remote=%s",
+            getattr(g, "request_id", "unknown"),
+            request.method,
+            request.path,
+            response.status_code,
+            request.remote_addr,
+        )
     return response
 
 
@@ -323,16 +375,22 @@ def _best_device() -> tuple[str, str, int]:
 
 
 _device, _compute_type, _cpu_threads = _best_device()
+_model_runtime = ModelRuntime(
+    model_name=MODEL_SIZE,
+    device=_device,
+    compute_type=_compute_type,
+    cpu_threads=_cpu_threads,
+)
 model: Any | None = None
-model_lock = threading.RLock()
-
-_executor = ThreadPoolExecutor(max_workers=1)
-atexit.register(lambda: _executor.shutdown(wait=False))
+model_lock = _model_runtime.model_lock
+_executor = _model_runtime.executor
+atexit.register(_model_runtime.shutdown)
+atexit.register(dependency_manager.shutdown_tasks)
 _config_lock = threading.Lock()
 _cancel_lock = threading.Lock()
 _cancel_token = 0
-_model_state_lock = threading.Lock()
-_model_state: dict[str, str | None] = {"status": "not_loaded", "error": None}
+_model_state_lock = _model_runtime.state_lock
+_model_state = _model_runtime.state
 
 
 def _model_error_message(exc: BaseException) -> str:
@@ -343,9 +401,56 @@ def _model_error_message(exc: BaseException) -> str:
 
 
 def _set_model_state(status_value: str, error: str | None = None) -> None:
-    with _model_state_lock:
-        _model_state["status"] = status_value
-        _model_state["error"] = error
+    _model_runtime.set_state(status_value, error)
+
+
+def _sync_model_runtime() -> None:
+    _model_runtime.set_profile(_device, _compute_type, _cpu_threads)
+    _model_runtime.set_model(model, MODEL_SIZE)
+
+
+def _estimated_model_bytes(model_name: str) -> int:
+    estimates = {
+        "tiny": 75,
+        "base": 150,
+        "small": 500,
+        "medium": 1500,
+        "large-v3": 3000,
+        "large-v3-turbo": 3000,
+        "distil-large-v3": 1500,
+    }
+    return estimates.get(model_name, 500) * 1024 * 1024
+
+
+def _monitor_model_download(model_name: str, future: Future) -> None:
+    estimated = _estimated_model_bytes(model_name)
+    previous_bytes = 0
+    previous_time = time.monotonic()
+    while not future.done():
+        try:
+            current = int(_model_cache_service.status(model_name, force=True)["size_bytes"])
+        except Exception:
+            current = previous_bytes
+        now = time.monotonic()
+        elapsed = max(0.001, now - previous_time)
+        speed = max(0, round((current - previous_bytes) / elapsed))
+        with _model_state_lock:
+            if _model_state.get("status") == "loading":
+                _model_state.update(
+                    {
+                        "downloaded_bytes": current,
+                        "estimated_bytes": estimated,
+                        "download_speed_bps": speed,
+                        "progress": min(99, round(current / estimated * 100)) if estimated else 0,
+                    }
+                )
+        previous_bytes = current
+        previous_time = now
+        time.sleep(0.5)
+
+
+def _start_model_download_monitor(model_name: str, future: Future) -> None:
+    threading.Thread(target=_monitor_model_download, args=(model_name, future), daemon=True).start()
 
 
 def _model_cache_dir() -> Path:
@@ -422,6 +527,7 @@ def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True
     with model_lock:
         model = loaded_model
         MODEL_SIZE = requested_size
+    _sync_model_runtime()
     logger.info("Whisper model is ready: %s/%s", _device, _compute_type)
     return loaded_model
 
@@ -471,11 +577,13 @@ def _start_initial_model_load() -> None:
     with _model_state_lock:
         if _model_state["status"] == "loading":
             return
-        _model_state["status"] = "loading"
-        _model_state["error"] = None
+        _model_state.update(
+            {"status": "loading", "error": None, "progress": 0, "downloaded_bytes": 0}
+        )
 
-    future = _executor.submit(_load_model_sync, MODEL_SIZE)
+    future = _model_runtime.submit(_load_model_sync, MODEL_SIZE)
     future.add_done_callback(lambda f: _model_reload_done(f, MODEL_SIZE))
+    _start_model_download_monitor(MODEL_SIZE, future)
 
 
 def _sync_config_file() -> None:
@@ -598,6 +706,9 @@ def save_config(cfg: dict[str, Any]) -> None:
         settings_store.save_config(cfg, CONFIG_FILE)
 
 
+_transcription_service = TranscriptionService(load_config, _post_process_text)
+
+
 STATIC_DIR = os.environ.get("VOICECODE_STATIC_DIR") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "static"
 )
@@ -611,8 +722,10 @@ def index():
     except OSError:
         return send_from_directory(STATIC_DIR, "index.html")
     token_meta = f'<meta name="voicecode-api-token" content="{_API_TOKEN}">'
+    version_meta = f'<meta name="voicecode-version" content="{__version__}">'
+    injected_meta = "\n".join((token_meta, version_meta))
     if "voicecode-api-token" not in html:
-        html = html.replace("<head>", f"<head>\n{token_meta}", 1)
+        html = html.replace("<head>", f"<head>\n{injected_meta}", 1)
     response = Response(html, mimetype="text/html")
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -642,6 +755,7 @@ def status():
     return jsonify(
         {
             "status": "ok",
+            "version": __version__,
             "model": MODEL_SIZE,
             "recording": _recorder.is_recording(),
             "model_loaded": model_loaded,
@@ -656,6 +770,11 @@ def status():
 @app.route("/config", methods=["GET"])
 def get_config():
     return jsonify(load_config())
+
+
+@app.route("/config/schema")
+def get_config_schema():
+    return jsonify(settings_store.config_schema())
 
 
 @app.route("/config/reset", methods=["POST"])
@@ -729,15 +848,17 @@ def reload_model():
     with _model_state_lock:
         if _model_state["status"] == "loading":
             return _error("A model reload is already in progress.", 409)
-        _model_state["status"] = "loading"
-        _model_state["error"] = None
+        _model_state.update(
+            {"status": "loading", "error": None, "progress": 0, "downloaded_bytes": 0}
+        )
 
     if validated_patch:
         current_cfg.update(validated_patch)
         save_config(current_cfg)
 
-    future = _executor.submit(_load_model_sync, size)
+    future = _model_runtime.submit(_load_model_sync, size)
     future.add_done_callback(lambda f: _model_reload_done(f, size))
+    _start_model_download_monitor(size, future)
     return jsonify(
         {
             "status": "loading",
@@ -788,87 +909,8 @@ _recorder = Recorder()
 on_transcription: Callable[[str], None] | None = None
 
 
-@app.route("/record/start", methods=["POST"])
-def record_start():
-    try:
-        reason = _model_unavailable_reason()
-        if reason:
-            return _error(
-                f"Cannot start recording because Whisper model is unavailable: {reason}", 503
-            )
-        payload = _json_payload()
-        _normalize_language(payload.get("language", "zh"))
-        cfg = load_config()
-        device = _normalize_audio_device(payload.get("audio_device", cfg.get("audio_device", "")))
-        started = _recorder.start(device=device)
-        return jsonify({"status": "recording", "started": started})
-    except ValueError as exc:
-        return _error(str(exc), 400)
-    except Exception as exc:
-        return _error(f"Failed to start recording: {exc}", 503)
-
-
-@app.route("/record/stop", methods=["POST"])
-def record_stop():
-    request_cancel_token = _get_cancel_token()
-    try:
-        payload = _json_payload()
-        lang = _normalize_language(payload.get("language"))
-    except ValueError as exc:
-        return _error(str(exc), 400)
-
-    audio = _recorder.stop_and_get()
-    if len(audio) == 0:
-        logger.info("Recording stopped with no audio samples.")
-        return jsonify({"text": "", "language": lang or "auto"})
-
-    try:
-        result = _transcribe_audio(audio, lang)
-        cfg = load_config()
-        result = _finalize_transcription_result(result, cfg)
-        if cfg.get("history_enabled", True) and result["text"]:
-            _append_history(
-                {
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "language": result.get("language"),
-                    "model": MODEL_SIZE,
-                    "text": result["text"],
-                }
-            )
-    except RuntimeError as exc:
-        logger.warning("Transcription is unavailable: %s", exc)
-        return _error(f"Transcription is unavailable: {exc}", 503)
-    except Exception as exc:
-        logger.exception("Transcription failed.")
-        return _error(f"Transcription failed: {exc}", 500)
-
-    logger.info(
-        "Transcription completed: language=%s chars=%d",
-        result.get("language"),
-        len(result.get("text", "")),
-    )
-    if on_transcription and result["text"]:
-        if request_cancel_token == _get_cancel_token():
-            on_transcription(result["text"])
-        else:
-            logger.info("Transcription result suppressed because the request was cancelled.")
-    return jsonify(result)
-
-
-@app.route("/record/cancel", methods=["POST"])
-def record_cancel():
-    _bump_cancel_token()
-    _recorder.stop_and_get()
-    logger.info("Recording/transcription cancellation requested.")
-    return jsonify({"status": "cancelled"})
-
-
 def _language_prompt(language: str | None) -> str | None:
-    if language == "zh":
-        return "Transcribe the speech as Simplified Chinese text."
-    if language == "ja":
-        return "Transcribe the speech as Japanese text."
-    return None
+    return _transcription_service.language_prompt(language)
 
 
 def _is_cuda_runtime_error(exc: BaseException) -> bool:
@@ -876,25 +918,8 @@ def _is_cuda_runtime_error(exc: BaseException) -> bool:
     return any(token in message for token in ("cuda", "cublas", "cudnn", "gpu"))
 
 
-def _transcribe_kwargs(language: str | None) -> dict[str, Any]:
-    cfg = load_config()
-    beam_size = int(cfg.get("beam_size", 5))
-    vad_config = extension_registry.extension_config(cfg, "vad")
-    hotwords_config = extension_registry.extension_config(cfg, "hotwords")
-    initial_prompt = _language_prompt(language)
-    if extension_registry.is_enabled(cfg, "hotwords"):
-        initial_prompt = hotwords.build_prompt(initial_prompt, hotwords_config)
-    kwargs: dict[str, Any] = {
-        "language": language,
-        "task": "transcribe",
-        "beam_size": beam_size,
-        "best_of": 1,
-        "condition_on_previous_text": False,
-        "initial_prompt": initial_prompt,
-        "temperature": 0.0,
-    }
-    kwargs.update(vad.transcribe_options(vad_config, bool(cfg.get("vad_filter", True))))
-    return kwargs
+def _transcribe_kwargs(language: str | None, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _transcription_service.transcribe_kwargs(language, cfg)
 
 
 def _fallback_to_cpu_model() -> Any:
@@ -910,6 +935,7 @@ def _fallback_to_cpu_model() -> Any:
     except Exception as load_exc:
         raise RuntimeError(_model_error_message(load_exc)) from load_exc
     model = loaded_model
+    _sync_model_runtime()
     _set_model_state("ready", "GPU inference failed; VoiceCode fell back to CPU int8.")
     return loaded_model
 
@@ -917,13 +943,23 @@ def _fallback_to_cpu_model() -> Any:
 def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> dict[str, Any]:
     global model
 
-    kwargs = _transcribe_kwargs(language)
+    cfg = load_config()
+    prepared_audio, vad_metadata = _transcription_service.prepare_audio(audio, cfg)
+    if isinstance(prepared_audio, np.ndarray) and prepared_audio.size == 0:
+        return {
+            "text": "",
+            "language": language or "auto",
+            "segments": [],
+            "vad": vad_metadata,
+            "_audio_context": prepared_audio,
+        }
+    kwargs = _transcribe_kwargs(language, cfg)
     with model_lock:
         active_model = model
         if active_model is None:
             raise RuntimeError(_model_unavailable_reason() or "Whisper model is not available.")
         try:
-            segments, info = active_model.transcribe(audio, **kwargs)
+            segments, info = active_model.transcribe(prepared_audio, **kwargs)
             segment_list = list(segments)
             text = " ".join(s.text for s in segment_list).strip()
         except RuntimeError as exc:
@@ -931,12 +967,16 @@ def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> d
                 raise
             logger.warning("GPU inference failed (%s). Reloading model on CPU int8.", exc)
             active_model = _fallback_to_cpu_model()
-            segments, info = active_model.transcribe(audio, **kwargs)
+            segments, info = active_model.transcribe(prepared_audio, **kwargs)
             segment_list = list(segments)
             text = " ".join(s.text for s in segment_list).strip()
     language_name = getattr(info, "language", language or "auto")
     probability = getattr(info, "language_probability", None)
-    result: dict[str, Any] = {"text": text, "language": language_name}
+    result: dict[str, Any] = {
+        "text": text,
+        "language": language_name,
+        "_audio_context": prepared_audio,
+    }
     serializable_segments = []
     for segment in segment_list:
         start = getattr(segment, "start", None)
@@ -947,191 +987,51 @@ def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> d
             )
     if serializable_segments:
         result["segments"] = serializable_segments
+    if vad_metadata is not None:
+        result["vad"] = vad_metadata
     if probability is not None:
         result["language_probability"] = probability
     return result
 
 
 def _coerce_audio_samples(value: Any) -> np.ndarray:
-    cfg = load_config()
-    audio_config = extension_registry.extension_config(cfg, "audio_io")
-    if not extension_registry.is_enabled(cfg, "audio_io"):
-        raise ValueError("audio_io extension is disabled.")
-    return audio_io.coerce_audio_samples(value, audio_config)
+    return _transcription_service.coerce_audio_samples(value)
 
 
 def _finalize_transcription_result(result: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
-    result["text"] = _post_process_text(result["text"], str(cfg.get("text_mode", "plain")))
-    if extension_registry.is_enabled(cfg, "zh_normalizer"):
-        zh_config = extension_registry.extension_config(cfg, "zh_normalizer")
-        result["text"] = zh_normalizer.normalize(
-            result["text"], str(result.get("language", "auto")), zh_config
-        )
-    if extension_registry.is_enabled(cfg, "punctuation"):
-        punctuation_config = extension_registry.extension_config(cfg, "punctuation")
-        result["text"] = punctuation.restore(
-            result["text"], str(result.get("language", "auto")), punctuation_config
-        )
-    return result
-
-
-@app.route("/transcribe", methods=["POST"])
-def transcribe_upload():
-    """Transcribe uploaded audio files or JSON float samples without using the recorder."""
-    tmp_path: Path | None = None
-    try:
-        lang: str | None
-        output_format = "json"
-        cfg = load_config()
-        if request.files:
-            if not extension_registry.is_enabled(cfg, "audio_io"):
-                return _error("audio_io extension is disabled.", 409)
-            uploaded = request.files.get("file")
-            if uploaded is None or not uploaded.filename:
-                return _error("Missing uploaded audio file field named 'file'.", 400)
-            lang = _normalize_language(request.form.get("language"))
-            output_format = str(request.form.get("output_format", "json"))
-            audio_config = extension_registry.extension_config(cfg, "audio_io")
-            tmp_path = audio_io.save_upload_to_temp(uploaded, audio_config)
-            result = _transcribe_audio(str(tmp_path), lang)
-        else:
-            payload = _json_payload()
-            lang = _normalize_language(payload.get("language"))
-            output_format = str(payload.get("output_format", "json"))
-            audio = _coerce_audio_samples(payload.get("audio"))
-            result = _transcribe_audio(audio, lang)
-        result = _finalize_transcription_result(result, cfg)
-        if output_format.lower().strip() in {"", "json"}:
-            return jsonify(result)
-        if not extension_registry.is_enabled(cfg, "exporters"):
-            return _error("exporters extension is disabled.", 409)
-        exporter_config = extension_registry.extension_config(cfg, "exporters")
-        allowed_formats = set(exporter_config.get("formats", ["json", "txt", "srt", "vtt"]))
-        if output_format.lower().strip() not in allowed_formats:
-            return _error("Requested output_format is disabled by configuration.", 400)
-        body, mimetype = exporters.export_result(result, output_format)
-        return Response(body, mimetype=mimetype)
-    except ValueError as exc:
-        return _error(str(exc), 400)
-    except RuntimeError as exc:
-        logger.warning("Transcription is unavailable: %s", exc)
-        return _error(f"Transcription is unavailable: {exc}", 503)
-    except Exception as exc:
-        logger.exception("Transcription failed.")
-        return _error(f"Transcription failed: {exc}", 500)
-    finally:
-        if tmp_path is not None:
-            try:
-                tmp_path.unlink()
-            except OSError:
-                logger.debug("Failed to delete temporary upload: %s", tmp_path)
-
-
-def _safe_path_is_relative_to(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-    except ValueError:
-        return False
-    return True
-
-
-def _normalized_model_name(value: str) -> str:
-    return value.lower().replace("/", "-").replace("_", "-")
-
-
-def _model_cache_name_candidates(model_name: str) -> set[str]:
-    normalized = _normalized_model_name(model_name)
-    return {
-        normalized,
-        normalized.replace("-", "_"),
-        f"faster-whisper-{normalized}",
-        f"faster_whisper_{normalized.replace('-', '_')}",
-        f"models--systran--faster-whisper-{normalized}",
-    }
-
-
-def _model_cache_path_matches(path: Path, model_name: str) -> bool:
-    entry_name = path.name.lower()
-    normalized_entry = _normalized_model_name(entry_name)
-    candidates = _model_cache_name_candidates(model_name)
-    return entry_name in candidates or normalized_entry in candidates
-
-
-def _directory_size_bytes(path: Path) -> int:
-    if not path.exists():
-        return 0
-    if path.is_file():
-        try:
-            return path.stat().st_size
-        except OSError:
-            return 0
-    total = 0
-    for child in path.rglob("*"):
-        if child.is_file():
-            try:
-                total += child.stat().st_size
-            except OSError:
-                logger.debug("Skipping model cache file while sizing: %s", child)
-    return total
-
-
-def _model_cache_candidates(model_name: str) -> list[Path]:
-    root = _model_cache_dir()
-    if not root.exists():
-        return []
-    candidates: list[Path] = []
-    for entry in root.iterdir():
-        if _model_cache_path_matches(entry, model_name):
-            candidates.append(entry.resolve())
-    return sorted(candidates, key=lambda item: str(item).lower())
-
-
-def _model_cache_status(model_name: str) -> dict[str, Any]:
-    candidates = _model_cache_candidates(model_name)
-    size_bytes = sum(_directory_size_bytes(path) for path in candidates)
-    return {
-        "model": model_name,
-        "cached": bool(candidates),
-        "paths": [str(path) for path in candidates],
-        "size_bytes": size_bytes,
-        "size_mb": round(size_bytes / 1024**2, 1) if size_bytes else 0,
-    }
-
-
-def _all_model_cache_statuses() -> dict[str, dict[str, Any]]:
-    return {model_name: _model_cache_status(model_name) for model_name in MODEL_INFO}
+    return _transcription_service.finalize(result, cfg)
 
 
 def _model_operation_in_progress() -> bool:
-    with _model_state_lock:
-        return _model_state["status"] == "loading"
+    return _model_runtime.operation_in_progress()
+
+
+def _model_is_loaded() -> bool:
+    with model_lock:
+        return model is not None
+
+
+_model_cache_service = ModelCacheService(
+    cache_dir=_model_cache_dir,
+    model_info=MODEL_INFO,
+    active_model=lambda: MODEL_SIZE,
+    model_loaded=_model_is_loaded,
+    operation_in_progress=_model_operation_in_progress,
+)
+
+
+def _model_cache_status(model_name: str, *, force: bool = False) -> dict[str, Any]:
+    return _model_cache_service.status(model_name, force=force)
+
+
+def _all_model_cache_statuses() -> dict[str, dict[str, Any]]:
+    return _model_cache_service.all_statuses()
 
 
 def _delete_model_cache(model_name: str, *, confirm: bool = False) -> dict[str, Any]:
-    if not confirm:
-        raise ValueError("Model cache deletion requires confirm=true.")
-    if model_name not in VALID_MODELS:
-        raise ValueError(f"Unsupported model: {model_name}")
-    with model_lock:
-        active_model_name = MODEL_SIZE if model is not None else None
-    if active_model_name == model_name:
-        raise RuntimeError("Cannot delete the cache for the currently loaded model.")
-    if _model_operation_in_progress():
-        raise RuntimeError("Cannot delete model cache while a model load is in progress.")
-    root = _model_cache_dir().resolve()
-    removed: list[str] = []
-    for candidate in _model_cache_candidates(model_name):
-        resolved = candidate.resolve()
-        if resolved == root or not _safe_path_is_relative_to(resolved, root):
-            raise RuntimeError(
-                f"Refusing to remove model cache path outside model directory: {resolved}"
-            )
-        if resolved.is_dir():
-            shutil.rmtree(resolved)
-        elif resolved.exists():
-            resolved.unlink()
-        removed.append(str(resolved))
-    return {"status": "deleted", "removed": removed, "cache": _model_cache_status(model_name)}
+    result = _model_cache_service.delete(model_name, confirm=confirm)
+    result["cache"] = _model_cache_status(model_name)
+    return result
 
 
 def _model_compatibility() -> dict[str, dict[str, Any]]:
@@ -1191,6 +1091,7 @@ def _reset_dependency_runtime_cache(dependency_id: str) -> None:
         ctranslate2 = None
         with model_lock:
             model = None
+        _sync_model_runtime()
         _set_model_state(
             "error",
             "Whisper runtime was uninstalled. Install it from Dependencies and reload the model.",
@@ -1204,6 +1105,17 @@ def _reset_dependency_runtime_cache(dependency_id: str) -> None:
             audio_module.sd = None
         except Exception as exc:  # pragma: no cover - defensive cache refresh
             logger.debug("Failed to reset audio dependency cache: %s", exc)
+    elif dependency_id in {"silero-vad", "pyannote-audio", "nemo-toolkit"}:
+        try:
+            module_names = {
+                "silero-vad": "voicecode.extensions.vad",
+                "pyannote-audio": "voicecode.extensions.diarization",
+                "nemo-toolkit": "voicecode.extensions.punctuation",
+            }
+            extension_runtime = importlib.import_module(module_names[dependency_id])
+            extension_runtime.reset_runtime_cache()
+        except Exception as exc:  # pragma: no cover - defensive cache refresh
+            logger.debug("Failed to reset extension dependency cache: %s", exc)
 
 
 @app.route("/models")
@@ -1251,8 +1163,9 @@ def model_download(model_name: str):
     with _model_state_lock:
         if _model_state["status"] == "loading":
             return _error("A model load is already in progress.", 409)
-        _model_state["status"] = "loading"
-        _model_state["error"] = None
+        _model_state.update(
+            {"status": "loading", "error": None, "progress": 0, "downloaded_bytes": 0}
+        )
 
     try:
         _model_cache_dir().mkdir(parents=True, exist_ok=True)
@@ -1260,8 +1173,9 @@ def model_download(model_name: str):
         _set_model_state("error", str(exc))
         return _error(f"Failed to create model cache directory: {exc}", 500)
 
-    future = _executor.submit(_load_model_sync, model_name)
+    future = _model_runtime.submit(_load_model_sync, model_name)
     future.add_done_callback(lambda f: _model_reload_done(f, model_name))
+    _start_model_download_monitor(model_name, future)
     return jsonify(
         {"status": "loading", "model": model_name, "cache_dir": str(_model_cache_dir())}
     ), 202
@@ -1289,6 +1203,15 @@ def start_server() -> None:
     _start_initial_model_load()
     logger.info("Starting HTTP server on 127.0.0.1:%s", PORT)
     serve(app, host="127.0.0.1", port=PORT, threads=4)
+
+
+def _deliver_transcription(text_value: str, request_cancel_token: int) -> None:
+    if on_transcription is None:
+        return
+    if request_cancel_token == _get_cancel_token():
+        on_transcription(text_value)
+    else:
+        logger.info("Transcription result suppressed because the request was cancelled.")
 
 
 def _system_runtime_snapshot() -> dict[str, Any]:
@@ -1346,11 +1269,13 @@ def _management_model_summary() -> dict[str, Any]:
     with model_lock:
         loaded = model is not None
     config = load_config()
+    recommended_model = "small" if _cuda_device_count() > 0 else "base"
     return {
         "ready": loaded and state.get("status") == "ready",
         "loaded": loaded,
         "state": state,
         "configured_model": config.get("model", "base"),
+        "recommended_model": recommended_model,
         "device": _device,
         "compute_type": _compute_type,
     }
@@ -1367,6 +1292,29 @@ def _management_audio_summary() -> dict[str, Any]:
         "default_input": default_input,
         "error": None,
     }
+
+
+app.register_blueprint(
+    create_recording_blueprint(
+        RecordingContext(
+            error=_error,
+            json_payload=_json_payload,
+            load_config=load_config,
+            normalize_language=_normalize_language,
+            normalize_audio_device=_normalize_audio_device,
+            model_unavailable_reason=_model_unavailable_reason,
+            recorder=_recorder,
+            transcribe_audio=_transcribe_audio,
+            finalize_result=_finalize_transcription_result,
+            coerce_audio_samples=_coerce_audio_samples,
+            append_history=_append_history,
+            model_name=lambda: MODEL_SIZE,
+            get_cancel_token=_get_cancel_token,
+            bump_cancel_token=_bump_cancel_token,
+            deliver_transcription=_deliver_transcription,
+        )
+    )
+)
 
 
 app.register_blueprint(

@@ -1,3 +1,10 @@
+import {initializeI18n} from "./i18n.js";
+import "./api.js";
+import "./accessibility.js";
+import "./dependencies.js";
+import "./extensions.js";
+import "./onboarding.js";
+
 window.addEventListener("error", event => {
   showError(t("operation_failed"), event.message || String(event.error || "Unknown frontend error"));
 });
@@ -61,6 +68,8 @@ function setupWindowControls() {
 
 async function bootstrapVoiceCode() {
   await initializeI18n("en");
+  const version = document.querySelector('meta[name="voicecode-version"]')?.content;
+  if (sidebarVersionEl) sidebarVersionEl.textContent = version ? `VoiceCode ${version}` : "VoiceCode";
   applyTranslations();
   setupNavigation();
   setupWindowControls();
@@ -68,13 +77,31 @@ async function bootstrapVoiceCode() {
   setActiveView(initialViewName());
   await loadAudioDevices();
   await loadConfig();
+  // Render the first-start guide before model/dependency warnings so their
+  // dialogs cannot steal initial focus from the onboarding flow.
+  await loadOnboarding(false);
   await pollModelStatus(true);
   await updateAutoDeviceLabel();
   await warnMissingDependenciesOnce();
-  await loadOnboarding(false);
+  await resumeDependencyTasks();
   updateStats();
-  setInterval(() => pollModelStatus(false), 3000);
-  setInterval(updateStats, 3000);
+  scheduleStatusPolling();
 }
+
+var statusPollTimer = null;
+async function runStatusPoll() {
+  await Promise.allSettled([pollModelStatus(false), updateStats()]);
+  scheduleStatusPolling();
+}
+
+function scheduleStatusPolling() {
+  if (statusPollTimer) clearTimeout(statusPollTimer);
+  statusPollTimer = setTimeout(runStatusPoll, document.hidden ? 15000 : 3000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) runStatusPoll();
+  else scheduleStatusPolling();
+});
 
 bootstrapVoiceCode().catch(error => showError(t("operation_failed"), error.message || String(error)));

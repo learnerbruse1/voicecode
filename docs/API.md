@@ -26,6 +26,8 @@ X-VoiceCode-Token: your-token
 
 `VOICECODE_DISABLE_API_TOKEN=1` is available for isolated tests and controlled development environments only. Do not disable token checks in normal desktop use.
 
+The server also validates loopback `Host` values and rejects cross-origin mutation requests. Responses include CSP, anti-framing, content-type sniffing, referrer, and permissions-policy headers.
+
 ## Endpoints
 
 ### `GET /health`
@@ -92,6 +94,10 @@ Example:
   }
 }
 ```
+
+### `GET /config/schema`
+
+Returns the current configuration schema version and core field constraints.
 
 ### `POST /config/reset`
 
@@ -257,7 +263,7 @@ Starts tasks for every missing dependency marked as required by the core runtime
 
 ### `POST /dependencies/<dependency_id>/install`
 
-Starts an asynchronous isolated install. The installer tries configured GitHub sources first and falls back to PyPI, runs `pip install --target <VOICE_DEP>`, disables pip's cache/input prompts, records a manifest under `VOICE_DEP/.voicecode/`, and returns a task. Poll the task endpoint for progress. Empty JSON bodies are accepted; non-empty bodies must be JSON objects.
+Starts a catalog-constrained asynchronous install from the configured Python package index. Before pip starts, VoiceCode checks free space and obtains thread/process locks. Tasks are persisted, time-limited, cancellable, and record recent output. Binary packages can return `restart_required=true`.
 
 ```json
 {
@@ -267,10 +273,18 @@ Starts an asynchronous isolated install. The installer tries configured GitHub s
     "action": "install",
     "status": "running",
     "progress": 42,
-    "message": "Installing from GitHub..."
+    "message": "Installing Quality metrics from the configured package index..."
   }
 }
 ```
+
+### `GET /dependencies/tasks`
+
+Returns recent persisted dependency tasks, newest first. Tasks interrupted by an application restart are restored as failed with an interruption message.
+
+### `POST /dependencies/tasks/<task_id>/cancel`
+
+Requests cancellation and terminates the active pip process tree. A completed, failed, or already-cancelled task is returned unchanged.
 
 ### `GET /dependencies/tasks/<task_id>`
 
@@ -373,6 +387,10 @@ Deletes one transcript history entry. The JSON body must include `{"confirm": tr
 ### `POST /history/clear`
 
 Deletes all transcript history.
+
+### `GET /diagnostics/export`
+
+Downloads a ZIP containing redacted diagnostics, redacted config, recent dependency task logs, and a redacted tail of the application log when available. It excludes transcript history and replaces the hotkey key value.
 
 ### `GET /diagnostics`
 

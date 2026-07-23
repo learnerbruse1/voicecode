@@ -29,4 +29,14 @@ Please report any path traversal, cross-origin local API, dependency installatio
 
 ## In-app dependency installation
 
-Dependency installs execute local `pip` subprocesses against cataloged GitHub/PyPI specs and write only to the isolated dependency directory. Treat catalog changes as supply-chain-sensitive. Uninstall uses manifests and path containment checks; report any path escape, arbitrary package spec injection, token bypass, or unsafe subprocess behavior privately.
+Dependency installs execute local `pip` subprocesses against cataloged package-index specs and write only to the isolated dependency directory. Treat catalog changes as supply-chain-sensitive. Uninstall uses manifests and path containment checks; report any path escape, arbitrary package spec injection, token bypass, or unsafe subprocess behavior privately.
+
+## Browser boundary hardening
+
+VoiceCode validates loopback Host names, rejects foreign Origins on mutations, requires a per-process mutation token, and sends CSP, anti-framing, `nosniff`, no-referrer, and restrictive permissions headers. Reports involving DNS rebinding, Host bypass, Origin bypass, token disclosure, or DOM injection are security-sensitive.
+
+## Dependency task hardening
+
+Catalog specs default to the configured Python package index. Installs check free disk space, serialize across threads/processes, persist task state, enforce timeouts, support cancellation, and terminate process trees. Manifests are containment-checked during uninstall. Mutable or user-supplied package specs are not accepted by API routes.
+
+The optional dependency directory is never placed ahead of application or standard-library paths, and its `.pth` files are not executed during path activation.

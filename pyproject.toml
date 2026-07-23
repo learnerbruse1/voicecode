@@ -1,20 +1,20 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "voicecode"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Local-first speech-to-text desktop app for coding and writing"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "VoiceCode contributors" }]
 keywords = ["speech-to-text", "whisper", "desktop", "dictation", "offline"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: End Users/Desktop",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Operating System :: Microsoft :: Windows",
   "Operating System :: MacOS",
@@ -47,6 +47,10 @@ dev = [
   "mypy>=1.10.0",
   "pre-commit>=4.0.0",
   "types-psutil",
+]
+e2e = [
+  "pytest>=9.0.0",
+  "playwright>=1.52,<2",
 ]
 tray = [
   "pystray>=0.19.5",
@@ -81,6 +85,9 @@ voicecode = "voicecode.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { attr = "voicecode.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
