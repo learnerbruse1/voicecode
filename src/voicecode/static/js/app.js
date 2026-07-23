@@ -6,13 +6,30 @@ window.addEventListener("unhandledrejection", event => {
   showError(t("operation_failed"), reason && reason.message ? reason.message : String(reason || "Unhandled promise rejection"));
 });
 
-﻿function setActiveView(viewName) {
+function rememberActiveView(viewName) {
+  try { window.sessionStorage.setItem("voicecode.activeView", viewName); }
+  catch (_) { /* sessionStorage can be disabled; navigation still works. */ }
+}
+
+function initialViewName() {
+  try {
+    const saved = window.sessionStorage.getItem("voicecode.activeView");
+    if (saved && document.getElementById(`view-${saved}`)) return saved;
+  } catch (_) { /* ignore unavailable sessionStorage */ }
+  return "home";
+}
+
+function setActiveView(viewName) {
+  if (!document.getElementById(`view-${viewName}`)) viewName = "home";
+  rememberActiveView(viewName);
   document.querySelectorAll(".nav-item").forEach(btn => btn.classList.toggle("active", btn.dataset.view === viewName));
   document.querySelectorAll(".view").forEach(view => view.classList.toggle("active", view.id === `view-${viewName}`));
   const view = $(`view-${viewName}`);
   if (view) {
     const titleKey = view.dataset.titleKey || "nav_home";
     const subtitleKey = view.dataset.subtitleKey || "home_subtitle";
+    viewTitle.dataset.i18n = titleKey;
+    viewSubtitle.dataset.i18n = subtitleKey;
     viewTitle.textContent = t(titleKey);
     viewSubtitle.textContent = t(subtitleKey);
   }
@@ -20,6 +37,7 @@ window.addEventListener("unhandledrejection", event => {
   if (viewName === "history") loadHistoryPanel();
   if (viewName === "diagnostics") loadDiagnosticsPanel();
   if (viewName === "extensions") loadExtensionsPanel();
+  if (viewName === "dependencies") loadDependenciesPanel();
 }
 
 function setupNavigation() {
@@ -42,7 +60,8 @@ function setupWindowControls() {
 
 setupNavigation();
 setupWindowControls();
-loadAudioDevices().then(loadConfig).then(() => pollModelStatus(true)).then(updateAutoDeviceLabel);
+setActiveView(initialViewName());
+loadAudioDevices().then(loadConfig).then(() => pollModelStatus(true)).then(updateAutoDeviceLabel).then(warnMissingDependenciesOnce);
 setInterval(() => pollModelStatus(false), 3000);
 setInterval(updateStats, 3000);
 applyTranslations();

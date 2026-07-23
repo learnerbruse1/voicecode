@@ -46,6 +46,9 @@ var historyListEl = $("history-list");
 var diagnosticsOutputEl = $("diagnostics-output");
 var extensionsListEl = $("extensions-list");
 var extensionsRefreshBtn = $("extensions-refresh");
+var dependenciesListEl = $("dependencies-list");
+var dependenciesRefreshBtn = $("dependencies-refresh");
+var dependencyDirEl = $("dependency-dir");
 var winMinBtn = $("win-min");
 var winMaxBtn = $("win-max");
 var winCloseBtn = $("win-close");
@@ -68,6 +71,7 @@ var currentStatusKey = "status_ready";
 var currentHotkey = {modifiers: ["alt"], key: "z"};
 var pendingMods = [];
 var shownModelErrors = new Set();
+var shownDependencyWarning = false;
 var modelInfoCache = null;
 var dbgLines = [];
 
@@ -76,14 +80,20 @@ function t(key) {
 }
 
 function applyTranslations() {
-  document.documentElement.lang = uiLanguage;
+  const supported = window.I18N[uiLanguage] ? uiLanguage : "en";
+  uiLanguage = supported;
+  document.documentElement.lang = supported;
+  document.documentElement.dataset.uiLanguage = supported;
+  document.body.dataset.uiLanguage = supported;
   document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll("[data-i18n-title]").forEach(el => { el.title = t(el.dataset.i18nTitle); });
-  uiLangSel.value = uiLanguage;
-  topBtn.textContent = onTop ? t("top_on") : t("top_off");
-  hkRecordBtn.textContent = recordingKey ? t("press_any_key") : t("set_hotkey");
-  recLabel.textContent = recording ? t("recording_release") : t("record_idle");
-  slabel.textContent = t(currentStatusKey);
+  document.querySelectorAll("[data-i18n-aria]").forEach(el => { el.setAttribute("aria-label", t(el.dataset.i18nAria)); });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+  if (uiLangSel) uiLangSel.value = supported;
+  if (topBtn) topBtn.textContent = onTop ? t("top_on") : t("top_off");
+  if (hkRecordBtn) hkRecordBtn.textContent = recordingKey ? t("press_any_key") : t("set_hotkey");
+  if (recLabel) recLabel.textContent = recording ? t("recording_release") : t("record_idle");
+  if (slabel) slabel.textContent = t(currentStatusKey);
   if (!text) renderText();
   updateStats();
 }

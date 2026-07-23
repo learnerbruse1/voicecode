@@ -175,6 +175,55 @@ Returns extension status, availability, optional dependencies, missing dependenc
 }
 ```
 
+
+### `GET /dependencies`
+
+Returns downloadable dependency status and the isolated install directory. The default install directory is `<project>/VOICE_DEP`; `VOICECODE_DEP_DIR` is honored for tests and release overrides. Missing required dependencies and missing dependencies for enabled extensions are listed in `action_required_missing` so the UI can show a closeable warning dialog at startup.
+
+```json
+{
+  "install_dir": "E:/path/to/voicecode/VOICE_DEP",
+  "dependencies": [
+    {
+      "id": "whisper-runtime",
+      "name": "Whisper runtime",
+      "installed": false,
+      "installed_in_voice_dep": false,
+      "managed_by_voice_dep": false,
+      "missing_modules": ["faster_whisper", "ctranslate2"],
+      "github_preferred": true
+    }
+  ],
+  "missing": [],
+  "action_required_missing": []
+}
+```
+
+### `POST /dependencies/<dependency_id>/install`
+
+Starts an asynchronous isolated install. The installer tries configured GitHub sources first and falls back to PyPI, runs `pip install --target <VOICE_DEP>`, disables pip's cache/input prompts, records a manifest under `VOICE_DEP/.voicecode/`, and returns a task. Poll the task endpoint for progress. Empty JSON bodies are accepted; non-empty bodies must be JSON objects.
+
+```json
+{
+  "task": {
+    "id": "abc123",
+    "dependency_id": "jiwer",
+    "action": "install",
+    "status": "running",
+    "progress": 42,
+    "message": "Installing from GitHub..."
+  }
+}
+```
+
+### `GET /dependencies/tasks/<task_id>`
+
+Returns the current dependency install task, including the last log lines. `status` is `queued`, `running`, `completed`, or `failed`.
+
+### `POST /dependencies/<dependency_id>/uninstall`
+
+Uninstalls files managed for that dependency from `VOICE_DEP`. The request must include `{"confirm": true}`; the frontend requires a second click before sending this confirmation. Uninstall refuses paths outside `VOICE_DEP` and keeps files still referenced by another dependency manifest.
+
 ### `GET /models`
 
 Returns supported model metadata, current model, active inference device, compute type, CUDA availability, model load state, and per-model compatibility advice.

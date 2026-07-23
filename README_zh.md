@@ -8,6 +8,7 @@ VoiceCode 是一个本地优先的桌面语音转文字应用，面向编程、�
 
 - 基于 Whisper 兼容模型的本地语音转文字。
 - 自动检测 NVIDIA CUDA，并在 GPU 初始化或推理失败时安全回退到 CPU。
+- 支持英文、中文、日文界面，并针对不同语言的文本长度自动调整布局。
 - 可配置推理设备：`auto`、`cpu`、`cuda`。
 - 可配置计算精度：`auto`、`int8`、`float16`、`float32`、`int8_float16`。
 - 面向 Windows、macOS、Linux 的标准 Python 开源项目结构。
@@ -24,6 +25,10 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 .\.venv\Scripts\python.exe -m voicecode
 ```
+
+首次启动时，如果缺少 Whisper 或录音依赖，请打开左侧栏“依赖”，将它们安装到项目本地的 `VOICE_DEP` 文件夹。安装器会优先尝试 GitHub 源，失败后回退到 PyPI。
+
+在“设置 -> 语言”中可以在英文、中文和日文界面之间切换。默认界面语言为 English。
 
 Linux/macOS：
 

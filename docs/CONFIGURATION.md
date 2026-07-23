@@ -28,6 +28,25 @@ VoiceCode stores configuration in a user-writable path, never inside the install
 | `WHISPER_COMPUTE_TYPE` | `auto`, `int8`, `float16`, `float32`, etc. |
 | `WHISPER_CPU_THREADS` | CPU inference thread count |
 
+
+## Language and localization
+
+VoiceCode separates two language settings:
+
+| Config key | Values | Purpose | Default |
+| --- | --- | --- | --- |
+| `ui_language` | `en`, `zh`, `ja` | Desktop interface language | `en` |
+| `language` | `auto`, `zh`, `en`, `ja` | Default transcription language sent to Whisper | `zh` |
+
+The Settings page exposes these controls in a dedicated **Language** module. Changing `ui_language` updates static labels, current view titles, dynamic panels, status chips, and accessibility labels without restarting the app. The frontend sets `html[data-ui-language]` so CSS can adapt label widths and wrapping for English, Chinese, and Japanese.
+
+When adding a new UI language:
+
+1. Add the code to `VALID_UI_LANGUAGES` in `src/voicecode/settings.py`.
+2. Add a complete catalog to `static/js/i18n.js` and mirror it to `src/voicecode/static/js/i18n.js`.
+3. Add layout overrides in `static/css/app.css` if labels need different spacing.
+4. Update tests that verify i18n catalog completeness and static asset synchronization.
+
 ## Resetting defaults
 
 Use the UI button:

@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="app-shell">
-  <aside class="sidebar" aria-label="Primary navigation">
+  <aside class="sidebar" data-i18n-aria="primary_navigation" aria-label="Primary navigation">
     <div class="brand-block">
       <div class="brand-mark">VC</div>
       <div>
@@ -20,6 +20,7 @@
       <button class="nav-item active" type="button" data-view="home" data-i18n="nav_home">Home</button>
       <button class="nav-item" type="button" data-view="settings" data-i18n="nav_settings">Settings</button>
       <button class="nav-item" type="button" data-view="extensions" data-i18n="nav_extensions">Extensions</button>
+      <button class="nav-item" type="button" data-view="dependencies" data-i18n="nav_dependencies">Dependencies</button>
       <button class="nav-item" type="button" data-view="history" data-i18n="nav_history">History</button>
       <button class="nav-item" type="button" data-view="diagnostics" data-i18n="nav_diagnostics">Diagnostics</button>
       <button class="nav-item" type="button" data-view="about" data-i18n="nav_about">About</button>
@@ -37,10 +38,10 @@
         <p id="view-subtitle" data-i18n="home_subtitle">Record locally and transcribe with Whisper.</p>
       </div>
       <div id="system-status" class="system-status"></div>
-      <div class="window-controls" aria-label="Window controls">
-        <button id="win-min" type="button" title="Minimize">&#8211;</button>
-        <button id="win-max" type="button" title="Maximize">&#9723;</button>
-        <button id="win-close" type="button" title="Close">&#10005;</button>
+      <div class="window-controls" data-i18n-aria="window_controls" aria-label="Window controls">
+        <button id="win-min" type="button" data-i18n-title="win_minimize" title="Minimize">&#8211;</button>
+        <button id="win-max" type="button" data-i18n-title="win_maximize" title="Maximize">&#9723;</button>
+        <button id="win-close" type="button" data-i18n-title="win_close" title="Close">&#10005;</button>
       </div>
     </header>
 
@@ -117,11 +118,19 @@
             </div>
           </section>
 
+          <section class="panel language-panel">
+            <div class="panel-heading compact"><div><h3 data-i18n="settings_language">Language</h3><p data-i18n="settings_language_hint">Choose the interface language and the default transcription language.</p></div></div>
+            <div class="form-grid language-form-grid">
+              <label for="uilang" data-i18n="label_ui_language">UI language</label>
+              <select id="uilang"><option value="en" data-i18n="ui_language_en">English</option><option value="zh" data-i18n="ui_language_zh">Chinese</option><option value="ja" data-i18n="ui_language_ja">Japanese</option></select>
+              <label for="lang" data-i18n="label_transcription_language">Transcription language</label>
+              <select id="lang"><option value="auto" data-i18n="lang_auto">Auto detect</option><option value="zh" data-i18n="lang_zh">Chinese</option><option value="en" data-i18n="lang_en">English</option><option value="ja" data-i18n="lang_ja">Japanese</option></select>
+            </div>
+          </section>
+
           <section class="panel">
             <h3 data-i18n="settings_input_output">Input & output</h3>
             <div class="form-grid">
-              <label for="lang" data-i18n="label_transcription_language">Transcription language</label>
-              <select id="lang"><option value="auto" data-i18n="lang_auto">Auto detect</option><option value="zh" data-i18n="lang_zh">Chinese</option><option value="en" data-i18n="lang_en">English</option><option value="ja" data-i18n="lang_ja">Japanese</option></select>
               <label for="audio-device" data-i18n="label_audio_device">Microphone</label>
               <select id="audio-device"><option value="" data-i18n="audio_default">System default</option></select>
               <label for="text-mode" data-i18n="label_text_mode">Text mode</label>
@@ -134,8 +143,6 @@
           <section class="panel">
             <h3 data-i18n="settings_interface">Interface</h3>
             <div class="form-grid">
-              <label for="uilang" data-i18n="label_ui_language">UI language</label>
-              <select id="uilang"><option value="en">English</option><option value="zh">&#20013;&#25991;</option><option value="ja">&#26085;&#26412;&#35486;</option></select>
               <label for="fsize" data-i18n="label_font_size">Font size</label>
               <select id="fsize"><option value="0.85rem" data-i18n="font_small">Small</option><option value="1rem" data-i18n="font_medium">Medium</option><option value="1.2rem" data-i18n="font_large">Large</option><option value="1.5rem" data-i18n="font_xlarge">Extra large</option></select>
               <label for="history-enabled" data-i18n="label_history">History</label>
@@ -154,6 +161,7 @@
       </section>
 
       <section class="view" id="view-extensions" data-title-key="nav_extensions" data-subtitle-key="extensions_subtitle"><section class="panel"><div class="panel-heading"><h3 data-i18n="nav_extensions">Extensions</h3><button class="sm" id="extensions-refresh" type="button" data-i18n="refresh">Refresh</button></div><div id="extensions-list" class="list-panel"></div></section></section>
+      <section class="view" id="view-dependencies" data-title-key="nav_dependencies" data-subtitle-key="dependencies_subtitle"><section class="panel"><div class="panel-heading"><div><h3 data-i18n="dependencies">Dependencies</h3><p id="dependency-dir" class="muted-text"></p></div><button class="sm" id="dependencies-refresh" type="button" data-i18n="refresh">Refresh</button></div><div id="dependencies-list" class="dependency-list"></div></section></section>
       <section class="view" id="view-history" data-title-key="nav_history" data-subtitle-key="history_subtitle"><section class="panel"><div class="panel-heading"><h3 data-i18n="history">History</h3><div class="button-row"><button class="sm" id="history-btn" type="button" data-i18n="refresh">Refresh</button><button class="sm danger" id="clear-history-btn" type="button" data-i18n="clear_history">Clear history</button></div></div><div id="history-list" class="list-panel"></div></section></section>
       <section class="view" id="view-diagnostics" data-title-key="nav_diagnostics" data-subtitle-key="diagnostics_subtitle"><section class="panel"><div class="panel-heading"><h3 data-i18n="diagnostics">Diagnostics</h3><button class="sm" id="diagnostics-btn" type="button" data-i18n="refresh">Refresh</button></div><pre id="diagnostics-output" class="code-output"></pre></section></section>
       <section class="view" id="view-about" data-title-key="nav_about" data-subtitle-key="about_subtitle"><section class="panel about-panel"><h3>VoiceCode</h3><p data-i18n="about_text">A local-first speech-to-text desktop app powered by faster-whisper.</p><div class="info-grid"><div><strong>Runtime</strong><span>Python / Flask / pywebview</span></div><div><strong>Inference</strong><span>faster-whisper / CTranslate2</span></div><div><strong>Privacy</strong><span>Local transcription by default</span></div></div></section></section>
@@ -163,13 +171,13 @@
 
 <div id="progress-overlay" class="progress-overlay" aria-hidden="true">
   <div class="progress-dialog">
-    <div class="progress-head"><h3 id="progress-title" data-i18n="operation_in_progress">Operation in progress</h3><button id="progress-close" type="button" aria-label="Close">&#10005;</button></div>
+    <div class="progress-head"><h3 id="progress-title" data-i18n="operation_in_progress">Operation in progress</h3><button id="progress-close" type="button" data-i18n-aria="close" aria-label="Close">&#10005;</button></div>
     <p id="progress-detail" data-i18n="please_wait">Please wait before starting another operation.</p>
     <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
   </div>
 </div>
 
 <div id="error-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="error-title" aria-hidden="true"><div class="modal"><h2 id="error-title" data-i18n="operation_failed">Operation failed</h2><p id="error-message">An unexpected error occurred.</p><div class="modal-actions"><button class="secondary" id="error-copy" type="button" data-i18n="copy_details">Copy details</button><button id="error-close" type="button" data-i18n="ok">OK</button></div></div></div>
-<script src="/js/i18n.js"></script><script src="/js/dom.js"></script><script src="/js/modal.js"></script><script src="/js/api.js"></script><script src="/js/config.js"></script><script src="/js/hotkey.js"></script><script src="/js/settings.js"></script><script src="/js/recorder.js"></script><script src="/js/history.js"></script><script src="/js/status.js"></script><script src="/js/app.js"></script>
+<script src="/js/i18n.js"></script><script src="/js/dom.js"></script><script src="/js/modal.js"></script><script src="/js/api.js"></script><script src="/js/config.js"></script><script src="/js/hotkey.js"></script><script src="/js/settings.js"></script><script src="/js/recorder.js"></script><script src="/js/history.js"></script><script src="/js/dependencies.js"></script><script src="/js/status.js"></script><script src="/js/app.js"></script>
 </body>
 </html>

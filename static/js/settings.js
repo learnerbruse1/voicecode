@@ -6,7 +6,22 @@ textModeSel.onchange = () => saveConfig({text_mode: textModeSel.value});
 beamSizeSel.onchange = () => saveConfig({beam_size: Number(beamSizeSel.value)});
 vadFilterSel.onchange = () => saveConfig({vad_filter: vadFilterSel.value === "true"});
 historyEnabledSel.onchange = () => saveConfig({history_enabled: historyEnabledSel.value === "true"});
-uiLangSel.onchange = () => { uiLanguage = uiLangSel.value; applyTranslations(); saveConfig({ui_language: uiLanguage}); };
+async function refreshLanguageSensitiveContent() {
+  modelInfoCache = null;
+  await updateModelDescription(true);
+  await updateAutoDeviceLabel();
+  const activeView = document.querySelector(".view.active");
+  if (activeView && activeView.id === "view-extensions" && typeof loadExtensionsPanel === "function") await loadExtensionsPanel();
+  if (activeView && activeView.id === "view-dependencies" && typeof loadDependenciesPanel === "function") await loadDependenciesPanel();
+  if (activeView && activeView.id === "view-history" && typeof loadHistoryPanel === "function") await loadHistoryPanel();
+}
+
+uiLangSel.onchange = async () => {
+  uiLanguage = ["en", "zh", "ja"].includes(uiLangSel.value) ? uiLangSel.value : "en";
+  applyTranslations();
+  await saveConfig({ui_language: uiLanguage});
+  await refreshLanguageSensitiveContent();
+};
 
 async function loadModelInfo(force = false) {
   if (!force && modelInfoCache) return modelInfoCache;

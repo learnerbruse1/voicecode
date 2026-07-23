@@ -61,6 +61,7 @@ class DummyStream:
 
 @pytest.fixture()
 def app_module(monkeypatch):
+    monkeypatch.setenv("VOICECODE_DEP_DIR", str(Path(tempfile.mkdtemp()) / "VOICE_DEP"))
     monkeypatch.setitem(sys.modules, "ctranslate2", DummyCT)
     faster_whisper = types.ModuleType("faster_whisper")
     faster_whisper.WhisperModel = DummyWhisperModel
@@ -130,6 +131,30 @@ def test_reload_model_validates_input(client):
     response = client.post("/reload_model", json={"model": "bad-model"})
     assert response.status_code == 400
     assert response.get_json()["error"] == "Unsupported model: bad-model"
+
+
+def test_dependencies_endpoint_reports_isolated_directory(client):
+    response = client.get("/dependencies")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["install_dir"].endswith("VOICE_DEP")
+    dependency_ids = {item["id"] for item in body["dependencies"]}
+    assert {"whisper-runtime", "audio-capture", "opencc-python-reimplemented"} <= dependency_ids
+
+
+def test_dependency_uninstall_requires_double_confirm(client):
+    response = client.post("/dependencies/jiwer/uninstall", json={})
+
+    assert response.status_code == 400
+    assert "confirm=true" in response.get_json()["error"]
+
+
+def test_unknown_dependency_task_returns_json_404(client):
+    response = client.get("/dependencies/tasks/not-a-task")
+
+    assert response.status_code == 404
+    assert "Unknown dependency task" in response.get_json()["error"]
 
 
 def test_malformed_json_request_is_rejected_without_side_effects(client, app_module, monkeypatch):
@@ -322,6 +347,7 @@ def test_distribution_static_assets_stay_synchronized():
         Path("static/js/settings.js"),
         Path("static/js/recorder.js"),
         Path("static/js/history.js"),
+        Path("static/js/dependencies.js"),
         Path("static/js/status.js"),
         Path("static/js/app.js"),
     ]:
@@ -467,9 +493,12 @@ def test_static_ui_exposes_three_language_controls():
     assert 'src="/js/api.js"' in html
     assert 'src="/js/recorder.js"' in html
     assert 'src="/js/app.js"' in html
+    assert 'class="panel language-panel"' in html
+    assert 'data-i18n="settings_language"' in html
     assert 'id="uilang"' in html
     for language in ('value="en"', 'value="zh"', 'value="ja"'):
         assert language in html
+    assert 'data-i18n="ui_language_en"' in html
     assert 'data-i18n="label_ui_language"' in html
     assert 'data-i18n="lang_ja"' in html
     assert 'class="sidebar"' in html
@@ -763,3 +792,80 @@ def test_reload_model_rejects_second_request_while_load_is_in_progress(
 
     assert state == "ready"
     assert calls == [("tiny", True)]
+
+
+def test_dependency_install_cleans_failed_attempt_and_writes_manifest(app_module, monkeypatch):
+    from voicecode import dependencies as dependency_manager
+
+    dep_dir = dependency_manager.dependency_dir()
+    calls = []
+
+    def fake_pip_install(task, spec, candidate, attempt):
+        calls.append(candidate)
+        dep_dir.mkdir(parents=True, exist_ok=True)
+        if attempt == 0:
+            (dep_dir / "partial-download").mkdir()
+            return False
+        (dep_dir / "jiwer.py").write_text("VALUE = 1\n", encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(dependency_manager, "_run_pip_install", fake_pip_install)
+
+    task = dependency_manager.start_install("jiwer")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and task.status not in {"completed", "failed"}:
+        time.sleep(0.01)
+
+    assert task.status == "completed"
+    assert calls[0].startswith("git+https://github.com/")
+    assert calls[-1] == "jiwer>=3,<5"
+    assert not (dep_dir / "partial-download").exists()
+    manifest = dep_dir / ".voicecode" / "jiwer.json"
+    assert manifest.exists()
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert "jiwer.py" in payload["paths"]
+
+
+def test_dependency_uninstall_uses_manifest_and_removes_transitives(app_module):
+    from voicecode import dependencies as dependency_manager
+
+    spec = dependency_manager.get_dependency_spec("jiwer")
+    dep_dir = dependency_manager.dependency_dir()
+    for name in ("jiwer.py", "jiwer-1.0.dist-info", "transitive_dep"):
+        path = dep_dir / name
+        if name.endswith(".py"):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("VALUE = 1\n", encoding="utf-8")
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+            (path / "METADATA").write_text("Name: test\n", encoding="utf-8")
+    dependency_manager._write_manifest(
+        spec, ["jiwer.py", "jiwer-1.0.dist-info", "transitive_dep"], "test-source"
+    )
+
+    result = dependency_manager.uninstall_dependency("jiwer", confirm=True)
+
+    assert result["status"] == "uninstalled"
+    assert not (dep_dir / "jiwer.py").exists()
+    assert not (dep_dir / "jiwer-1.0.dist-info").exists()
+    assert not (dep_dir / "transitive_dep").exists()
+    assert not (dep_dir / ".voicecode" / "jiwer.json").exists()
+
+
+def test_i18n_catalogs_cover_supported_languages_and_layout_hooks():
+    repo_root = Path(__file__).resolve().parents[1]
+    i18n_text = (repo_root / "static" / "js" / "i18n.js").read_text(encoding="utf-8").strip()
+    catalogs = json.loads(i18n_text.removeprefix("window.I18N=").removesuffix(";"))
+
+    assert set(catalogs) == {"en", "zh", "ja"}
+    english_keys = set(catalogs["en"])
+    assert "settings_language" in english_keys
+    assert "settings_language_hint" in english_keys
+    for language in ("zh", "ja"):
+        assert english_keys <= set(catalogs[language])
+        assert catalogs[language]["settings_language"] != catalogs["en"]["settings_language"]
+
+    css = (repo_root / "static" / "css" / "app.css").read_text(encoding="utf-8")
+    assert 'html[data-ui-language="en"] .form-grid' in css
+    assert 'html[data-ui-language="zh"] .form-grid' in css
+    assert 'html[data-ui-language="ja"] .form-grid' in css

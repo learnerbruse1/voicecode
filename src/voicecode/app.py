@@ -33,16 +33,43 @@ _configure_console_encoding()
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
-import ctranslate2  # type: ignore[import-untyped]  # noqa: E402
+import importlib  # noqa: E402
+
 import numpy as np  # noqa: E402
-import sounddevice as sd  # type: ignore[import-untyped]  # noqa: E402
-from faster_whisper import WhisperModel  # type: ignore[import-untyped]  # noqa: E402
 from flask import Flask, Response, g, jsonify, request, send_from_directory  # noqa: E402
 from werkzeug.exceptions import BadRequest, HTTPException, UnsupportedMediaType  # noqa: E402
 
+from . import dependencies as dependency_manager  # noqa: E402
 from . import history as history_store  # noqa: E402
 from . import settings as settings_store  # noqa: E402
-from .audio import Recorder, normalize_audio_device as _normalize_audio_device  # noqa: E402
+
+dependency_manager.ensure_dependency_path()
+
+ctranslate2: Any | None
+WhisperModel: Any | None
+
+try:  # noqa: SIM105
+    ctranslate2 = importlib.import_module("ctranslate2")
+except Exception as exc:  # pragma: no cover - exercised through dependency status
+    ctranslate2 = None
+    _ctranslate2_import_error: BaseException | None = exc
+else:
+    _ctranslate2_import_error = None
+
+try:  # noqa: SIM105
+    _faster_whisper = importlib.import_module("faster_whisper")
+    WhisperModel = _faster_whisper.WhisperModel
+except Exception as exc:  # pragma: no cover - exercised through dependency status
+    WhisperModel = None
+    _faster_whisper_import_error: BaseException | None = exc
+else:
+    _faster_whisper_import_error = None
+
+from .audio import (  # noqa: E402
+    Recorder,
+    normalize_audio_device as _normalize_audio_device,
+    query_input_devices as _query_input_devices,
+)
 from .extensions import audio_io, exporters, hotwords, registry as extension_registry, vad  # noqa: E402
 from .extensions import punctuation, zh_normalizer  # noqa: E402
 from .text_processing import post_process_text as _post_process_text  # noqa: E402
@@ -111,9 +138,45 @@ ALLOWED_CONFIG_KEYS = settings_store.ALLOWED_CONFIG_KEYS
 CONFIG_FILE = settings_store.CONFIG_FILE
 
 
+def _load_ctranslate2_runtime():  # noqa: ANN202
+    global ctranslate2, _ctranslate2_import_error
+    if ctranslate2 is not None:
+        return ctranslate2
+    dependency_manager.ensure_dependency_path()
+    try:
+        ctranslate2 = importlib.import_module("ctranslate2")
+    except Exception as exc:
+        _ctranslate2_import_error = exc
+        raise RuntimeError(
+            "Missing dependency 'ctranslate2'. Open Dependencies in the left sidebar and "
+            "install the Whisper runtime into VOICE_DEP."
+        ) from exc
+    _ctranslate2_import_error = None
+    return ctranslate2
+
+
+def _load_whisper_model_class():  # noqa: ANN202
+    global WhisperModel, _faster_whisper_import_error
+    if WhisperModel is not None:
+        return WhisperModel
+    dependency_manager.ensure_dependency_path()
+    try:
+        module = importlib.import_module("faster_whisper")
+        WhisperModel = module.WhisperModel
+    except Exception as exc:
+        _faster_whisper_import_error = exc
+        raise RuntimeError(
+            "Missing dependency 'faster-whisper'. Open Dependencies in the left sidebar and "
+            "install the Whisper runtime into VOICE_DEP."
+        ) from exc
+    _faster_whisper_import_error = None
+    return WhisperModel
+
+
 def _cuda_device_count() -> int:
     try:
-        return int(ctranslate2.get_cuda_device_count())
+        runtime = _load_ctranslate2_runtime()
+        return int(runtime.get_cuda_device_count())
     except Exception as exc:
         logger.debug("CUDA detection failed: %s", exc)
         return 0
@@ -179,11 +242,14 @@ def _normalize_compute_type(value: Any) -> str:
 
 
 def _supported_compute_types(device: str) -> set[str]:
+    if device == "cpu":
+        return {"auto", "int8", "float32"}
     try:
-        return {str(item) for item in ctranslate2.get_supported_compute_types(device)}
+        runtime = _load_ctranslate2_runtime()
+        return {str(item) for item in runtime.get_supported_compute_types(device)}
     except Exception as exc:
         logger.debug("Failed to query supported compute types for %s: %s", device, exc)
-        return set()
+        return {"auto", "float16", "int8_float16"}
 
 
 def _auto_compute_type(device: str) -> str:
@@ -220,7 +286,7 @@ def _best_device() -> tuple[str, str, int]:
 
 
 _device, _compute_type, _cpu_threads = _best_device()
-model: WhisperModel | None = None
+model: Any | None = None
 model_lock = threading.RLock()
 
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -259,7 +325,7 @@ def _whisper_model_kwargs(device: str, compute_type: str, cpu_threads: int) -> d
     return kwargs
 
 
-def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True) -> WhisperModel:
+def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True) -> Any:
     """Load a Whisper model with CUDA auto-detection and safe CPU fallback."""
     global MODEL_SIZE, _compute_type, _cpu_threads, _device, model
 
@@ -285,8 +351,9 @@ def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True
                 raise RuntimeError(message)
 
     logger.info("Loading Whisper model '%s' on %s (%s)...", requested_size, _device, _compute_type)
+    whisper_model_class = _load_whisper_model_class()
     try:
-        loaded_model = WhisperModel(
+        loaded_model = whisper_model_class(
             requested_size,
             **_whisper_model_kwargs(_device, _compute_type, _cpu_threads),
         )
@@ -300,7 +367,7 @@ def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True
         )
         _device, _compute_type, _cpu_threads = "cpu", "int8", _default_cpu_threads()
         try:
-            loaded_model = WhisperModel(
+            loaded_model = whisper_model_class(
                 requested_size,
                 **_whisper_model_kwargs("cpu", "int8", _cpu_threads),
             )
@@ -330,7 +397,7 @@ def _model_unavailable_reason() -> str | None:
     return "Whisper model is not loaded yet. Please reload the model and try again."
 
 
-def _ensure_model_loaded() -> WhisperModel:
+def _ensure_model_loaded() -> Any:
     reason = _model_unavailable_reason()
     if reason:
         raise RuntimeError(reason)
@@ -524,6 +591,9 @@ def status():
             "recording": _recorder.is_recording(),
             "model_loaded": model_loaded,
             "model_state": model_state,
+            "missing_required_dependencies": dependency_manager.missing_dependencies(
+                required_only=True
+            ),
         }
     )
 
@@ -764,12 +834,13 @@ def _transcribe_kwargs(language: str | None) -> dict[str, Any]:
     return kwargs
 
 
-def _fallback_to_cpu_model() -> WhisperModel:
+def _fallback_to_cpu_model() -> Any:
     global _compute_type, _cpu_threads, _device, model
 
     _device, _compute_type, _cpu_threads = "cpu", "int8", _default_cpu_threads()
+    whisper_model_class = _load_whisper_model_class()
     try:
-        loaded_model = WhisperModel(
+        loaded_model = whisper_model_class(
             MODEL_SIZE,
             **_whisper_model_kwargs("cpu", "int8", _cpu_threads),
         )
@@ -930,6 +1001,98 @@ def extensions():
     return jsonify({"extensions": extension_registry.statuses(load_config())})
 
 
+def _action_required_dependencies() -> list[dict[str, object]]:
+    enabled_missing_features = {
+        str(item.get("id"))
+        for item in extension_registry.statuses(load_config())
+        if item.get("enabled") and item.get("missing_dependencies")
+    }
+    results: list[dict[str, object]] = []
+    for item in dependency_manager.missing_dependencies():
+        feature_ids = item.get("feature_ids", [])
+        if item.get("required") or (
+            isinstance(feature_ids, list)
+            and any(str(feature_id) in enabled_missing_features for feature_id in feature_ids)
+        ):
+            results.append(item)
+    return results
+
+
+def _reset_dependency_runtime_cache(dependency_id: str) -> None:
+    """Drop module-level runtime handles that may point at removed VOICE_DEP files."""
+    global WhisperModel, ctranslate2, model
+    if dependency_id == "whisper-runtime":
+        WhisperModel = None
+        ctranslate2 = None
+        with model_lock:
+            model = None
+        _set_model_state(
+            "error",
+            "Whisper runtime was uninstalled. Install it from Dependencies and reload the model.",
+        )
+    elif dependency_id == "audio-capture":
+        # The audio module lazy-loads sounddevice, so clearing its cache lets an
+        # immediately reinstalled package become usable without restarting Python.
+        try:
+            from . import audio as audio_module
+
+            audio_module.sd = None
+        except Exception as exc:  # pragma: no cover - defensive cache refresh
+            logger.debug("Failed to reset audio dependency cache: %s", exc)
+
+
+@app.route("/dependencies", methods=["GET"])
+def dependencies():
+    return jsonify(
+        {
+            "install_dir": str(dependency_manager.dependency_dir()),
+            "dependencies": dependency_manager.all_dependency_statuses(),
+            "missing": dependency_manager.missing_dependencies(),
+            "action_required_missing": _action_required_dependencies(),
+        }
+    )
+
+
+@app.route("/dependencies/<dependency_id>/install", methods=["POST"])
+def dependency_install(dependency_id: str):
+    try:
+        _json_payload()
+        task = dependency_manager.start_install(dependency_id)
+        status_code = 200 if task.status == "completed" else 202
+        return jsonify({"task": task.public_dict()}), status_code
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    except Exception as exc:
+        logger.exception("Failed to start dependency install: %s", dependency_id)
+        return _error(f"Failed to start dependency install: {exc}", 500)
+
+
+@app.route("/dependencies/<dependency_id>/uninstall", methods=["POST"])
+def dependency_uninstall(dependency_id: str):
+    try:
+        payload = _json_payload()
+        result = dependency_manager.uninstall_dependency(
+            dependency_id, confirm=payload.get("confirm") is True
+        )
+        _reset_dependency_runtime_cache(dependency_id)
+        return jsonify(result)
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    except RuntimeError as exc:
+        return _error(str(exc), 409)
+    except Exception as exc:
+        logger.exception("Failed to uninstall dependency: %s", dependency_id)
+        return _error(f"Failed to uninstall dependency: {exc}", 500)
+
+
+@app.route("/dependencies/tasks/<task_id>", methods=["GET"])
+def dependency_task(task_id: str):
+    try:
+        return jsonify({"task": dependency_manager.get_task(task_id).public_dict()})
+    except ValueError as exc:
+        return _error(str(exc), 404)
+
+
 @app.route("/models")
 def models():
     with _model_state_lock:
@@ -976,27 +1139,8 @@ def hardware():
 @app.route("/audio/devices")
 def audio_devices():
     try:
-        devices = sd.query_devices()
-        default_input = None
-        try:
-            default_input = sd.default.device[0]
-        except Exception:
-            default_input = None
-        result = []
-        for index, device in enumerate(devices):
-            max_inputs = int(device.get("max_input_channels", 0))
-            if max_inputs <= 0:
-                continue
-            result.append(
-                {
-                    "index": index,
-                    "name": str(device.get("name", f"Device {index}")),
-                    "max_input_channels": max_inputs,
-                    "default_samplerate": device.get("default_samplerate"),
-                    "is_default": index == default_input,
-                }
-            )
-        return jsonify({"devices": result, "default_input": default_input})
+        devices, default_input = _query_input_devices()
+        return jsonify({"devices": devices, "default_input": default_input})
     except Exception as exc:
         logger.exception("Failed to enumerate audio input devices.")
         return _error(f"Failed to enumerate audio input devices: {exc}", 503)
@@ -1051,6 +1195,10 @@ def diagnostics():
             "runtime_dir": os.environ.get("VOICECODE_RUNTIME_DIR"),
             "model_dir": os.environ.get("VOICECODE_MODEL_DIR"),
             "extensions": extension_registry.statuses(load_config()),
+            "dependencies": {
+                "install_dir": str(dependency_manager.dependency_dir()),
+                "missing": dependency_manager.missing_dependencies(),
+            },
         }
     )
 
