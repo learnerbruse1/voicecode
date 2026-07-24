@@ -5,14 +5,6 @@ import "./dependencies.js";
 import "./extensions.js";
 import "./onboarding.js";
 
-window.addEventListener("error", event => {
-  showError(t("operation_failed"), event.message || String(event.error || "Unknown frontend error"));
-});
-window.addEventListener("unhandledrejection", event => {
-  const reason = event.reason;
-  showError(t("operation_failed"), reason && reason.message ? reason.message : String(reason || "Unhandled promise rejection"));
-});
-
 function rememberActiveView(viewName) {
   try { window.sessionStorage.setItem("voicecode.activeView", viewName); }
   catch (_) { /* sessionStorage can be disabled; navigation still works. */ }
@@ -75,14 +67,15 @@ async function bootstrapVoiceCode() {
   setupWindowControls();
   setupOnboarding();
   setActiveView(initialViewName());
-  await loadAudioDevices();
   await loadConfig();
-  // Render the first-start guide before model/dependency warnings so their
-  // dialogs cannot steal initial focus from the onboarding flow.
-  await loadOnboarding(false);
+  // Determine first-start state before optional runtime probes. The onboarding
+  // payload already contains audio/runtime readiness, so the main UI does not
+  // need to enumerate audio devices behind the guide.
+  const onboardingVisible = await loadOnboarding(false);
+  if (!onboardingVisible) await loadAudioDevices();
   await pollModelStatus(true);
   await updateAutoDeviceLabel();
-  await warnMissingDependenciesOnce();
+  if (!onboardingVisible) await warnMissingDependenciesOnce();
   await resumeDependencyTasks();
   updateStats();
   scheduleStatusPolling();

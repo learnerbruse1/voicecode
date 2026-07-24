@@ -1,4 +1,4 @@
-﻿fsizeSel.onchange = () => { transcriptEl.style.fontSize = fsizeSel.value; saveConfig({font_size: fsizeSel.value}); };
+fsizeSel.onchange = () => { transcriptEl.style.fontSize = fsizeSel.value; saveConfig({font_size: fsizeSel.value}); };
 appendSel.onchange = () => saveConfig({append_mode: appendSel.value});
 langSel.onchange = () => saveConfig({language: langSel.value});
 audioDeviceSel.onchange = () => saveConfig({audio_device: audioDeviceSel.value});
@@ -47,7 +47,7 @@ async function testMicrophone() {
     return;
   }
   const percent = Number(r.level_percent || 0);
-  const detail = `${r.has_signal ? t("mic_test_signal") : t("mic_test_no_signal")} ? ${percent}% ? peak ${Number(r.peak || 0).toFixed(3)}`;
+  const detail = `${r.has_signal ? t("mic_test_signal") : t("mic_test_no_signal")} · ${percent}% · peak ${Number(r.peak || 0).toFixed(3)}`;
   setMicLevel(percent, r.has_signal ? "mic_test_signal" : "mic_test_no_signal", detail);
 }
 
@@ -130,7 +130,7 @@ async function waitForModelReady(timeoutMs = 180000) {
     const state = data.model_state || {};
     if (state.status === "ready") return data;
     if (state.status === "error") throw new Error(state.error || t("model_unavailable"));
-    updateProgress(`${t("loading_model")} ? ${Number(state.progress || 0)}%`);
+    updateProgress(`${t("loading_model")} · ${Number(state.progress || 0)}%`);
     await new Promise(resolve => setTimeout(resolve, 900));
   }
   throw new Error(t("request_timeout_detail"));

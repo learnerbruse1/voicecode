@@ -14,6 +14,7 @@ from typing import Any
 import zipfile
 
 from flask import Blueprint, Response, jsonify
+from werkzeug.exceptions import HTTPException
 
 from . import dependencies as dependency_manager
 
@@ -226,6 +227,8 @@ def create_system_blueprint(context: SystemContext) -> Blueprint:
             return jsonify(result)
         except ValueError as exc:
             return context.error(str(exc), 400)
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("Failed to test audio input level.")
             return context.error(f"Failed to test audio input level: {exc}", 503)

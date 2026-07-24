@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import importlib
 import json
 import os
@@ -1071,7 +1072,8 @@ def test_dependency_install_uses_catalog_pypi_spec_and_writes_manifest(app_modul
         (dep_dir / "jiwer.py").write_text("VALUE = 1\n", encoding="utf-8")
         return True
 
-    monkeypatch.setattr(dependency_manager, "_run_pip_install", fake_pip_install)
+    dependency_installer = importlib.import_module("voicecode.dependency_installer")
+    monkeypatch.setattr(dependency_installer, "_run_pip_install", fake_pip_install)
 
     task = dependency_manager.start_install("jiwer")
     deadline = time.monotonic() + 2
@@ -1116,7 +1118,8 @@ def test_dependency_task_can_be_cancelled(app_module, monkeypatch):
             time.sleep(0.01)
         return False
 
-    monkeypatch.setattr(dependency_manager, "_run_pip_install", cancellable_install)
+    dependency_installer = importlib.import_module("voicecode.dependency_installer")
+    monkeypatch.setattr(dependency_installer, "_run_pip_install", cancellable_install)
     task = dependency_manager.start_install("jiwer")
     assert entered.wait(timeout=1)
     dependency_manager.cancel_task(task.id)
@@ -1398,3 +1401,466 @@ def test_dependency_task_list_endpoint(client):
     response = client.get("/dependencies/tasks")
     assert response.status_code == 200
     assert isinstance(response.get_json()["tasks"], list)
+
+
+@pytest.mark.parametrize(
+    ("body", "content_type"),
+    [
+        ("{", "application/json"),
+        ("[]", "application/json"),
+        ("{}", "text/plain"),
+    ],
+)
+def test_config_reset_rejects_invalid_nonempty_bodies_without_side_effects(
+    client, body, content_type
+):
+    saved = client.post("/config", json={"language": "en"})
+    assert saved.status_code == 200
+
+    response = client.post("/config/reset", data=body, content_type=content_type)
+
+    assert response.status_code == 400
+    assert client.get("/config").get_json()["language"] == "en"
+
+
+@pytest.mark.parametrize(
+    ("body", "content_type"),
+    [
+        ("{", "application/json"),
+        ("[]", "application/json"),
+        ("{}", "text/plain"),
+    ],
+)
+def test_client_log_rejects_invalid_nonempty_bodies(client, body, content_type):
+    response = client.post("/log", data=body, content_type=content_type)
+
+    assert response.status_code == 400
+    assert "JSON payload" in response.get_json()["error"]
+
+
+def test_record_start_validates_json_before_model_availability(client, app_module):
+    app_module._set_model_state("error", "Model unavailable for test")
+
+    response = client.post("/record/start", data="{", content_type="application/json")
+
+    assert response.status_code == 400
+    assert "JSON payload" in response.get_json()["error"]
+    assert app_module._recorder.is_recording() is False
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/config", "/config/reset", "/audio/test", "/record/start", "/transcribe"],
+)
+def test_oversized_request_bodies_preserve_http_413(client, app_module, path):
+    previous_limit = app_module.app.config["MAX_CONTENT_LENGTH"]
+    app_module.app.config["MAX_CONTENT_LENGTH"] = 128
+    try:
+        response = client.post(path, data=b"x" * 129, content_type="application/json")
+    finally:
+        app_module.app.config["MAX_CONTENT_LENGTH"] = previous_limit
+
+    assert response.status_code == 413
+    assert response.is_json
+
+
+def test_concurrent_config_updates_are_atomic(app_module):
+    for _ in range(30):
+        app_module.save_config(app_module.settings_store.default_config())
+
+        def update(payload):
+            with app_module.app.test_client() as concurrent_client:
+                return concurrent_client.post("/config", json=payload).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            statuses = list(executor.map(update, [{"language": "en"}, {"text_mode": "coding"}]))
+
+        config = app_module.load_config()
+        assert statuses == [200, 200]
+        assert config["language"] == "en"
+        assert config["text_mode"] == "coding"
+
+
+def test_concurrent_history_deletes_are_serialized(tmp_path):
+    history_store = importlib.import_module("voicecode.history")
+    history_file = tmp_path / "history.jsonl"
+
+    for _ in range(30):
+        history_file.unlink(missing_ok=True)
+        history_store.append_history(history_file, {"id": "a", "text": "first"})
+        history_store.append_history(history_file, {"id": "b", "text": "second"})
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda entry_id: history_store.delete_history_entry(history_file, entry_id),
+                    ["a", "b"],
+                )
+            )
+
+        assert results == [True, True]
+        assert history_store.read_all_history(history_file) == []
+        assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_frontend_uses_shared_html_escape_and_clean_progress_separators():
+    repo_root = Path(__file__).resolve().parents[1]
+    static_js = repo_root / "src" / "voicecode" / "static" / "js"
+    dom_source = (static_js / "dom.js").read_text(encoding="utf-8")
+    models_source = (static_js / "models.js").read_text(encoding="utf-8")
+
+    assert "function htmlEscape(value)" in dom_source
+    assert "escapeHtml(" not in models_source
+
+    for filename in (
+        "dependencies.js",
+        "extensions.js",
+        "models.js",
+        "onboarding.js",
+        "settings.js",
+    ):
+        source = (static_js / filename).read_text(encoding="utf-8")
+        assert "} ? ${" not in source
+
+
+def test_frontend_dialog_stack_and_onboarding_warning_guards():
+    repo_root = Path(__file__).resolve().parents[1]
+    static_root = repo_root / "src" / "voicecode" / "static"
+    accessibility = (static_root / "js" / "accessibility.js").read_text(encoding="utf-8")
+    app_source = (static_root / "js" / "app.js").read_text(encoding="utf-8")
+    dependencies = (static_root / "js" / "dependencies.js").read_text(encoding="utf-8")
+    styles = (static_root / "css" / "app.css").read_text(encoding="utf-8")
+
+    assert "const activeDialogs = []" in accessibility
+    assert "activeDialogs[activeDialogs.length - 1]" in accessibility
+    assert 'document.body.classList.toggle("dialog-open", hasActiveDialog)' in accessibility
+    assert "const onboardingVisible = await loadOnboarding(false)" in app_source
+    assert "if (!onboardingVisible) await warnMissingDependenciesOnce()" in app_source
+    assert "if (onboardingVisible) return false" in dependencies
+    assert ".modal-backdrop" in styles and "z-index:1400" in styles
+
+
+def test_manifest_recursively_includes_all_python_tests():
+    repo_root = Path(__file__).resolve().parents[1]
+    manifest = (repo_root / "MANIFEST.in").read_text(encoding="utf-8")
+
+    assert "recursive-include tests *.py" in manifest
+
+
+def test_desktop_hotkey_listener_and_transcription_delivery(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    scripts: list[str] = []
+
+    class FakeWindow:
+        def evaluate_js(self, script):
+            scripts.append(script)
+
+    class FakeKey:
+        alt_l = object()
+        alt_r = object()
+        ctrl_l = object()
+        ctrl_r = object()
+        shift_l = object()
+        shift_r = object()
+        space = object()
+
+    class FakeListener:
+        def __init__(self, on_press, on_release):
+            self.on_press = on_press
+            self.on_release = on_release
+            self.started = False
+
+        def start(self):
+            self.started = True
+
+    fake_kb = types.SimpleNamespace(Key=FakeKey, Listener=FakeListener)
+    monkeypatch.setattr(main_module, "kb", fake_kb)
+    monkeypatch.setattr(
+        main_module,
+        "_MOD_MAP",
+        {
+            "alt": (FakeKey.alt_l, FakeKey.alt_r),
+            "ctrl": (FakeKey.ctrl_l, FakeKey.ctrl_r),
+            "shift": (FakeKey.shift_l, FakeKey.shift_r),
+        },
+    )
+    monkeypatch.setattr(main_module, "_window", FakeWindow())
+
+    listener = main_module._start_listener({"modifiers": ["alt"], "key": "z"})
+    key_z = types.SimpleNamespace(char="z")
+    listener.on_press(FakeKey.alt_l)
+    listener.on_press(key_z)
+    listener.on_release(key_z)
+    listener.on_release(FakeKey.alt_l)
+
+    typed: list[str] = []
+    monkeypatch.setattr(main_module, "_type_text", typed.append)
+    main_module._set_typing_from_global(True)
+    main_module._on_transcription('hello "VoiceCode"')
+
+    assert listener.started is True
+    assert scripts[:2] == [
+        "window._recStart && window._recStart()",
+        "window._recStop && window._recStop()",
+    ]
+    assert typed == ['hello "VoiceCode"']
+    assert "window._appendText" in scripts[-1]
+    assert '\\"VoiceCode\\"' in scripts[-1]
+
+
+def test_desktop_window_api_fallbacks_and_hotkey_update(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    calls: list[str] = []
+
+    class FakeWindow:
+        def minimize(self):
+            calls.append("minimize")
+
+        def toggle_fullscreen(self):
+            calls.append("toggle")
+
+        def destroy(self):
+            calls.append("destroy")
+
+    class OldListener:
+        def stop(self):
+            calls.append("listener-stop")
+
+        def join(self, timeout):
+            calls.append(f"listener-join-{timeout}")
+
+    replacement_listener = object()
+    monkeypatch.setattr(main_module, "_window", FakeWindow())
+    monkeypatch.setattr(main_module.os, "name", "posix")
+    monkeypatch.setattr(main_module, "_listener", OldListener())
+    monkeypatch.setattr(main_module, "_start_listener", lambda config: replacement_listener)
+
+    api = main_module.Api()
+    assert api.minimize_window() is True
+    assert api.toggle_maximize_window() is True
+    assert api.close_window() is True
+    assert api.set_on_top(True) is False
+    assert api.update_hotkey({"modifiers": ["ctrl"], "key": "space"}) is True
+    main_module._set_typing_from_global(True)
+    assert api.rec_stopped_from_ui() is True
+    assert main_module._consume_typing_from_global() is False
+    assert main_module._listener is replacement_listener
+    assert calls == ["minimize", "toggle", "destroy", "listener-stop", "listener-join-0.5"]
+
+
+def test_desktop_main_lifecycle_with_fake_backends(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    calls: list[object] = []
+    fake_window = object()
+    fake_listener = object()
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self.target = target
+            self.daemon = daemon
+
+        def start(self):
+            self.target()
+
+    class FakeWebview:
+        def create_window(self, title, url, **kwargs):
+            calls.append(("window", title, url, kwargs["width"], kwargs["min_size"]))
+            return fake_window
+
+        def start(self, func):
+            calls.append(("webview-start", func))
+            func()
+
+    monkeypatch.setattr(main_module, "webview", FakeWebview())
+    monkeypatch.setattr(main_module.threading, "Thread", FakeThread)
+    monkeypatch.setattr(main_module.server, "start_server", lambda: calls.append("server-start"))
+    monkeypatch.setattr(main_module, "_wait_for_server", lambda: calls.append("server-ready"))
+    monkeypatch.setattr(
+        main_module.server,
+        "load_config",
+        lambda: {"hotkey": {"modifiers": ["alt"], "key": "z"}},
+    )
+    monkeypatch.setattr(main_module, "_start_listener", lambda config: fake_listener)
+    monkeypatch.setattr(main_module, "_start_tray_icon", lambda: calls.append("tray"))
+    monkeypatch.setattr(main_module, "_hide_console", lambda: calls.append("hide-console"))
+
+    main_module.main()
+
+    assert main_module._window is fake_window
+    assert main_module._listener is fake_listener
+    assert main_module.server.on_transcription is main_module._on_transcription
+    assert calls[0:2] == ["server-start", "server-ready"]
+    assert ("webview-start", main_module._hide_console) in calls
+    assert "tray" in calls
+    assert "hide-console" in calls
+
+
+def test_desktop_run_reports_startup_errors(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    reported: list[str] = []
+    monkeypatch.setattr(
+        main_module, "main", lambda: (_ for _ in ()).throw(RuntimeError("desktop failed"))
+    )
+    monkeypatch.setattr(main_module, "_show_startup_error", lambda exc: reported.append(str(exc)))
+
+    with pytest.raises(RuntimeError, match="desktop failed"):
+        main_module.run()
+
+    assert reported == ["desktop failed"]
+
+
+def test_dependency_task_persistence_pruning_and_restart_recovery(tmp_path, monkeypatch):
+    installer = importlib.import_module("voicecode.dependency_installer")
+    task_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(installer, "task_state_path", lambda: task_file)
+    monkeypatch.setattr(installer, "_tasks", {})
+    monkeypatch.setattr(installer, "_active_by_dependency", {})
+    monkeypatch.setattr(installer, "_MAX_REMEMBERED_TASKS", 2)
+    monkeypatch.setenv("VOICECODE_DEP_INSTALL_TIMEOUT_SECONDS", "invalid")
+    assert installer._task_timeout_seconds() == 1800
+    monkeypatch.setenv("VOICECODE_DEP_INSTALL_TIMEOUT_SECONDS", "10")
+    assert installer._task_timeout_seconds() == 60
+
+    for index in range(3):
+        task = installer.DependencyTask(
+            id=f"done-{index}",
+            dependency_id="jiwer",
+            action="install",
+            status="completed",
+            finished_at=float(index + 1),
+        )
+        installer._tasks[task.id] = task
+    installer._prune_finished_tasks_locked()
+    assert sorted(installer._tasks) == ["done-1", "done-2"]
+    installer._save_tasks_locked()
+
+    payload = json.loads(task_file.read_text(encoding="utf-8"))
+    payload.append(
+        installer.DependencyTask(
+            id="interrupted",
+            dependency_id="jiwer",
+            action="install",
+            status="running",
+            process_id=123,
+        ).public_dict()
+    )
+    task_file.write_text(json.dumps(payload), encoding="utf-8")
+    installer._tasks.clear()
+    installer._load_tasks()
+
+    interrupted = installer._tasks["interrupted"]
+    assert interrupted.status == "failed"
+    assert interrupted.process_id is None
+    assert "interrupted" in interrupted.error.lower()
+
+    monkeypatch.setattr(installer, "_persist_tasks", lambda: None)
+    for index in range(405):
+        installer._append_task_log(interrupted, f"line {index}")
+    assert len(interrupted.log) == 400
+    assert interrupted.log[0] == "line 5"
+    assert interrupted.message == "line 404"
+
+
+def test_dependency_cross_process_lock_handles_busy_and_stale_files(tmp_path, monkeypatch):
+    installer = importlib.import_module("voicecode.dependency_installer")
+    lock_path = tmp_path / "install.lock"
+    monkeypatch.setattr(installer, "install_lock_path", lambda: lock_path)
+
+    with installer._cross_process_install_lock(60):
+        assert lock_path.is_file()
+    assert not lock_path.exists()
+
+    lock_path.write_text("busy", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="already modifying"):
+        with installer._cross_process_install_lock(60):
+            pass
+
+    old_time = time.time() - 1000
+    os.utime(lock_path, (old_time, old_time))
+    with installer._cross_process_install_lock(60):
+        assert "pid=" in lock_path.read_text(encoding="utf-8")
+    assert not lock_path.exists()
+
+
+def test_dependency_pip_runner_streams_output_and_cleans_state(tmp_path, monkeypatch):
+    installer = importlib.import_module("voicecode.dependency_installer")
+    task = installer.DependencyTask(id="pip-task", dependency_id="jiwer", action="install")
+    spec = installer.get_dependency_spec("jiwer")
+    captured: dict[str, object] = {}
+
+    class ImmediateThread:
+        def __init__(self, target, daemon):
+            self.target = target
+            self.daemon = daemon
+
+        def start(self):
+            self.target()
+
+    class FakeProcess:
+        pid = 4321
+        stdout = iter(["collecting dependency\n", "installing dependency\n"])
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout):
+            captured["wait_timeout"] = timeout
+            return 0
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr(installer, "dependency_dir", lambda: tmp_path / "dependencies")
+    monkeypatch.setattr(installer.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(installer.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(installer, "_save_tasks_locked", lambda: None)
+    monkeypatch.setattr(installer, "_processes", {})
+
+    assert installer._run_pip_install(task, spec, spec.pip_spec, 0) is True
+    assert task.status == "running"
+    assert task.process_id is None
+    assert task.source == spec.pip_spec
+    assert task.progress >= 13
+    assert "collecting dependency" in task.log
+    assert task.log[-1] == "pip install completed successfully."
+    assert installer._processes == {}
+    assert captured["wait_timeout"] == 10
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "--target" in command
+    assert spec.pip_spec == command[-1]
+
+
+def test_dependency_process_termination_falls_back_to_kill(monkeypatch):
+    installer = importlib.import_module("voicecode.dependency_installer")
+    calls: list[str] = []
+
+    class FakeProcess:
+        pid = 99
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            calls.append("terminate")
+            raise RuntimeError("terminate failed")
+
+        def wait(self, timeout):
+            calls.append(f"wait-{timeout}")
+
+        def kill(self):
+            calls.append("kill")
+
+    original_import_module = installer.importlib.import_module
+
+    def fail_psutil(name):
+        if name == "psutil":
+            raise ImportError("missing psutil")
+        return original_import_module(name)
+
+    monkeypatch.setattr(installer.importlib, "import_module", fail_psutil)
+    installer._terminate_process(FakeProcess())
+
+    assert calls == ["terminate", "kill"]

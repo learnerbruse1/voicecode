@@ -61,9 +61,11 @@ function captureOnboardingStep() {
 
 export async function loadOnboarding(force = false) {
   const result = await requestJSON("GET", "/onboarding", {}, {suppressPopup: true});
-  if (!result.ok) return;
+  if (!result.ok) return false;
   onboardingState = result;
-  if (force || result.required) { onboardingStep = 0; renderOnboarding(); }
+  const shouldShow = Boolean(force || result.required);
+  if (shouldShow) { onboardingStep = 0; renderOnboarding(); }
+  return shouldShow;
 }
 
 async function refreshOnboardingState() {
@@ -85,7 +87,7 @@ async function testOnboardingMicrophone() {
   const result = await requestJSON("POST", "/audio/test", {audio_device:onboardingElement("onboarding-audio-device").value,duration_ms:1000}, {errorTitle:t("mic_test_failed"),timeout:8000});
   if (!result.ok) return;
   const level = Number(result.level_percent || 0); const bar = onboardingElement("onboarding-mic-level"); if (bar) bar.style.width = `${level}%`;
-  if (status) status.textContent = `${result.has_signal ? t("mic_test_signal") : t("mic_test_no_signal")} ? ${level}%`;
+  if (status) status.textContent = `${result.has_signal ? t("mic_test_signal") : t("mic_test_no_signal")} · ${level}%`;
   captureOnboardingStep();
 }
 

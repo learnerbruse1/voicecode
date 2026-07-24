@@ -23,21 +23,21 @@ function renderManagedModels(data) {
     const compat = compatibility[name] || {};
     const isCurrent = name === current;
     const vram = `${t("vram_min")}: ${compat.vram_min_gb || info.vram_min_gb || "?"}GB / ${t("vram_rec")}: ${compat.vram_recommended_gb || info.vram_recommended_gb || "?"}GB`;
-    const reason = compat.reason ? `<small class="model-warning">${escapeHtml(compat.reason)}</small>` : "";
+    const reason = compat.reason ? `<small class="model-warning">${htmlEscape(compat.reason)}</small>` : "";
     const status = itemCache.cached ? "cached" : "missing";
     const active = isCurrent && loaded ? `<span class="model-badge active">${t("model_active")}</span>` : "";
-    return `<article class="managed-model-card ${status}" data-model="${escapeHtml(name)}">
+    return `<article class="managed-model-card ${status}" data-model="${htmlEscape(name)}">
       <div class="managed-model-main">
         <div>
-          <h4>${escapeHtml(name)} ${active}</h4>
-          <p>${escapeHtml(info.description || t("model_description_default"))}</p>
-          <small>${escapeHtml(info.size || "")} ? ${escapeHtml(vram)}</small>
-          <small>${escapeHtml(modelCacheSummary(itemCache))}</small>
+          <h4>${htmlEscape(name)} ${active}</h4>
+          <p>${htmlEscape(info.description || t("model_description_default"))}</p>
+          <small>${htmlEscape(info.size || "")} · ${htmlEscape(vram)}</small>
+          <small>${htmlEscape(modelCacheSummary(itemCache))}</small>
           ${reason}
         </div>
         <div class="managed-model-actions">
-          <button type="button" class="sm model-download-btn" data-model="${escapeHtml(name)}">${itemCache.cached ? t("model_load") : t("model_download")}</button>
-          <button type="button" class="sm danger model-delete-btn ${itemCache.cached ? "" : "hidden"}" data-model="${escapeHtml(name)}" data-confirm="false" ${isCurrent && loaded ? "disabled" : ""}>${t("model_delete_cache")}</button>
+          <button type="button" class="sm model-download-btn" data-model="${htmlEscape(name)}">${itemCache.cached ? t("model_load") : t("model_download")}</button>
+          <button type="button" class="sm danger model-delete-btn ${itemCache.cached ? "" : "hidden"}" data-model="${htmlEscape(name)}" data-confirm="false" ${isCurrent && loaded ? "disabled" : ""}>${t("model_delete_cache")}</button>
         </div>
       </div>
     </article>`;
@@ -49,7 +49,7 @@ function renderManagedModels(data) {
 async function loadModelsPanel() {
   const r = await requestJSON("GET", "/models", {}, {errorTitle: t("request_failed"), suppressPopup: true});
   if (!modelsListEl) return;
-  if (!r.ok) { modelsListEl.innerHTML = `<div class="list-item"><p>${escapeHtml(r.error || t("models_unavailable"))}</p></div>`; return; }
+  if (!r.ok) { modelsListEl.innerHTML = `<div class="list-item"><p>${htmlEscape(r.error || t("models_unavailable"))}</p></div>`; return; }
   renderManagedModels(r);
 }
 
@@ -61,7 +61,7 @@ async function waitForManagedModel(modelName, timeoutMs = 240000) {
     const state = status.model_state || {};
     const progress = Number(state.progress || 0);
     const speed = Number(state.download_speed_bps || 0);
-    updateProgress(`${t("model_downloading")} ${modelName} ? ${progress}%${speed ? ` ? ${formatBytes(speed)}/s` : ""}`);
+    updateProgress(`${t("model_downloading")} ${modelName} · ${progress}%${speed ? ` · ${formatBytes(speed)}/s` : ""}`);
     if (state.status === "ready") return status;
     if (state.status === "error") throw new Error(state.error || t("model_unavailable"));
     await new Promise(resolve => setTimeout(resolve, 1000));

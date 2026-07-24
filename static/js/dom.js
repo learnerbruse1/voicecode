@@ -1,5 +1,9 @@
 var $ = id => document.getElementById(id);
 
+function htmlEscape(value) {
+  return String(value || "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+}
+
 var dot = $("dot");
 var slabel = $("slabel");
 var transcriptEl = $("transcript");
@@ -125,7 +129,10 @@ function dbg(msg) {
   dbgLines.push(ts + " " + msg);
   if (dbgLines.length > 12) dbgLines.shift();
   dbgEl.textContent = dbgLines.join("\n");
-  fetch("/log", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({msg})}).catch(() => {});
+  const headers = {"Content-Type": "application/json"};
+  const token = document.querySelector('meta[name="voicecode-api-token"]')?.content || "";
+  if (token) headers["X-VoiceCode-Token"] = token;
+  fetch("/log", {method: "POST", headers, body: JSON.stringify({msg})}).catch(() => {});
 }
 
 

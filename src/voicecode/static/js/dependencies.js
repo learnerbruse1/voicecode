@@ -165,11 +165,13 @@ async function uninstallDependency(btn) {
 }
 
 export async function warnMissingDependenciesOnce() {
-  if (shownDependencyWarning) return;
+  if (shownDependencyWarning) return false;
+  const onboardingVisible = document.getElementById("onboarding-overlay")?.classList.contains("show");
+  if (onboardingVisible) return false;
   const r = await requestJSON("GET", "/dependencies", {}, {suppressPopup: true, timeout: 10000});
-  if (!r.ok) return;
+  if (!r.ok) return false;
   const missing = r.action_required_missing || [];
-  if (!missing.length) return;
+  if (!missing.length) return false;
   shownDependencyWarning = true;
   const names = missing.map(dep => `${dep.name}: ${(dep.missing_modules || []).join(", ")}`).join("\n");
   showError(t("dependency_missing_title"), `${t("dependency_missing_detail")}\n\n${names}\n\n${t("dependency_missing_action")}`);

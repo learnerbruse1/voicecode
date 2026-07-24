@@ -29,6 +29,7 @@ jobs:
           python -m ruff check app.py main.py tests src/voicecode
           python -m mypy app.py main.py src/voicecode
           python -X utf8 -m pytest -q
+          python -X utf8 -m pytest tests/test_app_smoke.py --cov=voicecode --cov-report=term-missing --cov-fail-under=75
           python -X utf8 tools/sync_static.py --check
           for file in src/voicecode/static/js/*.js; do node --check "$file"; done
       - name: Build and validate distributions

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from flask import Blueprint, Response, jsonify, request
+from werkzeug.exceptions import HTTPException
 
 from .audio import Recorder
 from .extensions import audio_io, exporters
@@ -40,13 +41,13 @@ def create_recording_blueprint(context: RecordingContext) -> Blueprint:
     @blueprint.post("/record/start")
     def record_start():
         try:
+            payload = context.json_payload()
+            context.normalize_language(payload.get("language", "zh"))
             reason = context.model_unavailable_reason()
             if reason:
                 return context.error(
                     f"Cannot start recording because Whisper model is unavailable: {reason}", 503
                 )
-            payload = context.json_payload()
-            context.normalize_language(payload.get("language", "zh"))
             config = context.load_config()
             device = context.normalize_audio_device(
                 payload.get("audio_device", config.get("audio_device", ""))
@@ -55,6 +56,8 @@ def create_recording_blueprint(context: RecordingContext) -> Blueprint:
             return jsonify({"status": "recording", "started": started})
         except ValueError as exc:
             return context.error(str(exc), 400)
+        except HTTPException:
+            raise
         except Exception as exc:
             return context.error(f"Failed to start recording: {exc}", 503)
 
@@ -138,6 +141,8 @@ def create_recording_blueprint(context: RecordingContext) -> Blueprint:
             return context.error(str(exc), 400)
         except RuntimeError as exc:
             return context.error(f"Transcription is unavailable: {exc}", 503)
+        except HTTPException:
+            raise
         except Exception as exc:
             return context.error(f"Transcription failed: {exc}", 500)
         finally:

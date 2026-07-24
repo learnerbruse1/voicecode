@@ -66,7 +66,7 @@ function renderExtensions(data) {
     const installButton = (ext.dependencies || []).some(dep => !dep.installed_in_voice_dep)
       ? `<button type="button" class="sm extension-install" data-extension-id="${htmlEscape(ext.id)}">${t("extension_install_dependencies")}</button>` : "";
     return `<article class="extension-card ${ext.enabled ? "enabled" : "disabled"}" data-extension-id="${htmlEscape(ext.id)}">
-      <div class="extension-card-head"><div><h4>${htmlEscape(name)} <small>${htmlEscape(state)}</small></h4><p>${htmlEscape(description)}</p><small>${htmlEscape(readiness)} ? ${htmlEscape(dependencyText)}</small>${ext.status_message ? `<small class="extension-status-message">${htmlEscape(ext.status_message)}</small>` : ""}${ext.restart_required ? `<small class="extension-warning">${t("dependency_restart_required")}</small>` : ""}</div></div>
+      <div class="extension-card-head"><div><h4>${htmlEscape(name)} <small>${htmlEscape(state)}</small></h4><p>${htmlEscape(description)}</p><small>${htmlEscape(readiness)} · ${htmlEscape(dependencyText)}</small>${ext.status_message ? `<small class="extension-status-message">${htmlEscape(ext.status_message)}</small>` : ""}${ext.restart_required ? `<small class="extension-warning">${t("dependency_restart_required")}</small>` : ""}</div></div>
       <div class="extension-config-grid">${fields}</div>
       <div class="extension-actions">${installButton}<button type="button" class="sm primary extension-save" data-extension-id="${htmlEscape(ext.id)}">${t("extension_save")}</button></div>
     </article>`;

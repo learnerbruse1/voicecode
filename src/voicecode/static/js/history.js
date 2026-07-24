@@ -1,7 +1,3 @@
-function htmlEscape(value) {
-  return String(value || "").replace(/[&<>"]|'/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
-}
-
 function translatedEntity(prefix, id, field, fallback) {
   const key = `${prefix}_${String(id || "").replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "")}_${field}`;
   const translated = t(key);

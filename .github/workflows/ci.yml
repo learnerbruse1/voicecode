@@ -34,6 +34,9 @@ jobs:
         run: Get-ChildItem src/voicecode/static/js/*.js | ForEach-Object { node --check $_.FullName }
       - name: Pytest
         run: python -m pytest
+      - name: Coverage gate
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: python -m pytest tests/test_app_smoke.py --cov=voicecode --cov-report=term-missing --cov-fail-under=75
       - name: Build wheel
         run: python -m pip wheel . --no-deps -w dist
       - name: Verify wheel package data

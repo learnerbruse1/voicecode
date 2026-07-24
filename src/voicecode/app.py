@@ -706,6 +706,16 @@ def save_config(cfg: dict[str, Any]) -> None:
         settings_store.save_config(cfg, CONFIG_FILE)
 
 
+def update_config(patch: dict[str, Any]) -> dict[str, Any]:
+    """Atomically merge and persist a validated configuration patch."""
+    _sync_config_file()
+    with _config_lock:
+        current = settings_store.load_config(CONFIG_FILE)
+        updated = settings_store.merge_config(current, patch)
+        settings_store.save_config(updated, CONFIG_FILE)
+        return updated
+
+
 _transcription_service = TranscriptionService(load_config, _post_process_text)
 
 
@@ -780,10 +790,15 @@ def get_config_schema():
 @app.route("/config/reset", methods=["POST"])
 def reset_config():
     try:
+        _json_payload()
         cfg = settings_store.default_config()
         save_config(cfg)
         logger.info("Configuration reset to defaults: id=%s", getattr(g, "request_id", "unknown"))
         return jsonify(cfg)
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Failed to reset config.")
         return _error(f"Failed to reset config: {exc}", 500)
@@ -793,11 +808,12 @@ def reset_config():
 def post_config():
     try:
         patch = _validate_config_patch(_json_payload())
-        cfg = settings_store.merge_config(load_config(), patch)
-        save_config(cfg)
+        cfg = update_config(patch)
         return jsonify(cfg)
     except ValueError as exc:
         return _error(str(exc), 400)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Failed to save config.")
         return _error(f"Failed to save config: {exc}", 500)
@@ -826,16 +842,12 @@ def _model_reload_done(future: Future, size: str) -> None:
 def reload_model():
     try:
         payload = _json_payload()
-        current_cfg = load_config()
         reload_patch = {
             key: payload[key]
             for key in ("model", "device", "compute_type", "beam_size", "vad_filter")
             if key in payload
         }
         validated_patch = _validate_config_patch(reload_patch)
-        size = str(validated_patch.get("model", current_cfg.get("model", MODEL_SIZE)))
-        if size not in VALID_MODELS:
-            return _error(f"Unsupported model: {size}", 400)
     except ValueError as exc:
         return _error(str(exc), 400)
 
@@ -852,9 +864,18 @@ def reload_model():
             {"status": "loading", "error": None, "progress": 0, "downloaded_bytes": 0}
         )
 
-    if validated_patch:
-        current_cfg.update(validated_patch)
-        save_config(current_cfg)
+    try:
+        current_cfg = update_config(validated_patch) if validated_patch else load_config()
+        size = str(current_cfg.get("model", MODEL_SIZE))
+        if size not in VALID_MODELS:
+            _set_model_state("error", f"Unsupported model: {size}")
+            return _error(f"Unsupported model: {size}", 400)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _set_model_state("error", f"Failed to save model configuration: {exc}")
+        logger.exception("Failed to save model configuration.")
+        return _error(f"Failed to save model configuration: {exc}", 500)
 
     future = _model_runtime.submit(_load_model_sync, size)
     future.add_done_callback(lambda f: _model_reload_done(f, size))
@@ -873,8 +894,8 @@ def reload_model():
 def client_log():
     try:
         payload = _json_payload()
-    except ValueError:
-        payload = {}
+    except ValueError as exc:
+        return _error(str(exc), 400)
     msg = str(payload.get("msg", ""))
     component = str(payload.get("component", "frontend"))
     level = str(payload.get("level", "info")).lower()
@@ -1191,6 +1212,8 @@ def model_cache_delete(model_name: str):
         return _error(str(exc), 400)
     except RuntimeError as exc:
         return _error(str(exc), 409)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Failed to delete model cache: %s", model_name)
         return _error(f"Failed to delete model cache: {exc}", 500)
@@ -1345,7 +1368,7 @@ app.register_blueprint(
     create_management_blueprint(
         ManagementContext(
             load_config=load_config,
-            save_config=save_config,
+            update_config=update_config,
             json_payload=_json_payload,
             error=_error,
             reset_dependency_runtime_cache=_reset_dependency_runtime_cache,

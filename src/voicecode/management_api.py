@@ -19,7 +19,7 @@ ErrorResponse = Callable[[str, int], Any]
 @dataclass(frozen=True)
 class ManagementContext:
     load_config: Callable[[], dict[str, Any]]
-    save_config: Callable[[dict[str, Any]], None]
+    update_config: Callable[[dict[str, Any]], dict[str, Any]]
     json_payload: JsonPayload
     error: ErrorResponse
     reset_dependency_runtime_cache: Callable[[str], None]
@@ -66,10 +66,7 @@ def create_management_blueprint(context: ManagementContext) -> Blueprint:
             return context.error("Extension config must be an object.", 400)
         try:
             extension_patch = settings_store.validate_extensions_patch({extension_id: raw_patch})
-            config = settings_store.merge_config(
-                context.load_config(), {"extensions": extension_patch}
-            )
-            context.save_config(config)
+            config = context.update_config({"extensions": extension_patch})
         except ValueError as exc:
             return context.error(str(exc), 400)
         status = next(item for item in _extension_statuses(config) if item["id"] == extension_id)
@@ -252,8 +249,7 @@ def create_management_blueprint(context: ManagementContext) -> Blueprint:
                 "completed_version": context.version,
                 "skipped": skipped,
             }
-            config = settings_store.merge_config(context.load_config(), patch)
-            context.save_config(config)
+            config = context.update_config(patch)
         except ValueError as exc:
             return context.error(str(exc), 400)
         return jsonify({"status": "completed", "config": config})
@@ -264,11 +260,9 @@ def create_management_blueprint(context: ManagementContext) -> Blueprint:
             context.json_payload()
         except ValueError as exc:
             return context.error(str(exc), 400)
-        config = settings_store.merge_config(
-            context.load_config(),
-            {"onboarding": {"completed": False, "completed_version": "", "skipped": False}},
+        config = context.update_config(
+            {"onboarding": {"completed": False, "completed_version": "", "skipped": False}}
         )
-        context.save_config(config)
         return jsonify({"status": "reset", "onboarding": config["onboarding"]})
 
     return blueprint

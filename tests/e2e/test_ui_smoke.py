@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import socket
@@ -62,20 +63,121 @@ def test_first_start_ui_loads_external_catalog_and_has_no_console_errors(tmp_pat
             raise AssertionError("VoiceCode test server did not start.")
 
         errors: list[str] = []
+        console_errors: list[str] = []
+        http_errors: list[str] = []
         with playwright.sync_playwright() as runtime:
             browser = runtime.chromium.launch()
             page = browser.new_page()
+            missing_dependency = {
+                "id": "faster-whisper",
+                "name": "Whisper runtime",
+                "description": "Speech recognition runtime.",
+                "notes": "Required for transcription.",
+                "installed": False,
+                "installed_in_voice_dep": False,
+                "missing_modules": ["faster_whisper", "ctranslate2"],
+                "feature_ids": [],
+                "github_preferred": False,
+            }
+            page.route(
+                f"http://127.0.0.1:{port}/dependencies",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {
+                            "install_dir": str(tmp_path / "dependencies"),
+                            "dependencies": [missing_dependency],
+                            "missing": [missing_dependency],
+                            "action_required_missing": [missing_dependency],
+                        }
+                    ),
+                ),
+            )
             page.on("pageerror", lambda error: errors.append(str(error)))
+            page.on(
+                "console",
+                lambda message: (
+                    console_errors.append(message.text) if message.type == "error" else None
+                ),
+            )
+            page.on(
+                "response",
+                lambda response: (
+                    http_errors.append(
+                        f"{response.request.method} {response.status} {response.url}"
+                    )
+                    if response.status >= 400
+                    else None
+                ),
+            )
             page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
             page.locator("#onboarding-overlay.show").wait_for(state="visible")
             assert page.locator("#onboarding-step-title").inner_text()
             assert page.locator("#error-modal.show").count() == 0
             assert page.evaluate("document.activeElement?.id") == "onboarding-step-title"
             assert page.locator("#sidebar-version").inner_text().startswith("VoiceCode ")
+            assert page.locator(".app-shell").get_attribute("inert") == ""
+            assert page.locator("body").evaluate(
+                "element => element.classList.contains('dialog-open')"
+            )
             catalog = page.request.get(f"http://127.0.0.1:{port}/static/i18n/en.json")
             assert catalog.ok
             assert isinstance(catalog.json(), dict)
+
+            page.evaluate("showError('Synthetic error', 'Dialog stack regression')")
+            page.locator("#error-modal.show").wait_for(state="visible")
+            assert page.evaluate("document.activeElement?.id") == "error-close"
+            assert page.locator(".app-shell").get_attribute("inert") == ""
+            assert page.locator("body").evaluate(
+                "element => element.classList.contains('dialog-open')"
+            )
+            page.evaluate("closeError()")
+            page.locator("#error-modal").wait_for(state="hidden")
+            assert page.locator("#onboarding-overlay.show").count() == 1
+            assert page.evaluate("document.activeElement?.id") == "onboarding-step-title"
+            assert page.locator(".app-shell").get_attribute("inert") == ""
+            assert page.locator("body").evaluate(
+                "element => element.classList.contains('dialog-open')"
+            )
+
+            page.locator("#onboarding-skip").click()
+            page.locator("#onboarding-overlay").wait_for(state="hidden")
+            page.locator("#error-modal.show").wait_for(state="visible")
+            assert "VOICECODE_SKIP_MODEL_LOAD" in page.locator("#error-message").inner_text()
+            assert page.evaluate("document.activeElement?.id") == "error-close"
+            assert page.locator(".app-shell").get_attribute("inert") == ""
+            assert page.locator("body").evaluate(
+                "element => element.classList.contains('dialog-open')"
+            )
+            page.locator("#error-close").click()
+            page.locator("#error-modal").wait_for(state="hidden")
+            assert page.locator(".app-shell").get_attribute("inert") is None
+            assert not page.locator("body").evaluate(
+                "element => element.classList.contains('dialog-open')"
+            )
+
+            view_expectations = {
+                "home": None,
+                "settings": None,
+                "models": ".managed-model-card",
+                "extensions": ".extension-card",
+                "dependencies": ".dependency-card",
+                "history": "#history-list",
+                "diagnostics": "#diagnostics-output",
+                "about": "#rerun-onboarding",
+            }
+            for view_name, content_selector in view_expectations.items():
+                page.locator(f'.nav-item[data-view="{view_name}"]').click()
+                page.locator(f"#view-{view_name}.active").wait_for(state="visible")
+                assert page.locator(f'.nav-item.active[data-view="{view_name}"]').count() == 1
+                if content_selector:
+                    page.locator(content_selector).first.wait_for(state="visible")
+                assert page.locator("#error-modal.show").count() == 0
+
             assert errors == []
+            assert console_errors == [], http_errors
+            assert http_errors == []
             browser.close()
     finally:
         process.terminate()

@@ -26,12 +26,8 @@ from .dependency_installer import (
 )
 from .dependency_types import DependencySpec, DependencyTask
 
-_run_pip_install = _installer._run_pip_install
-
 
 def start_install(dependency_id: str) -> DependencyTask:
-    # Preserve the historical monkeypatch hook while delegating task orchestration.
-    _installer._run_pip_install = _run_pip_install
     return _installer.start_install(dependency_id)
 
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed Models-page rendering and authenticated frontend logging, and replaced corrupted UI progress separators.
+- Prevented missing-dependency warnings from overlapping first-start onboarding and made nested dialog focus/inert state stack-safe.
+- Made configuration patching and history mutations atomic under concurrent requests.
+- Enforced object-only JSON validation consistently, preserved HTTP 413 responses, and expanded browser/concurrency/package regression coverage with a 75% CI coverage gate.
 - Added real lazy adapters for Silero VAD preprocessing, pyannote speaker diarization, and NeMo punctuation restoration, with operational/experimental/error extension states.
 - Hardened isolated dependency tasks with package-index-first catalog installs, disk checks, cross-process locking, persistence, cancellation, timeouts, process-tree termination, restart notices, and safer manifest handling.
 - Added loopback Host/Origin validation, CSP, anti-framing/content-sniffing headers, and mutation audit logs.
