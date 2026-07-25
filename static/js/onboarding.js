@@ -110,8 +110,9 @@ async function completeOnboarding(skipped = false) {
   await loadConfig();
   const modelStatus = await requestJSON("GET", "/status", {}, {suppressPopup: true});
   const selectedModel = onboardingState.config?.model || modelSel?.value || "base";
+  const modelLoadingDisabled = modelStatus.model_state?.status === "skipped";
   const needsModelLoad = !modelStatus.ok || !modelStatus.model_loaded || modelStatus.model !== selectedModel || modelStatus.model_state?.status === "awaiting_selection";
-  if (needsModelLoad && typeof reloadWhisperModel === "function") await reloadWhisperModel();
+  if (needsModelLoad && !modelLoadingDisabled && typeof reloadWhisperModel === "function") await reloadWhisperModel();
   else await pollModelStatus(true);
   await updateAutoDeviceLabel();
   await warnMissingDependenciesOnce();

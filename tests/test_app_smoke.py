@@ -620,6 +620,7 @@ def test_distribution_static_assets_stay_synchronized():
         Path("static/voicecode-icon.png"),
         Path("static/css/app.css"),
         Path("static/js/i18n.js"),
+        Path("static/js/theme-bootstrap.js"),
         Path("static/js/accessibility.js"),
         Path("static/js/dom.js"),
         Path("static/js/modal.js"),
@@ -845,6 +846,274 @@ def test_exporters_extension_can_be_disabled(client):
     assert "exporters extension is disabled" in response.get_json()["error"]
 
 
+def test_audio_io_extension_validates_and_normalizes_samples():
+    from voicecode.extensions import audio_io
+
+    config = audio_io.AudioIOExtension().default_config()
+    assert config["enabled"] is True
+    assert ".wav" in config["allowed_suffixes"]
+
+    samples = audio_io.coerce_audio_samples([[2.0, 0.0], [-2.0, 0.0]], config)
+    assert samples.dtype == np.float32
+    assert samples.tolist() == [1.0, -1.0]
+
+    with pytest.raises(ValueError, match="non-empty array"):
+        audio_io.coerce_audio_samples([], config)
+    with pytest.raises(ValueError, match="numeric samples"):
+        audio_io.coerce_audio_samples(["not-a-number"], config)
+    with pytest.raises(ValueError, match="one-dimensional"):
+        audio_io.coerce_audio_samples([[[0.0]]], config)
+    with pytest.raises(ValueError, match="maximum JSON sample duration"):
+        audio_io.coerce_audio_samples([0.0, 0.1, 0.2], {"max_json_seconds": 1, "sample_rate": 2})
+    with pytest.raises(ValueError, match="finite numbers"):
+        audio_io.coerce_audio_samples([float("nan")], config)
+
+
+def test_audio_io_extension_validates_and_saves_uploads(tmp_path):
+    from io import BytesIO
+
+    from voicecode.extensions import audio_io
+
+    class Upload:
+        def __init__(self, filename: str, payload: bytes):
+            self.filename = filename
+            self.stream = BytesIO(payload)
+
+        def save(self, destination):
+            destination.write(self.stream.getvalue())
+
+    config = {"allowed_suffixes": [".wav"], "max_upload_mb": 1}
+    with pytest.raises(ValueError, match="Missing uploaded"):
+        audio_io.save_upload_to_temp(Upload("", b"audio"), config)
+    with pytest.raises(ValueError, match="Unsupported"):
+        audio_io.save_upload_to_temp(Upload("sample.exe", b"audio"), config)
+    with pytest.raises(ValueError, match="maximum size"):
+        audio_io.save_upload_to_temp(Upload("sample.wav", b"x" * (1024 * 1024 + 1)), config)
+
+    saved = audio_io.save_upload_to_temp(Upload("sample.WAV", b"audio-data"), config)
+    try:
+        assert saved.suffix == ".wav"
+        assert saved.read_bytes() == b"audio-data"
+    finally:
+        saved.unlink(missing_ok=True)
+
+
+def test_exporter_helpers_cover_all_supported_formats():
+    from voicecode.extensions import exporters
+
+    extension_config = exporters.ExportersExtension().default_config()
+    assert extension_config == {"enabled": True, "formats": ["json", "srt", "txt", "vtt"]}
+
+    result = {
+        "text": "hello world",
+        "segments": [
+            {"start": -1, "end": 1.2345, "text": " hello "},
+            {"start": 61.5, "end": 3661.001, "text": "world"},
+            "ignored",
+        ],
+    }
+    json_text, json_type = exporters.export_result(result, " JSON ")
+    assert '"hello world"' in json_text
+    assert json_type.startswith("application/json")
+    assert exporters.export_result(result, "txt") == (
+        "hello world",
+        "text/plain; charset=utf-8",
+    )
+
+    srt, srt_type = exporters.export_result(result, "srt")
+    assert "00:00:00,000 --> 00:00:01,234" in srt
+    assert "00:01:01,500 --> 01:01:01,001" in srt
+    assert srt_type.startswith("application/x-subrip")
+
+    vtt, vtt_type = exporters.export_result({"text": "fallback"}, "vtt")
+    assert vtt.startswith("WEBVTT")
+    assert "00:00:00.000 --> 00:00:00.001" in vtt
+    assert vtt_type.startswith("text/vtt")
+    assert exporters.to_srt({"text": ""}) == ""
+
+    with pytest.raises(ValueError, match="Unsupported output_format"):
+        exporters.export_result(result, "pdf")
+
+
+def test_chinese_normalizer_configuration_and_script_conversion(monkeypatch):
+    from voicecode.extensions import zh_normalizer
+
+    extension = zh_normalizer.ZhNormalizerExtension()
+    assert extension.default_config()["script"] == "none"
+
+    def missing_import(name):
+        raise ImportError(name)
+
+    monkeypatch.setattr(zh_normalizer.importlib, "import_module", missing_import)
+    assert extension.missing_dependencies() == ["opencc-python-reimplemented"]
+    english_text = "\u4fdd \u6301, \u6587\u672c !"
+    assert zh_normalizer.normalize(english_text, "en", {}) == english_text
+    assert (
+        zh_normalizer.normalize("\u4e2d \u6587 , \u6d4b \u8bd5!", "zh", {})
+        == "\u4e2d\u6587 \uff0c \u6d4b\u8bd5\uff01"
+    )
+    assert (
+        zh_normalizer.normalize(
+            "\u4e2d \u6587,",
+            "zh",
+            {"normalize_spacing": False, "normalize_punctuation": False},
+        )
+        == "\u4e2d \u6587,"
+    )
+    assert (
+        zh_normalizer.normalize("\u8f49\u63db", "zh-tw", {"script": "simplified"}) == "\u8f49\u63db"
+    )
+
+    class FakeConverter:
+        def __init__(self, config_name):
+            self.config_name = config_name
+
+        def convert(self, value):
+            return f"{self.config_name}:{value}"
+
+    class FakeOpenCC:
+        OpenCC = FakeConverter
+
+    monkeypatch.setattr(zh_normalizer.importlib, "import_module", lambda name: FakeOpenCC)
+    assert extension.missing_dependencies() == []
+    assert (
+        zh_normalizer.normalize("\u6e2c \u8a66", "auto", {"script": "simplified"})
+        == "t2s:\u6e2c\u8a66"
+    )
+    assert (
+        zh_normalizer.normalize("\u6d4b\u8bd5", None, {"script": "traditional"})
+        == "s2t:\u6d4b\u8bd5"
+    )
+
+
+def test_extension_helpers_and_registry_edge_states(monkeypatch):
+    from voicecode import dependency_catalog
+    from voicecode.extensions import hotwords, quality, registry
+    from voicecode.extensions.base import ExtensionStatus
+
+    assert hotwords.phrases({"phrases": "invalid"}) == []
+    assert hotwords.build_prompt(None, {"phrases": []}) is None
+    assert hotwords.build_prompt("Base.", {"phrases": [" API ", "", 1]}) == (
+        "Base. Prefer these exact terms when heard: API."
+    )
+
+    class FakeJiwer:
+        @staticmethod
+        def wer(reference, hypothesis):
+            return 0.25
+
+        @staticmethod
+        def cer(reference, hypothesis):
+            return 0.125
+
+    monkeypatch.setattr(quality.importlib, "import_module", lambda name: FakeJiwer)
+    assert quality.QualityExtension().missing_dependencies() == []
+    assert quality.compute_metrics("reference", "hypothesis") == {"wer": 0.25, "cer": 0.125}
+
+    assert dependency_catalog.get_dependency_spec("whisper-runtime").required is True
+    assert dependency_catalog.dependencies_for_feature("quality")[0].id == "jiwer"
+    assert dependency_catalog.dependencies_for_feature("unknown") == ()
+    with pytest.raises(ValueError, match="Unknown dependency"):
+        dependency_catalog.get_dependency_spec("unknown")
+
+    assert (
+        registry.extension_config({"extensions": {"audio_io": "invalid"}}, "audio_io")
+        == registry.EXTENSION_BY_ID["audio_io"].default_config()
+    )
+    assert registry.required_dependency_ids(
+        "zh_normalizer",
+        {"extensions": {"zh_normalizer": {"enabled": True, "script": "simplified"}}},
+    ) == ("opencc-python-reimplemented",)
+
+    class FakeExtension:
+        id = "fake"
+
+        def __init__(self):
+            self.result = None
+
+        def default_config(self):
+            return {"enabled": True}
+
+        def status(self, config):
+            return self.result
+
+    fake = FakeExtension()
+    monkeypatch.setattr(registry, "EXTENSIONS", [fake])
+    monkeypatch.setitem(registry.EXTENSION_BY_ID, "fake", fake)
+
+    def make_status(*, missing=None, operational=True, maturity="stable"):
+        return ExtensionStatus(
+            id="fake",
+            name="Fake",
+            description="Fake extension",
+            enabled=True,
+            available=not missing,
+            operational=operational,
+            state="unused",
+            maturity=maturity,
+            restart_required=False,
+            missing_dependencies=missing or [],
+        )
+
+    fake.result = make_status(missing=["dep"])
+    monkeypatch.setattr(registry, "required_dependency_ids", lambda extension_id, config: ("dep",))
+    assert registry.statuses({})[0]["state"] == "dependency_missing"
+    fake.result = make_status(operational=False)
+    monkeypatch.setattr(registry, "required_dependency_ids", lambda extension_id, config: ())
+    assert registry.statuses({})[0]["state"] == "error"
+    fake.result = make_status(maturity="experimental")
+    assert registry.statuses({})[0]["state"] == "experimental"
+
+
+def test_transcription_service_optional_finalizers(monkeypatch):
+    from voicecode import transcription_service
+
+    disabled_config = {"extensions": {"audio_io": {"enabled": False}}}
+    service = transcription_service.TranscriptionService(
+        lambda: disabled_config, lambda text, mode: f"{mode}:{text}"
+    )
+    assert service.language_prompt("zh") == "Transcribe the speech as Simplified Chinese text."
+    assert service.language_prompt("ja") == "Transcribe the speech as Japanese text."
+    with pytest.raises(ValueError, match="audio_io extension is disabled"):
+        service.coerce_audio_samples([0.0])
+
+    monkeypatch.setattr(
+        transcription_service.zh_normalizer,
+        "normalize",
+        lambda text, language, config: f"normalized:{text}",
+    )
+    monkeypatch.setattr(
+        transcription_service.punctuation,
+        "restore",
+        lambda text, language, config: f"punctuated:{text}",
+    )
+    monkeypatch.setattr(
+        transcription_service.diarization,
+        "assign_speakers",
+        lambda segments, audio, config: [{**segments[0], "speaker": "SPEAKER_00"}],
+    )
+    config = {
+        "text_mode": "coding",
+        "extensions": {
+            "zh_normalizer": {"enabled": True},
+            "punctuation": {"enabled": True},
+            "diarization": {"enabled": True},
+        },
+    }
+    result = service.finalize(
+        {
+            "text": "hello",
+            "language": "zh",
+            "segments": [{"text": "hello"}],
+            "_audio_context": np.zeros(4, dtype=np.float32),
+        },
+        config,
+    )
+    assert result["text"] == "punctuated:normalized:coding:hello"
+    assert result["segments"][0]["speaker"] == "SPEAKER_00"
+    assert "_audio_context" not in result
+
+
 def test_record_start_reports_model_unavailable(client, app_module):
     app_module.model = None
     app_module._set_model_state("error", "Model download failed")
@@ -875,11 +1144,16 @@ def test_static_ui_exposes_three_language_controls():
         repo_root / "static" / "js" / "app.js"
     ).read_text(encoding="utf-8")
     assert 'src="/js/dom.js"' in html
+    assert 'src="/js/theme-bootstrap.js"' in html
+    assert "<script>" not in html
     assert 'import "./api.js"' in (repo_root / "static" / "js" / "app.js").read_text(
         encoding="utf-8"
     )
     assert 'src="/js/recorder.js"' in html
     assert 'src="/js/games.js"' in html
+    assert 'state?.status === "skipped"' in (
+        repo_root / "static" / "js" / "onboarding.js"
+    ).read_text(encoding="utf-8")
     assert 'id="game-minesweeper"' in html
     assert "solitaire" not in html.lower()
     assert 'type="module" src="/js/app.js"' in html

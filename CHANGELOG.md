@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed GitHub Actions after Ruff 0.16 changed its default lint selection by making the project rule set explicit and bounding the development dependency.
+- Fixed UI E2E failures by moving theme bootstrap code into a CSP-compatible external script and avoiding disabled model reloads in skip-model test mode.
 - Removed card-game content and retained a single Minesweeper panel with Beginner, Intermediate, and Expert modes.
 - Updated the Windows builder and installer verifier to require the Minesweeper `games.js` payload and reject removed card-game markers.
 

@@ -13,8 +13,8 @@ jobs:
   cpu-tiny-model:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install runtime
@@ -43,8 +43,8 @@ jobs:
     if: ${{ inputs.run_gpu }}
     runs-on: [self-hosted, linux, x64, gpu]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install GPU runtime
