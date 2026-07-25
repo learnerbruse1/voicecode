@@ -10,11 +10,11 @@ VoiceCode v0.2.0 is a major usability and distribution update. It introduces a c
 
 `VoiceCode-v0.2.0-Windows-x64-Setup.exe`
 
-- File size: `125,972,931` bytes
+- File size: `125,288,434` bytes
 - SHA-256:
 
 ```text
-53C2EDC3166F60EA97D550C059CCFD4DC76687D279D46D7C9E1348718DC50DE0
+1D91BD9413415EF33056DA432661F68240D19625908913216C160D1CEF6A9552
 ```
 
 > **Important:** This installer is not currently Authenticode-signed. Windows may display a SmartScreen or Unknown Publisher warning. If the installer is signed before publication, its file size and SHA-256 checksum will change. Recalculate and replace the values above after signing.

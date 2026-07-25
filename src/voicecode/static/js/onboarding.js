@@ -106,7 +106,7 @@ async function completeOnboarding(skipped = false) {
   const result = await requestJSON("POST", "/onboarding/complete", {config:onboardingState.config || {}, skipped}, {errorTitle:t("failed_save_settings")});
   if (!result.ok) return;
   const overlay = onboardingElement("onboarding-overlay"); overlay.classList.remove("show"); overlay.setAttribute("aria-hidden", "true"); deactivateDialog(overlay); sessionStorage.removeItem("voicecode.onboardingStep");
-  await loadAudioDevices();
+  if (onboardingState.steps?.audio?.ready) await loadAudioDevices();
   await loadConfig();
   const modelStatus = await requestJSON("GET", "/status", {}, {suppressPopup: true});
   const selectedModel = onboardingState.config?.model || modelSel?.value || "base";

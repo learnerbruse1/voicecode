@@ -26,7 +26,9 @@ jobs:
       - name: Ruff format check
         run: python -m ruff format --check app.py main.py tests src/voicecode packaging/windows tools
       - name: Mypy
-        run: python -m mypy app.py main.py src/voicecode
+        run: |
+          python -m mypy --version
+          python -m mypy --no-incremental app.py main.py src/voicecode
       - name: Static mirror check
         run: python -X utf8 tools/sync_static.py --check
       - name: JavaScript syntax

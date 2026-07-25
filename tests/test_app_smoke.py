@@ -1151,9 +1151,9 @@ def test_static_ui_exposes_three_language_controls():
     )
     assert 'src="/js/recorder.js"' in html
     assert 'src="/js/games.js"' in html
-    assert 'state?.status === "skipped"' in (
-        repo_root / "static" / "js" / "onboarding.js"
-    ).read_text(encoding="utf-8")
+    onboarding_script = (repo_root / "static" / "js" / "onboarding.js").read_text(encoding="utf-8")
+    assert 'state?.status === "skipped"' in onboarding_script
+    assert "steps?.audio?.ready) await loadAudioDevices()" in onboarding_script
     assert 'id="game-minesweeper"' in html
     assert "solitaire" not in html.lower()
     assert 'type="module" src="/js/app.js"' in html

@@ -370,7 +370,8 @@ def _find_voicecode_window() -> int | None:
 
     current_pid = os.getpid()
     found: list[int] = []
-    enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+    callback_factory = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+    enum_proc_type = callback_factory(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
 
     def _visit(candidate: int, _lparam: int) -> bool:
         process_id = wintypes.DWORD()
