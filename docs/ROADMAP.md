@@ -1,4 +1,4 @@
-﻿# Roadmap and Extension Ideas
+# Roadmap and Extension Ideas
 
 VoiceCode should remain a speech-to-text app first. New features should be optional, local-first where practical, and easy to disable or remove.
 
@@ -165,3 +165,13 @@ Implemented extension framework and switchable modules:
 - Do not require cloud APIs for core functionality.
 - Do not make GPU-only features mandatory.
 - Do not add heavyweight optional dependencies to the default install.
+
+## Completed in v0.2.0
+
+- Maintained Windows x64 installer with selectable destination and install-local runtime data.
+- Branded executable/installer/web icon assets.
+- Single-instance desktop startup and packaged frontend validation.
+- UTF-8 Chinese/Japanese catalog repair with `en -> zh -> ja -> en` browser coverage.
+- Legacy model-cache migration and reachable Hugging Face endpoint selection.
+- Repeatable Windows installer verification with silent install/payload/pip/uninstall CI coverage and a documented v0.2.0 final validation record.
+- Resilient pre-build embedded-Python downloads with cache retention, ZIP validation, atomic writes, and retries.

@@ -1,4 +1,5 @@
 import ctypes
+from ctypes import wintypes
 import importlib
 import json
 import logging
@@ -6,8 +7,9 @@ import os
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from . import app as server
@@ -50,8 +52,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger("voicecode.main")
 
+_INSTANCE_MUTEX_NAME = "Local\\VoiceCode.Desktop.SingleInstance"
+_APP_USER_MODEL_ID = "VoiceCode.Desktop.0.2"
+_INSTANCE_ALREADY_EXISTS = 183
+_instance_mutex_handle: int | None = None
+
+
+class VoiceCodeAlreadyRunningError(RuntimeError):
+    """Raised when a second launcher finds an existing VoiceCode instance."""
+
+
 _window = None
 _listener = None
+_tray_icon = None
+_tray_thread: threading.Thread | None = None
+_server_thread: threading.Thread | None = None
+_window_icon_handles: list[int] = []
+_shutdown_lock = threading.Lock()
+_shutdown_requested = False
 _type_controller = kb.Controller() if kb is not None else None
 _typing_from_global = False
 _typing_lock = threading.Lock()
@@ -210,14 +228,66 @@ class Api:
         return False
 
     def close_window(self):
-        if not _window:
+        return _request_shutdown(destroy_window=True)
+
+    def copy_text(self, value):
+        text_value = str(value or "")
+        if os.name != "nt" or not text_value:
             return False
+        user32 = getattr(ctypes, "windll").user32
+        kernel32 = getattr(ctypes, "windll").kernel32
+        cf_unicode_text = 13
+        gmem_moveable = 0x0002
+        kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+        user32.SetClipboardData.argtypes = [wintypes.UINT, ctypes.c_void_p]
+        user32.SetClipboardData.restype = ctypes.c_void_p
+        memory = None
         try:
-            _window.destroy()
-            return True
+            encoded = text_value.encode("utf-16-le") + b"\x00\x00"
+            memory = kernel32.GlobalAlloc(gmem_moveable, len(encoded))
+            if not memory:
+                return False
+            pointer = kernel32.GlobalLock(memory)
+            if not pointer:
+                return False
+            ctypes.memmove(pointer, encoded, len(encoded))
+            kernel32.GlobalUnlock(memory)
+            for _ in range(10):
+                if user32.OpenClipboard(None):
+                    break
+                time.sleep(0.03)
+            else:
+                return False
+            try:
+                user32.EmptyClipboard()
+                if not user32.SetClipboardData(cf_unicode_text, memory):
+                    return False
+                memory = None
+                return True
+            finally:
+                user32.CloseClipboard()
         except Exception as exc:
-            logger.warning("Failed to close VoiceCode window: %s", exc)
+            logger.warning("Failed to copy text to the Windows clipboard: %s", exc)
             return False
+        finally:
+            if memory:
+                kernel32.GlobalFree(memory)
+
+    def open_log_folder(self):
+        try:
+            log_dir = Path(server._log_file()).resolve().parent
+            log_dir.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(log_dir)
+                return True
+        except Exception as exc:
+            logger.warning("Failed to open the VoiceCode log directory: %s", exc)
+        return False
 
     def set_on_top(self, on_top):
         if os.name != "nt":
@@ -262,63 +332,370 @@ def _on_transcription(text: str) -> None:
     _eval_js_safe(f"window._appendText && window._appendText({json.dumps(text)})")
 
 
-def _start_tray_icon() -> None:
-    if not _env_flag("VOICECODE_ENABLE_TRAY"):
+def _application_icon_path(extension: str = ".png") -> Path | None:
+    filename = f"voicecode-icon{extension}"
+    candidates = [
+        Path(sys.executable).resolve().parent / "_internal" / "voicecode" / "static" / filename,
+        Path(__file__).resolve().parent / "static" / filename,
+        Path(sys.executable).resolve().parent / filename,
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _set_windows_app_identity() -> None:
+    if os.name != "nt":
         return
     try:
-        pystray = importlib.import_module("pystray")
-        image_module = importlib.import_module("PIL.Image")
-        image_draw_module = importlib.import_module("PIL.ImageDraw")
+        getattr(ctypes, "windll").shell32.SetCurrentProcessExplicitAppUserModelID(
+            _APP_USER_MODEL_ID
+        )
     except Exception as exc:
-        logger.warning("Tray icon requested but optional dependencies are unavailable: %s", exc)
+        logger.debug("Failed to set Windows AppUserModelID: %s", exc)
+
+
+def _find_voicecode_window() -> int | None:
+    if os.name != "nt":
+        return None
+    user32 = getattr(ctypes, "windll").user32
+    user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+    user32.FindWindowW.restype = ctypes.c_void_p
+    user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
+    hwnd = user32.FindWindowW(None, "VoiceCode - Speech to Text")
+    if hwnd:
+        return int(hwnd)
+
+    current_pid = os.getpid()
+    found: list[int] = []
+    enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+    def _visit(candidate: int, _lparam: int) -> bool:
+        process_id = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(candidate, ctypes.byref(process_id))
+        if process_id.value != current_pid:
+            return True
+        length = user32.GetWindowTextLengthW(candidate)
+        if length <= 0:
+            return True
+        title = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(candidate, title, length + 1)
+        if title.value.startswith("VoiceCode"):
+            found.append(int(candidate))
+            return False
+        return True
+
+    callback = enum_proc_type(_visit)
+    user32.EnumWindows(callback, 0)
+    return found[0] if found else None
+
+
+def _release_windows_window_icons() -> None:
+    global _window_icon_handles
+    if os.name != "nt":
         return
+    user32 = getattr(ctypes, "windll").user32
+    for handle in _window_icon_handles:
+        try:
+            user32.DestroyIcon(handle)
+        except Exception:
+            pass
+    _window_icon_handles = []
 
-    def _make_image():
-        image = image_module.new("RGB", (64, 64), "#1a1d27")
-        draw = image_draw_module.Draw(image)
-        draw.ellipse((14, 8, 50, 44), fill="#6366f1")
-        draw.rectangle((28, 40, 36, 54), fill="#e2e8f0")
-        draw.rectangle((20, 52, 44, 58), fill="#e2e8f0")
-        return image
 
-    def _show_window(icon, item):  # noqa: ANN001, ARG001
-        if not _window:
+def _apply_windows_window_icon() -> bool:
+    global _window_icon_handles
+    if os.name != "nt":
+        return False
+    try:
+        user32 = getattr(ctypes, "windll").user32
+        shell32 = getattr(ctypes, "windll").shell32
+        user32.LoadImageW.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_wchar_p,
+            wintypes.UINT,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        ]
+        user32.LoadImageW.restype = ctypes.c_void_p
+        user32.SendMessageW.argtypes = [
+            ctypes.c_void_p,
+            wintypes.UINT,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        user32.SendMessageW.restype = ctypes.c_ssize_t
+        shell32.ExtractIconExW.restype = wintypes.UINT
+        hwnd = _find_voicecode_window()
+        if not hwnd:
+            return False
+
+        _release_windows_window_icons()
+        ico_path = _application_icon_path(".ico")
+        handles: list[int] = []
+        if ico_path is not None:
+            image_icon = 1
+            lr_loadfromfile = 0x0010
+            for size in (16, 32, 48):
+                handle = user32.LoadImageW(
+                    None, str(ico_path), image_icon, size, size, lr_loadfromfile
+                )
+                if handle:
+                    handles.append(int(handle))
+        if not handles:
+            large_icon = ctypes.c_void_p()
+            small_icon = ctypes.c_void_p()
+            extracted = shell32.ExtractIconExW(
+                str(Path(sys.executable).resolve()),
+                0,
+                ctypes.byref(large_icon),
+                ctypes.byref(small_icon),
+                1,
+            )
+            if extracted:
+                handles = [int(handle) for handle in (small_icon.value, large_icon.value) if handle]
+        if not handles:
+            logger.warning("VoiceCode window icon could not be loaded.")
+            return False
+        small = handles[0]
+        large = handles[-1]
+        wm_seticon = 0x0080
+        user32.SendMessageW(hwnd, wm_seticon, None, small)
+        user32.SendMessageW(hwnd, wm_seticon, ctypes.c_void_p(1), large)
+        _window_icon_handles = handles
+        logger.info("Applied VoiceCode icon to the Windows desktop window.")
+        return True
+    except Exception as exc:
+        logger.debug("Failed to apply Windows window icon: %s", exc)
+        return False
+
+
+def _apply_windows_window_icon_with_retry() -> None:
+    for _ in range(30):
+        if _apply_windows_window_icon():
             return
+        time.sleep(0.1)
+    logger.warning("VoiceCode window handle was not ready for icon assignment.")
+
+
+def _show_window() -> bool:
+    shown = False
+    if _window:
         for method_name in ("show", "restore"):
             method = getattr(_window, method_name, None)
             if method:
                 try:
                     method()
+                    shown = True
                 except Exception as exc:
-                    logger.debug("Failed to call window.%s from tray: %s", method_name, exc)
+                    logger.debug("window.%s failed while restoring VoiceCode: %s", method_name, exc)
+    return _focus_existing_window() or shown
 
-    def _quit(icon, item):  # noqa: ANN001, ARG001
-        try:
-            icon.stop()
-        except Exception:
-            pass
-        if _listener:
-            try:
-                _listener.stop()
-            except Exception:
-                pass
-        if _window:
-            try:
-                _window.destroy()
-            except Exception as exc:
-                logger.warning("Failed to destroy VoiceCode window from tray: %s", exc)
 
-    icon = pystray.Icon(
+def _start_tray_icon() -> bool:
+    global _tray_icon, _tray_thread
+    if _env_flag("VOICECODE_DISABLE_TRAY"):
+        logger.info("Tray icon disabled by VOICECODE_DISABLE_TRAY.")
+        return False
+    if _tray_icon is not None:
+        return True
+    try:
+        pystray = importlib.import_module("pystray")
+        image_module = importlib.import_module("PIL.Image")
+    except Exception as exc:
+        logger.warning("Tray icon dependencies are unavailable: %s", exc)
+        return False
+
+    icon_path = _application_icon_path(".png")
+    if icon_path is None:
+        logger.warning("Tray icon asset was not found.")
+        return False
+    with image_module.open(icon_path) as source:
+        image = source.convert("RGBA").resize((64, 64))
+
+    def _show_from_tray(icon, item):  # noqa: ANN001, ARG001
+        _show_window()
+
+    def _quit_from_tray(icon, item):  # noqa: ANN001, ARG001
+        threading.Thread(
+            target=lambda: _request_shutdown(destroy_window=True),
+            daemon=True,
+            name="voicecode-tray-exit",
+        ).start()
+
+    _tray_icon = pystray.Icon(
         "VoiceCode",
-        _make_image(),
+        image,
         "VoiceCode",
         menu=pystray.Menu(
-            pystray.MenuItem("Show VoiceCode", _show_window),
-            pystray.MenuItem("Quit", _quit),
+            pystray.MenuItem("Show VoiceCode", _show_from_tray, default=True),
+            pystray.MenuItem("Exit VoiceCode", _quit_from_tray),
         ),
     )
-    threading.Thread(target=icon.run, daemon=True).start()
+    _tray_thread = threading.Thread(
+        target=_tray_icon.run,
+        daemon=True,
+        name="voicecode-tray",
+    )
+    _tray_thread.start()
     logger.info("Tray icon started.")
+    return True
+
+
+def _request_shutdown(*, destroy_window: bool) -> bool:
+    global _shutdown_requested, _tray_icon, _tray_thread, _listener, _window
+    with _shutdown_lock:
+        if _shutdown_requested:
+            return True
+        _shutdown_requested = True
+    logger.info("VoiceCode shutdown requested.")
+
+    if destroy_window and _window:
+        window = _window
+        _window = None
+        try:
+            window.destroy()
+        except Exception as exc:
+            logger.debug("Failed to destroy desktop window during shutdown: %s", exc)
+
+    if _listener:
+        try:
+            _listener.stop()
+            join = getattr(_listener, "join", None)
+            if join:
+                join(timeout=1)
+        except Exception as exc:
+            logger.debug("Failed to stop hotkey listener cleanly: %s", exc)
+        _listener = None
+
+    tray_icon = _tray_icon
+    tray_thread = _tray_thread
+    _tray_icon = None
+    _tray_thread = None
+    if tray_icon:
+        try:
+            tray_icon.stop()
+        except Exception as exc:
+            logger.debug("Failed to stop tray icon cleanly: %s", exc)
+    if tray_thread and tray_thread is not threading.current_thread():
+        tray_thread.join(timeout=1.5)
+
+    server.shutdown_application()
+
+    if _server_thread and _server_thread is not threading.current_thread():
+        join_server = getattr(_server_thread, "join", None)
+        if join_server:
+            join_server(timeout=3)
+    _release_windows_window_icons()
+    logger.info("VoiceCode desktop shutdown completed.")
+    return True
+
+
+def _focus_existing_window() -> bool:
+    """Restore and foreground the existing desktop window when possible."""
+    if os.name != "nt":
+        return False
+    try:
+        user32 = getattr(ctypes, "windll").user32
+        hwnd = _find_voicecode_window()
+        if not hwnd:
+            return False
+        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception as exc:
+        logger.debug("Unable to focus the existing VoiceCode window: %s", exc)
+        return False
+
+
+def _voicecode_health_pid(timeout: float = 0.5) -> int | None:
+    try:
+        with urlopen(f"http://127.0.0.1:{server.PORT}/health", timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        pid = payload.get("pid")
+        return int(pid) if pid is not None else None
+    except Exception:
+        return None
+
+
+def _recover_stale_instance() -> bool:
+    """Terminate a windowless VoiceCode process that still owns the local port."""
+    if os.name != "nt":
+        return False
+    pid = _voicecode_health_pid()
+    if not pid or pid == os.getpid() or _focus_existing_window():
+        return False
+    try:
+        psutil = importlib.import_module("psutil")
+        process = psutil.Process(pid)
+        if Path(process.exe()).resolve() != Path(sys.executable).resolve():
+            return False
+        logger.warning("Terminating stale windowless VoiceCode process: pid=%s", pid)
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except psutil.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and _voicecode_health_pid(timeout=0.2) == pid:
+            time.sleep(0.1)
+        return True
+    except Exception as exc:
+        logger.warning("Unable to recover stale VoiceCode process %s: %s", pid, exc)
+        return False
+
+
+def _acquire_instance_mutex() -> bool:
+    """Acquire the Windows per-session single-instance mutex."""
+    global _instance_mutex_handle
+    if os.name != "nt":
+        return True
+    try:
+        kernel32 = getattr(ctypes, "windll").kernel32
+        create_mutex = kernel32.CreateMutexW
+        create_mutex.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+        create_mutex.restype = ctypes.c_void_p
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [ctypes.c_void_p]
+        close_handle.restype = ctypes.c_bool
+        kernel32.SetLastError(0)
+        handle = create_mutex(None, True, _INSTANCE_MUTEX_NAME)
+        last_error = kernel32.GetLastError()
+        if not handle:
+            raise OSError("CreateMutexW failed.")
+        if last_error == _INSTANCE_ALREADY_EXISTS:
+            close_handle(handle)
+            return False
+        _instance_mutex_handle = int(handle)
+        return True
+    except OSError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Unable to create the VoiceCode single-instance lock: {exc}") from exc
+
+
+def _release_instance_mutex() -> None:
+    """Release the process-owned Windows single-instance mutex."""
+    global _instance_mutex_handle
+    if _instance_mutex_handle is None:
+        return
+    try:
+        kernel32 = getattr(ctypes, "windll").kernel32
+        try:
+            kernel32.ReleaseMutex(_instance_mutex_handle)
+        except Exception:
+            pass
+        kernel32.CloseHandle(_instance_mutex_handle)
+    except Exception as exc:
+        logger.debug("Unable to close the VoiceCode single-instance lock: %s", exc)
+    finally:
+        _instance_mutex_handle = None
 
 
 def _hide_console() -> None:
@@ -333,6 +710,16 @@ def _hide_console() -> None:
         logger.debug("Failed to hide console window: %s", exc)
 
 
+def _show_existing_instance_message(message: str) -> None:
+    logger.info("%s", message)
+    if os.name != "nt":
+        return
+    try:
+        getattr(ctypes, "windll").user32.MessageBoxW(None, message, "VoiceCode", 0x40)
+    except Exception:
+        pass
+
+
 def _show_startup_error(exc: BaseException) -> None:
     message = f"VoiceCode failed to start. {exc}"
     logger.exception(message)
@@ -342,6 +729,22 @@ def _show_startup_error(exc: BaseException) -> None:
             windll.user32.MessageBoxW(None, message, "VoiceCode startup failed", 0x10)
         except Exception:
             pass
+
+
+def _verify_ui_endpoint() -> None:
+    url = f"http://127.0.0.1:{server.PORT}/"
+    try:
+        with urlopen(url, timeout=2) as response:
+            if response.status != 200:
+                raise RuntimeError(
+                    f"VoiceCode UI returned HTTP {response.status}. Reinstall the application."
+                )
+    except HTTPError as exc:
+        raise RuntimeError(
+            f"VoiceCode UI assets are unavailable (HTTP {exc.code}). Reinstall the application."
+        ) from exc
+    except (OSError, URLError) as exc:
+        raise RuntimeError(f"VoiceCode UI could not be opened: {exc}") from exc
 
 
 def _wait_for_server(timeout_seconds: float = 20.0) -> None:
@@ -360,10 +763,11 @@ def _wait_for_server(timeout_seconds: float = 20.0) -> None:
                             "that does not identify itself as VoiceCode."
                         )
                     if server_pid != os.getpid():
-                        raise RuntimeError(
-                            f"Port {server.PORT} is already used by another VoiceCode process "
-                            f"(pid {server_pid}). Close the existing instance or set PORT."
+                        _focus_existing_window()
+                        raise VoiceCodeAlreadyRunningError(
+                            f"VoiceCode is already running (pid {server_pid}) on port {server.PORT}."
                         )
+                    _verify_ui_endpoint()
                     return
         except RuntimeError:
             raise
@@ -376,41 +780,91 @@ def _wait_for_server(timeout_seconds: float = 20.0) -> None:
 
 
 def main() -> None:
-    global _listener, _window
+    global _listener, _server_thread, _shutdown_requested, _window
 
-    if webview is None:
-        raise RuntimeError(
-            "Desktop UI support is unavailable because pywebview could not be initialized: "
-            f"{_webview_import_error}"
+    with _shutdown_lock:
+        _shutdown_requested = False
+
+    _set_windows_app_identity()
+    if not _acquire_instance_mutex():
+        for _ in range(20):
+            if _focus_existing_window():
+                raise VoiceCodeAlreadyRunningError("VoiceCode is already running.")
+            time.sleep(0.15)
+            if _acquire_instance_mutex():
+                break
+        else:
+            if _recover_stale_instance():
+                for _ in range(20):
+                    if _acquire_instance_mutex():
+                        break
+                    time.sleep(0.1)
+                else:
+                    raise VoiceCodeAlreadyRunningError(
+                        "VoiceCode could not recover the previous background process."
+                    )
+            else:
+                raise VoiceCodeAlreadyRunningError(
+                    "VoiceCode is still shutting down. Wait a moment and open it again."
+                )
+    try:
+        if webview is None:
+            raise RuntimeError(
+                "Desktop UI support is unavailable because pywebview could not be initialized: "
+                f"{_webview_import_error}"
+            )
+
+        server.on_transcription = _on_transcription
+
+        _server_thread = threading.Thread(
+            target=server.start_server,
+            daemon=True,
         )
+        _server_thread.start()
+        _wait_for_server()
 
-    server.on_transcription = _on_transcription
+        cfg = server.load_config()
+        _listener = _start_listener(cfg.get("hotkey", {"modifiers": ["alt"], "key": "z"}))
 
-    threading.Thread(target=server.start_server, daemon=True).start()
-    _wait_for_server()
+        _window = webview.create_window(
+            "VoiceCode - Speech to Text",
+            f"http://127.0.0.1:{server.PORT}",
+            width=1120,
+            height=760,
+            min_size=(860, 560),
+            resizable=True,
+            js_api=Api(),
+        )
+        window_events = getattr(_window, "events", None)
+        closing_event = getattr(window_events, "closing", None)
+        closed_event = getattr(window_events, "closed", None)
+        if closing_event is not None:
+            closing_event += lambda: _request_shutdown(destroy_window=False)
+        if closed_event is not None:
+            closed_event += lambda: _request_shutdown(destroy_window=False)
+        _start_tray_icon()
 
-    cfg = server.load_config()
-    _listener = _start_listener(cfg.get("hotkey", {"modifiers": ["alt"], "key": "z"}))
+        def _desktop_ready() -> None:
+            _hide_console()
+            _apply_windows_window_icon_with_retry()
 
-    _window = webview.create_window(
-        "VoiceCode - Speech to Text",
-        f"http://127.0.0.1:{server.PORT}",
-        width=1120,
-        height=760,
-        min_size=(860, 560),
-        resizable=True,
-        js_api=Api(),
-    )
-    _start_tray_icon()
-    webview.start(func=_hide_console)
+        webview.start(func=_desktop_ready)
+    finally:
+        _request_shutdown(destroy_window=False)
+        _release_instance_mutex()
 
 
-def run() -> None:
+def run() -> bool:
     try:
         main()
+    except VoiceCodeAlreadyRunningError as exc:
+        if not _focus_existing_window():
+            _show_existing_instance_message(str(exc))
+        return True
     except Exception as exc:
         _show_startup_error(exc)
-        raise
+        return False
+    return True
 
 
 if __name__ == "__main__":

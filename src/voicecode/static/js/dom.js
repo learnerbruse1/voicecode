@@ -30,6 +30,7 @@ var beamSizeSel = $("beam-size");
 var vadFilterSel = $("vad-filter");
 var historyEnabledSel = $("history-enabled");
 var fsizeSel = $("fsize");
+var themeSel = $("theme");
 var appendSel = $("appendmode");
 var topBtn = $("topbtn");
 var resetDefaultsBtn = $("reset-defaults-btn");
@@ -44,6 +45,7 @@ var errorTitle = $("error-title");
 var errorMessage = $("error-message");
 var errorClose = $("error-close");
 var errorCopy = $("error-copy");
+var errorOpenLogs = $("error-open-logs");
 
 var contentScroll = $("content-scroll");
 var viewTitle = $("view-title");
@@ -76,7 +78,13 @@ var manualDeviceOptions = $("device-manual-options");
 var progressOverlay = $("progress-overlay");
 var progressTitle = $("progress-title");
 var progressDetail = $("progress-detail");
+var progressBar = $("progress-bar");
 var progressClose = $("progress-close");
+var downloadCenter = $("download-center");
+var downloadCenterTitle = $("download-center-title");
+var downloadCenterDetail = $("download-center-detail");
+var downloadCenterBar = $("download-center-bar");
+var downloadCenterClose = $("download-center-close");
 
 var uiLanguage = "en";
 var recording = false;
@@ -92,10 +100,12 @@ var shownModelErrors = new Set();
 var shownDependencyWarning = false;
 var modelInfoCache = null;
 var dbgLines = [];
+var downloadCenterHideTimer = null;
 
 function t(key) {
-  const current = window.I18N[uiLanguage] || {};
-  const fallback = window.I18N.en || {};
+  const catalogs = window.I18N || {};
+  const current = catalogs[uiLanguage] || {};
+  const fallback = catalogs.en || {};
   return current[key] || fallback[key] || key;
 }
 
@@ -115,6 +125,7 @@ function applyTranslations() {
   if (recLabel) recLabel.textContent = recording ? t("recording_release") : t("record_idle");
   if (slabel) slabel.textContent = t(currentStatusKey);
   if (!text) renderText();
+  if (typeof window.refreshGamesTranslations === "function") window.refreshGamesTranslations();
   updateStats();
 }
 
@@ -136,18 +147,144 @@ function dbg(msg) {
 }
 
 
+function resolveTheme(theme) {
+  if (theme === "system") return matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  return theme === "light" ? "light" : "dark";
+}
+
+function applyTheme(theme = "system") {
+  const preference = ["dark", "light", "system"].includes(theme) ? theme : "system";
+  document.documentElement.dataset.themePreference = preference;
+  document.documentElement.dataset.theme = resolveTheme(preference);
+  try { localStorage.setItem("voicecode.theme", preference); } catch (_) {}
+}
+
+function updateDownloadCenter(title, detail, percent = null) {
+  if (!downloadCenter) return;
+  if (downloadCenterHideTimer) { clearTimeout(downloadCenterHideTimer); downloadCenterHideTimer = null; }
+  downloadCenter.classList.remove("failed", "complete");
+  downloadCenter.classList.add("show");
+  if (title) downloadCenterTitle.textContent = title;
+  if (detail) downloadCenterDetail.textContent = detail;
+  if (downloadCenterBar) {
+    const value = Number(percent);
+    downloadCenterBar.classList.toggle("indeterminate", !Number.isFinite(value));
+    downloadCenterBar.style.width = Number.isFinite(value) ? `${Math.max(0, Math.min(100, value))}%` : "35%";
+  }
+}
+
+function finishDownloadCenter(detail = "") {
+  if (!downloadCenter) return;
+  downloadCenter.classList.remove("failed");
+  downloadCenter.classList.add("complete", "show");
+  if (detail) downloadCenterDetail.textContent = detail;
+  if (downloadCenterBar) { downloadCenterBar.classList.remove("indeterminate"); downloadCenterBar.style.width = "100%"; }
+  downloadCenterHideTimer = setTimeout(() => downloadCenter?.classList.remove("show"), 2600);
+}
+
+function failDownloadCenter(title, detail = "") {
+  if (!downloadCenter) return;
+  downloadCenter.classList.remove("complete");
+  downloadCenter.classList.add("failed", "show");
+  if (title) downloadCenterTitle.textContent = title;
+  if (detail) downloadCenterDetail.textContent = detail;
+  if (downloadCenterBar) { downloadCenterBar.classList.remove("indeterminate"); downloadCenterBar.style.width = "100%"; }
+}
+
+matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => {
+  if (document.documentElement.dataset.themePreference === "system") applyTheme("system");
+});
+if (downloadCenterClose) downloadCenterClose.onclick = () => downloadCenter.classList.remove("show");
+
 function showProgress(title, detail) {
   if (!progressOverlay) return;
   progressTitle.textContent = title || t("operation_in_progress");
   progressDetail.textContent = detail || t("please_wait");
+  if (progressBar) {
+    progressBar.classList.remove("determinate");
+    progressBar.style.width = "35%";
+  }
   progressOverlay.classList.add("show");
   progressOverlay.setAttribute("aria-hidden", "false");
   document.body.classList.add("progress-active");
   activateDialog(progressOverlay, progressClose);
 }
 
-function updateProgress(detail) {
+function updateProgress(detail, percent = null, title = null) {
   if (progressDetail && detail) progressDetail.textContent = detail;
+  if (progressTitle && title) progressTitle.textContent = title;
+  updateDownloadCenter(title || progressTitle?.textContent, detail, percent);
+  if (!progressBar) return;
+  const numeric = Number(percent);
+  if (Number.isFinite(numeric)) {
+    progressBar.classList.add("determinate");
+    progressBar.style.width = `${Math.max(0, Math.min(100, numeric))}%`;
+  } else {
+    progressBar.classList.remove("determinate");
+    progressBar.style.width = "35%";
+  }
+}
+
+function formatModelBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${Math.max(0, value).toFixed(0)} B`;
+}
+
+function formatModelDuration(seconds) {
+  const value = Math.max(0, Number(seconds || 0));
+  if (value < 60) return `${Math.round(value)}s`;
+  return `${Math.floor(value / 60)}m ${Math.round(value % 60)}s`;
+}
+
+function modelOperationProgress(state = {}, fallbackModel = "") {
+  const modelName = state.target_model || fallbackModel || "?";
+  const downloaded = Number(state.downloaded_bytes || 0);
+  const estimated = Number(state.estimated_bytes || 0);
+  const speed = Number(state.download_speed_bps || 0);
+  const progress = Number(state.progress || 0);
+  const elapsed = Number(state.elapsed_seconds || 0);
+  const stalled = Number(state.stalled_seconds || 0);
+  const downloading = state.status === "downloading" || state.phase === "download";
+  const lines = [
+    `${t("model")}: ${modelName}`,
+    downloading
+      ? `${t("model_download_progress")}: ${formatModelBytes(downloaded)} / ~${formatModelBytes(estimated)} (${progress}%)`
+      : `${t("model_initializing_detail")} (${progress}%)`,
+  ];
+  if (speed > 0) lines.push(`${t("model_download_speed")}: ${formatModelBytes(speed)}/s`);
+  if (elapsed > 0) lines.push(`${t("model_elapsed")}: ${formatModelDuration(elapsed)}`);
+  if (stalled >= 30) lines.push(`${t("model_download_stalled")} (${formatModelDuration(stalled)})`);
+  if (state.endpoint) lines.push(`${t("model_download_source")}: ${state.endpoint}`);
+  if (state.cache_dir) lines.push(`${t("model_cache_dir")}: ${state.cache_dir}`);
+  return {
+    title: downloading ? t("model_downloading") : t("loading_model"),
+    detail: lines.join("\n"),
+    progress,
+  };
+}
+
+function modelOperationErrorMessage(payload = {}) {
+  const state = payload.model_state || payload.state || payload;
+  const code = payload.error_code || state.error_code || "model_load_failed";
+  const translated = t(code);
+  const lines = [translated === code ? (state.user_message || payload.error || t("model_unavailable")) : translated];
+  const target = state.target_model || payload.requested_model;
+  if (target) lines.push(`${t("model")}: ${target}`);
+  if (state.active_model_available && state.active_model) lines.push(`${t("model_previous_active")}: ${state.active_model}`);
+  if (state.technical_details) lines.push(`${t("technical_details")}: ${state.technical_details}`);
+  const suggestions = Array.isArray(state.suggestions) ? state.suggestions : [];
+  if (suggestions.length) {
+    lines.push(
+      `${t("model_suggestions")}:\n${suggestions.map(item => `- ${t(`model_suggestion_${item}`)}`).join("\n")}`
+    );
+  }
+  if (state.endpoint) lines.push(`${t("model_download_source")}: ${state.endpoint}`);
+  if (state.cache_dir) lines.push(`${t("model_cache_dir")}: ${state.cache_dir}`);
+  if (payload.request_id) lines.push(`Request ID: ${payload.request_id}`);
+  return lines.join("\n");
 }
 
 function hideProgress() {
@@ -155,6 +292,10 @@ function hideProgress() {
   progressOverlay.classList.remove("show");
   progressOverlay.setAttribute("aria-hidden", "true");
   document.body.classList.remove("progress-active");
+  if (progressBar) {
+    progressBar.classList.remove("determinate");
+    progressBar.style.width = "35%";
+  }
   deactivateDialog(progressOverlay);
 }
 

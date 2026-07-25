@@ -121,9 +121,20 @@ def test_first_start_ui_loads_external_catalog_and_has_no_console_errors(tmp_pat
             assert page.locator("body").evaluate(
                 "element => element.classList.contains('dialog-open')"
             )
-            catalog = page.request.get(f"http://127.0.0.1:{port}/static/i18n/en.json")
-            assert catalog.ok
-            assert isinstance(catalog.json(), dict)
+            for language, expected_title in (
+                ("zh", "界面和转写语言"),
+                ("ja", "表示言語と文字起こし言語"),
+                ("en", "Interface and transcription language"),
+            ):
+                page.locator("#onboarding-ui-language").select_option(language)
+                page.locator("#onboarding-step-title").filter(has_text=expected_title).wait_for()
+                assert page.locator("#onboarding-ui-language").input_value() == language
+
+            for language in ("en", "zh", "ja"):
+                catalog = page.request.get(f"http://127.0.0.1:{port}/static/i18n/{language}.json")
+                assert catalog.ok
+                assert isinstance(catalog.json(), dict)
+                assert all("??" not in value for value in catalog.json().values())
 
             page.evaluate("showError('Synthetic error', 'Dialog stack regression')")
             page.locator("#error-modal.show").wait_for(state="visible")
@@ -144,7 +155,11 @@ def test_first_start_ui_loads_external_catalog_and_has_no_console_errors(tmp_pat
             page.locator("#onboarding-skip").click()
             page.locator("#onboarding-overlay").wait_for(state="hidden")
             page.locator("#error-modal.show").wait_for(state="visible")
-            assert "VOICECODE_SKIP_MODEL_LOAD" in page.locator("#error-message").inner_text()
+            assert page.locator("#error-title").inner_text() in {
+                "Missing dependencies",
+                "Whisper model unavailable",
+            }
+            assert page.locator("#error-message").inner_text()
             assert page.evaluate("document.activeElement?.id") == "error-close"
             assert page.locator(".app-shell").get_attribute("inert") == ""
             assert page.locator("body").evaluate(

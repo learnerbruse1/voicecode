@@ -1,4 +1,4 @@
-﻿# Transcription API
+# Transcription API
 
 ## `POST /record/start`
 
@@ -23,3 +23,5 @@ JSON example:
 ```
 
 `output_format` supports `json`, `txt`, `srt`, and `vtt` when exporters are enabled.
+
+> v0.2.0 installed-artifact smoke revalidated this API area on July 24, 2026; contracts were unchanged. See [the final installer validation](../RELEASE_VALIDATION_0.2.0.md).

@@ -32,6 +32,6 @@ def post_process_text(text: str, mode: str) -> str:
         processed = re.sub(r"^bullet point\s+", "- ", processed, flags=re.IGNORECASE)
     elif mode == "prompt":
         processed = processed.strip()
-        if processed and processed[-1] not in ".!????":
+        if processed and processed[-1] not in ".!?。！？":
             processed += "."
     return processed.strip()

@@ -1,16 +1,18 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VoiceCode</title>
+<link rel="icon" type="image/png" href="/static/voicecode-icon.png">
+<script>try{const p=localStorage.getItem("voicecode.theme")||"system";const light=matchMedia("(prefers-color-scheme: light)").matches;document.documentElement.dataset.themePreference=p;document.documentElement.dataset.theme=p==="system"?(light?"light":"dark"):p}catch(_){}</script>
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
 <div class="app-shell">
   <aside class="sidebar" data-i18n-aria="primary_navigation" aria-label="Primary navigation">
     <div class="brand-block">
-      <div class="brand-mark">VC</div>
+      <div class="brand-mark"><img src="/static/voicecode-icon.png" alt=""></div>
       <div>
         <h1>Voice<span>Code</span></h1>
         <p>Local Speech-to-Text</p>
@@ -24,6 +26,7 @@
       <button class="nav-item" type="button" data-view="dependencies" data-i18n="nav_dependencies">Dependencies</button>
       <button class="nav-item" type="button" data-view="history" data-i18n="nav_history">History</button>
       <button class="nav-item" type="button" data-view="diagnostics" data-i18n="nav_diagnostics">Diagnostics</button>
+      <button class="nav-item" type="button" data-view="games" data-i18n="nav_games">Games</button>
       <button class="nav-item" type="button" data-view="about" data-i18n="nav_about">About</button>
     </nav>
     <div class="sidebar-footer">
@@ -76,11 +79,6 @@
             <div id="dbg" class="debug"></div>
           </section>
 
-          <aside class="panel metrics-panel">
-            <div class="panel-heading compact"><h3 data-i18n="system_overview">System overview</h3></div>
-            <div id="perf" class="perf-grid"></div>
-            <div id="home-metrics" class="metric-cards"></div>
-          </aside>
         </div>
       </section>
 
@@ -148,10 +146,18 @@
             <div class="form-grid">
               <label for="fsize" data-i18n="label_font_size">Font size</label>
               <select id="fsize"><option value="0.85rem" data-i18n="font_small">Small</option><option value="1rem" data-i18n="font_medium">Medium</option><option value="1.2rem" data-i18n="font_large">Large</option><option value="1.5rem" data-i18n="font_xlarge">Extra large</option></select>
+              <label for="theme" data-i18n="label_theme">Theme</label>
+              <select id="theme"><option value="system" data-i18n="theme_system">Follow system</option><option value="dark" data-i18n="theme_dark">Dark</option><option value="light" data-i18n="theme_light">Light</option></select>
               <label for="history-enabled" data-i18n="label_history">History</label>
               <select id="history-enabled"><option value="true" data-i18n="history_on">On</option><option value="false" data-i18n="history_off">Off</option></select>
             </div>
             <div class="button-row"><button class="sm" id="topbtn" type="button"></button><button class="sm danger" id="reset-defaults-btn" type="button" data-i18n="restore_defaults">Restore defaults</button></div>
+          </section>
+
+          <section class="panel system-settings-panel">
+            <div class="panel-heading compact"><div><h3 data-i18n="system_overview">System overview</h3><p data-i18n="system_overview_settings_hint">Hardware and runtime details are shown here so the main transcription workspace stays focused.</p></div></div>
+            <div id="perf" class="perf-grid"></div>
+            <div id="home-metrics" class="metric-cards"></div>
           </section>
 
           <section class="panel hk-row">
@@ -168,11 +174,14 @@
       <section class="view" id="view-dependencies" data-title-key="nav_dependencies" data-subtitle-key="dependencies_subtitle"><section class="panel"><div class="panel-heading"><div><h3 data-i18n="dependencies">Dependencies</h3><p id="dependency-dir" class="muted-text"></p></div><div class="button-row"><button class="sm" id="dependencies-install-required" type="button" data-i18n="dependency_install_all_required">Install all required</button><button class="sm" id="dependencies-refresh" type="button" data-i18n="refresh">Refresh</button></div></div><div id="dependencies-list" class="dependency-list"></div></section></section>
       <section class="view" id="view-history" data-title-key="nav_history" data-subtitle-key="history_subtitle"><section class="panel"><div class="panel-heading"><div><h3 data-i18n="history">History</h3><p id="history-summary" class="muted-text"></p></div><div class="button-row"><button class="sm" id="history-btn" type="button" data-i18n="refresh">Refresh</button><button class="sm danger" id="clear-history-btn" type="button" data-i18n="clear_history">Clear history</button></div></div><div class="history-toolbar"><input id="history-search" type="search" data-i18n-placeholder="history_search_placeholder" placeholder="Search history"><select id="history-language"><option value="" data-i18n="history_filter_all_languages">All languages</option><option value="auto" data-i18n="lang_auto">Auto detect</option><option value="zh" data-i18n="lang_zh">Chinese</option><option value="en" data-i18n="lang_en">English</option><option value="ja" data-i18n="lang_ja">Japanese</option></select><button class="sm" id="history-export-json" type="button" data-format="json" data-i18n="export_json">Export JSON</button><button class="sm" id="history-export-md" type="button" data-format="md" data-i18n="export_markdown">Export Markdown</button><button class="sm" id="history-export-txt" type="button" data-format="txt" data-i18n="export_text">Export text</button></div><div id="history-list" class="list-panel"></div></section></section>
       <section class="view" id="view-diagnostics" data-title-key="nav_diagnostics" data-subtitle-key="diagnostics_subtitle"><section class="panel"><div class="panel-heading"><h3 data-i18n="diagnostics">Diagnostics</h3><div class="button-row"><button class="sm" id="diagnostics-export" type="button" data-i18n="diagnostics_export">Export diagnostics</button><button class="sm" id="diagnostics-btn" type="button" data-i18n="refresh">Refresh</button></div></div><pre id="diagnostics-output" class="code-output"></pre></section></section>
+      <section class="view" id="view-games" data-title-key="nav_games" data-subtitle-key="games_subtitle"><section class="panel games-panel"><div class="panel-heading compact"><div><h3 data-i18n="game_minesweeper">Minesweeper</h3><p data-i18n="games_minesweeper_only_hint">Classic Minesweeper with three difficulty levels.</p></div></div><div id="game-minesweeper" class="game-stage"><div class="game-toolbar"><select id="mine-level"><option value="9x9x10" data-i18n="game_beginner">Beginner</option><option value="16x16x40" data-i18n="game_intermediate">Intermediate</option><option value="16x30x99" data-i18n="game_expert">Expert</option></select><button id="mine-new" class="sm" type="button" data-i18n="game_new">New game</button><span id="mine-status"></span></div><div id="mine-board" class="mine-board"></div></div><p class="game-legal" data-i18n="games_original_notice">Original VoiceCode implementation inspired by classic Windows Minesweeper; Microsoft code and artwork are not included.</p></section></section>
       <section class="view" id="view-about" data-title-key="nav_about" data-subtitle-key="about_subtitle"><section class="panel about-panel"><h3>VoiceCode</h3><p data-i18n="about_text">A local-first speech-to-text desktop app powered by faster-whisper.</p><div class="info-grid"><div><strong>Runtime</strong><span>Python / Flask / pywebview</span></div><div><strong>Inference</strong><span>faster-whisper / CTranslate2</span></div><div><strong>Privacy</strong><span>Local transcription by default</span></div><button id="rerun-onboarding" class="sm" type="button" data-i18n="onboarding_open_again">Run first-start guide</button></div></section></section>
     </main>
   </section>
 </div>
 
+
+<aside id="download-center" class="download-center" aria-live="polite"><div class="download-center-head"><strong id="download-center-title" data-i18n="downloads">Downloads</strong><button id="download-center-close" type="button" aria-label="Close">&#10005;</button></div><div id="download-center-detail"></div><div class="download-center-track"><span id="download-center-bar"></span></div></aside>
 
 <div id="onboarding-overlay" class="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-hidden="true">
   <div class="onboarding-dialog">
@@ -191,7 +200,7 @@
   </div>
 </div>
 
-<div id="error-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="error-title" aria-hidden="true"><div class="modal"><h2 id="error-title" data-i18n="operation_failed">Operation failed</h2><p id="error-message">An unexpected error occurred.</p><div class="modal-actions"><button class="secondary" id="error-copy" type="button" data-i18n="copy_details">Copy details</button><button id="error-close" type="button" data-i18n="ok">OK</button></div></div></div>
-<script src="/js/dom.js"></script><script src="/js/modal.js"></script><script src="/js/config.js"></script><script src="/js/hotkey.js"></script><script src="/js/settings.js"></script><script src="/js/recorder.js"></script><script src="/js/history.js"></script><script src="/js/models.js"></script><script src="/js/status.js"></script><script type="module" src="/js/app.js"></script>
+<div id="error-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="error-title" aria-hidden="true"><div class="modal"><h2 id="error-title" data-i18n="operation_failed">Operation failed</h2><p id="error-message">An unexpected error occurred.</p><div class="modal-actions"><button class="secondary" id="error-copy" type="button" data-i18n="copy_details">Copy details</button><button class="secondary" id="error-open-logs" type="button" data-i18n="open_logs">Open logs</button><button id="error-close" type="button" data-i18n="ok">OK</button></div></div></div>
+<script src="/js/dom.js"></script><script src="/js/modal.js"></script><script src="/js/config.js"></script><script src="/js/hotkey.js"></script><script src="/js/settings.js"></script><script src="/js/recorder.js"></script><script src="/js/history.js"></script><script src="/js/models.js"></script><script src="/js/status.js"></script><script src="/js/games.js"></script><script type="module" src="/js/app.js"></script>
 </body>
 </html>

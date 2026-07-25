@@ -1,4 +1,16 @@
-﻿# Troubleshooting
+# Troubleshooting
+
+## The installed window shows "The requested URL was not found"
+
+Install or upgrade to VoiceCode v0.2.0 or later. Earlier desktop bundles could omit `voicecode/static`, causing `/` to return HTTP 404. A valid installation contains `<install-dir>\_internal\voicecode\static\index.html`. The v0.2.0 build now fails if this asset is missing.
+
+## Chinese or Japanese text displays as question marks
+
+Install or upgrade to VoiceCode v0.2.0 or later, then restart the application. The UTF-8 catalogs must contain real translated text and `/static/i18n/zh.json` plus `/static/i18n/ja.json` must return HTTP 200. v0.2.0 also fixes switching from Chinese/Japanese back to English in the first-start guide.
+
+## Port 7788 is already in use
+
+VoiceCode v0.2.0 uses a Windows single-instance lock. Starting the app again restores the existing window and exits cleanly. If an unrelated service owns port 7788, close that service or set `PORT` before launching a source build; do not connect VoiceCode to an unidentified local service.
 
 ## The app says the model is unavailable
 
@@ -44,7 +56,7 @@ Open **Models** and check the cache directory shown at the top. Common causes:
 - offline mode is enabled and the model is not cached
 - the selected model is currently active, so its cache cannot be deleted
 - the cache directory is not writable
-- network access to the model host is blocked
+- network access to the model host is blocked (v0.2.0 probes the official endpoint and falls back to `hf-mirror.com` when reachable)
 
 Try choosing a smaller model, switching hardware to Auto, confirming that `VOICECODE_MODEL_DIR` points to a writable folder, or deleting only non-active model caches.
 
@@ -83,3 +95,35 @@ Set the environment variable named by `extensions.diarization.token_env` (defaul
 ## The API rejects Host or Origin
 
 VoiceCode accepts loopback Host names and same-port loopback Origins. Use `127.0.0.1`, `localhost`, or `::1`; proxies and embedded clients must preserve a valid local Host and must not send a foreign Origin on mutation requests.
+
+## The Windows installer build times out downloading embedded Python
+
+Current builds download prerequisites before PyInstaller, retry failures, write through an atomic `.part` file, validate the embedded ZIP, and keep successful downloads under `build/windows/downloads/`. Rerun the build after network access recovers. If a cached file is corrupt, delete only the affected file in `build/windows/downloads/`; do not delete the full `build/windows` directory unless you intentionally want to discard the cache.
+
+## Files remain after uninstalling the Windows app
+
+This is expected for user-created runtime data. Setup removes the installed application payload, while downloaded models, optional packages, and caches may remain under `<install-dir>\runtime` for reuse. Reinstall to the same location to reuse them, or manually delete the remaining installation directory for a complete removal.
+
+## A selected model stays on loading
+
+Check `/status` or the progress dialog. Current states distinguish `downloading` from local `loading`/initialization and include `target_model`, downloaded/estimated bytes, transfer speed, elapsed time, stalled time, endpoint, and cache directory. A directory containing only part of a model is reported as a **partial download**, not a usable cache.
+
+The July 24, 2026 installed log showed the original failure pattern: startup ignored the saved `small` selection and began `base`; the official endpoint timed out, fallback selected `hf-mirror.com`, the Xet/CAS file transfer timed out, and a device fallback retried the same network download. VoiceCode now loads the configured model, waits for onboarding selection on first launch, avoids CPU retry for network errors, disables Xet by default, and surfaces a structured failure popup.
+
+For a network timeout:
+
+1. Retry; incomplete Hugging Face files are resumable.
+2. Confirm `https://huggingface.co` or the selected mirror is reachable.
+3. Check VPN, proxy, firewall, DNS, and security software.
+4. Try `tiny` or `base` before a larger model.
+5. Verify `<install-dir>\runtime\models` is writable and the drive has enough free space.
+
+Advanced overrides: `HF_ENDPOINT`, `HF_HUB_ETAG_TIMEOUT`, `HF_HUB_DOWNLOAD_TIMEOUT`, and `HF_HUB_DISABLE_XET`. Packaged defaults are 10 seconds for metadata, 30 seconds for each download response, and Xet disabled.
+
+## Model appears downloaded but cannot load
+
+Open Models and check whether the cache is marked partial. VoiceCode now verifies the size of `model.bin`; missing or truncated weights are not considered complete. Delete the partial cache if resume repeatedly fails, then download again.
+
+## Port occupied after closing
+
+VoiceCode performs graceful shutdown and a frozen-process final exit. On the next launch it can also identify and terminate a windowless stale VoiceCode process when that process uses the same executable and still owns the configured local port. Unrelated services are never terminated.

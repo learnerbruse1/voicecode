@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
+import sys
 
 
 def main() -> None:
@@ -16,7 +18,12 @@ def main() -> None:
 
     from .main import run as run_main
 
-    run_main()
+    exit_code = 0 if run_main() else 1
+    if getattr(sys, "frozen", False):
+        logging.shutdown()
+        os._exit(exit_code)
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":

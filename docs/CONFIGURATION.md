@@ -1,6 +1,6 @@
-﻿# Configuration Guide
+# Configuration Guide
 
-VoiceCode stores configuration in a user-writable path, never inside the installed package directory.
+VoiceCode stores configuration in a user-writable path, never inside the installed package directory. Packaged models, optional dependencies, and caches live under the selected installation directory and can remain after uninstall so a reinstall can reuse them.
 
 ## Default paths
 
@@ -15,6 +15,9 @@ VoiceCode stores configuration in a user-writable path, never inside the install
 | `VOICECODE_STATIC_DIR` | Override static UI directory |
 | `VOICECODE_RUNTIME_DIR` | Runtime/cache root |
 | `VOICECODE_MODEL_DIR` | faster-whisper model download/cache root |
+| `VOICECODE_DEP_DIR` | Isolated optional dependency directory |
+| `PIP_CACHE_DIR` | pip download cache; packaged builds force this below `runtime/cache/pip` |
+| `HF_ENDPOINT` | Explicit Hugging Face endpoint; if unset, v0.2.0 probes the official endpoint and reachable mirror |
 | `VOICECODE_HISTORY_FILE` | Override transcript history path |
 | `VOICECODE_LOG_FILE` | Override log file path |
 | `VOICECODE_LOG_LEVEL` | Python log level, for example `DEBUG` |
@@ -124,3 +127,11 @@ The current schema is `config_version: 2`. Files without a version are treated a
 ## Heavy extension credentials
 
 Diarization stores only the environment-variable name (`token_env`, default `HF_TOKEN`), never the token value. Set that variable before starting VoiceCode. NeMo and pyannote model names and execution devices are configurable, and binary dependency installation can require a full application restart.
+
+## Model download network controls
+
+VoiceCode sets process-local defaults `HF_HUB_ETAG_TIMEOUT=10`, `HF_HUB_DOWNLOAD_TIMEOUT=30`, and `HF_HUB_DISABLE_XET=1` unless the user already supplied values. Disabling Xet makes `huggingface_hub` use its regular HTTP downloader, which is more reliable on networks that cannot sustain the CAS/Xet bridge used in the July 24, 2026 installed log. `HF_ENDPOINT` still selects an explicit host; when it is unset, VoiceCode probes the official endpoint and the configured mirror fallback.
+
+## Theme and hardware layout
+
+`theme` accepts `system`, `dark`, or `light`. The top bar intentionally contains only compact CPU, GPU, and memory utilization. Detailed process, VRAM, driver, compute type, and model information is displayed under Settings.

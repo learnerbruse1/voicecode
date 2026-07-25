@@ -1,4 +1,4 @@
-﻿# System API
+# System API
 
 ## `GET /health`
 
@@ -35,3 +35,5 @@ Samples local microphone level for setup/settings diagnostics. Accepts `audio_de
 ## `GET /diagnostics/export`
 
 Downloads a redacted diagnostic ZIP containing system status, config, recent dependency tasks, and the available application-log tail.
+
+> v0.2.0 installed-artifact smoke revalidated this API area on July 24, 2026; contracts were unchanged. See [the final installer validation](../RELEASE_VALIDATION_0.2.0.md).

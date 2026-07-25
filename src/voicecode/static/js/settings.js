@@ -1,4 +1,5 @@
 fsizeSel.onchange = () => { transcriptEl.style.fontSize = fsizeSel.value; saveConfig({font_size: fsizeSel.value}); };
+if (themeSel) themeSel.onchange = () => { applyTheme(themeSel.value); saveConfig({theme: themeSel.value}); };
 appendSel.onchange = () => saveConfig({append_mode: appendSel.value});
 langSel.onchange = () => saveConfig({language: langSel.value});
 audioDeviceSel.onchange = () => saveConfig({audio_device: audioDeviceSel.value});
@@ -54,7 +55,7 @@ async function testMicrophone() {
 async function loadModelInfo(force = false) {
   if (!force && modelInfoCache) return modelInfoCache;
   const data = await fetch("/models").then(r => r.json());
-  modelInfoCache = {models: data.models || {}, compatibility: data.compatibility || {}};
+  modelInfoCache = {models: data.models || {}, compatibility: data.compatibility || {}, cache: data.cache || {}};
   return modelInfoCache;
 }
 
@@ -62,13 +63,16 @@ function renderModelButtons() {
   if (!modelButtonListEl || !modelInfoCache) return;
   const models = modelInfoCache.models || {};
   const compatibility = modelInfoCache.compatibility || {};
+  const cache = modelInfoCache.cache || {};
   modelButtonListEl.innerHTML = Object.entries(models).map(([name, info]) => {
     const compat = compatibility[name] || {selectable: true};
     const disabled = compat.selectable === false;
     const active = name === modelSel.value;
-    const latest = name === "large-v3-turbo" ? ` ? ${t("latest_model")}` : "";
+    const itemCache = cache[name] || {};
+    const actionLabel = itemCache.cached ? t("model_load") : t("model_download");
+    const latest = name === "large-v3-turbo" ? ` · ${t("latest_model")}` : "";
     const vram = `${t("vram_min")}: ${compat.vram_min_gb || info.vram_min_gb || "?"}GB / ${t("vram_rec")}: ${compat.vram_recommended_gb || info.vram_recommended_gb || "?"}GB`;
-    return `<button type="button" class="model-option-btn ${active ? "active" : ""} ${disabled ? "disabled" : ""}" data-model="${name}" data-disabled="${disabled}" data-reason="${(compat.reason || "").replace(/"/g, "&quot;")}"><strong>${name}${latest}</strong><small>${info.description || ""}</small><small>${vram}</small></button>`;
+    return `<button type="button" class="model-option-btn ${active ? "active" : ""} ${disabled ? "disabled" : ""}" data-model="${name}" data-disabled="${disabled}" data-reason="${(compat.reason || "").replace(/"/g, "&quot;")}"><strong>${name}${latest}</strong><small>${info.description || ""}</small><small>${vram}</small><em>${actionLabel}${itemCache.partial ? ` · ${t("model_cache_partial")}` : ""}</em></button>`;
   }).join("");
   modelButtonListEl.querySelectorAll(".model-option-btn").forEach(btn => {
     btn.onclick = () => {
@@ -91,7 +95,7 @@ async function updateModelDescription(force = false) {
     const info = (infoBundle.models || {})[modelSel.value] || {};
     const compat = (infoBundle.compatibility || {})[modelSel.value] || {};
     const latest = modelSel.value === "large-v3-turbo" ? ` <span class="model-latest">${t("latest_model")}</span>` : "";
-    const vram = `${t("vram_min")}: ${compat.vram_min_gb || info.vram_min_gb || "?"}GB ? ${t("vram_rec")}: ${compat.vram_recommended_gb || info.vram_recommended_gb || "?"}GB`;
+    const vram = `${t("vram_min")}: ${compat.vram_min_gb || info.vram_min_gb || "?"}GB · ${t("vram_rec")}: ${compat.vram_recommended_gb || info.vram_recommended_gb || "?"}GB`;
     modelDescriptionEl.innerHTML = `${info.size || ""} ${info.description || t("model_description_default")} ${vram}${latest}`;
     renderModelButtons();
   } catch (e) {
@@ -114,55 +118,80 @@ function renderDeviceMode() {
 async function updateAutoDeviceLabel() {
   if (!autoDeviceCurrent) return;
   try {
-    const data = await fetch("/models").then(r => r.json());
+    const [models, hardware] = await Promise.all([
+      fetch("/models").then(r => r.json()),
+      fetch("/hardware").then(r => r.json()),
+    ]);
     const configured = autoDeviceToggle && autoDeviceToggle.checked ? t("auto_device_on") : t("auto_device_off");
-    autoDeviceCurrent.textContent = `${configured}: ${data.device || "?"} / ${data.compute_type || "?"}`;
+    const gpuName = hardware.gpu && hardware.gpu.name ? hardware.gpu.name : "";
+    const gpuState = gpuName
+      ? `${gpuName} · ${hardware.cuda_available ? t("gpu_cuda_ready") : t("gpu_cuda_unavailable")}`
+      : t("gpu_not_detected");
+    autoDeviceCurrent.textContent = `${configured}: ${models.device || "?"} / ${models.compute_type || "?"} · ${gpuState}`;
   } catch (e) {
     autoDeviceCurrent.textContent = autoDeviceToggle && autoDeviceToggle.checked ? t("auto_device_on") : t("auto_device_off");
   }
 }
 
-async function waitForModelReady(timeoutMs = 180000) {
+async function waitForModelReady(expectedModel, timeoutMs = 900000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const resp = await fetch("/status");
-    const data = await resp.json();
+    const data = await requestJSON("GET", "/status", {}, {suppressPopup: true, timeout: 10000});
+    if (!data.ok) throw Object.assign(new Error(data.error || t("request_failed")), {modelState: data});
     const state = data.model_state || {};
-    if (state.status === "ready") return data;
-    if (state.status === "error") throw new Error(state.error || t("model_unavailable"));
-    updateProgress(`${t("loading_model")} · ${Number(state.progress || 0)}%`);
+    const target = state.target_model || data.configured_model || data.model;
+    if (state.status === "ready" && (!expectedModel || target === expectedModel || data.model === expectedModel)) return data;
+    if (state.status === "error") {
+      throw Object.assign(new Error(state.user_message || state.error || t("model_unavailable")), {modelState: state});
+    }
+    const progressInfo = modelOperationProgress(state, expectedModel);
+    updateProgress(progressInfo.detail, progressInfo.progress, progressInfo.title);
     await new Promise(resolve => setTimeout(resolve, 900));
   }
-  throw new Error(t("request_timeout_detail"));
+  const timeoutState = {
+    error_code: "model_client_wait_timeout",
+    target_model: expectedModel,
+    technical_details: t("request_timeout_detail"),
+    suggestions: ["check_network", "retry", "use_smaller_model"],
+  };
+  throw Object.assign(new Error(t("request_timeout_detail")), {modelState: timeoutState});
 }
 
 async function reloadWhisperModel() {
   renderDeviceMode();
+  const requestedModel = modelSel.value;
   setStatus("processing", "loading_model");
-  showProgress(t("loading_model"), t("switching_model_detail"));
+  updateDownloadCenter(t("loading_model"), `${t("model")}: ${requestedModel}
+${t("switching_model_detail")}`, null);
   const r = await requestJSON("POST", "/reload_model", {
-    model: modelSel.value,
+    model: requestedModel,
     device: deviceSel.value,
     compute_type: computeTypeSel.value,
     beam_size: Number(beamSizeSel.value),
     vad_filter: vadFilterSel.value === "true"
-  }, {errorTitle: t("failed_reload_model")});
+  }, {errorTitle: t("failed_reload_model"), suppressPopup: true});
   if (!r.ok) {
+    showError(t("failed_reload_model"), modelOperationErrorMessage(r));
     setStatus("error", "model_unavailable");
-    hideProgress();
-    return;
+    failDownloadCenter(t("failed_reload_model"), modelOperationErrorMessage(r));
+    await loadConfig();
+    await updateModelDescription(true);
+    return false;
   }
   try {
-    await waitForModelReady();
+    await waitForModelReady(requestedModel);
     modelInfoCache = null;
     await pollModelStatus(true);
     await updateAutoDeviceLabel();
     await updateModelDescription(true);
+    finishDownloadCenter(t("model_download_complete"));
+    return true;
   } catch (e) {
-    showError(t("failed_reload_model"), e.message || String(e));
+    const detail = modelOperationErrorMessage(e.modelState || {technical_details: e.message});
+    showError(t("failed_reload_model"), detail);
+    failDownloadCenter(t("failed_reload_model"), detail);
     setStatus("error", "model_unavailable");
-  } finally {
-    hideProgress();
+    return false;
   }
 }
 

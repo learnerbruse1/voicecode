@@ -1,4 +1,8 @@
-﻿# VoiceCode
+# VoiceCode
+
+![VoiceCode icon](assets/voicecode-icon.png)
+
+**Current release: v0.2.0**
 
 [English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
 
@@ -12,24 +16,28 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 - Guided first launch for language, runtime dependencies, microphone, and model/hardware setup.
 - English, Chinese, and Japanese UI languages loaded from external JSON catalogs.
 - Operable extension cards with enable/disable controls, validated configuration, and one-click dependency installation.
-- Model cache management page for downloading/loading models and deleting non-active local caches.
+- Model cache management page for downloading/loading models and deleting non-active local caches, with byte/speed/elapsed/stall progress and detailed retry guidance for network failures.
 - Searchable transcript history with language filters, single-entry deletion, and JSON/TXT/Markdown export.
 - Configurable inference device (`auto`, `cpu`, `cuda`) and compute type (`auto`, `int8`, `float16`, `float32`, `int8_float16`).
 - Cross-platform Python package layout for Windows, macOS, and Linux development.
 - Local-only Flask/Waitress API bound to `127.0.0.1`, protected by a per-process mutation token, loopback Host/Origin validation, CSP, and defensive browser headers.
 - Desktop UI via `pywebview`, global hotkey via `pynput`, and isolated runtime dependency installs into `VOICE_DEP`.
 - Upload/API transcription endpoint for tests, integrations, and batch workflows.
-- User-writable config/log/history paths; no writes into the installed package directory.
+- User-writable config/log/history paths; packaged models, dependencies, and caches are intentionally kept under the selected installation directory.
 - English diagnostics and error messages for maintainers.
 
-## Requirements
+## Windows installer
 
-- Python 3.10+
+For normal Windows use, install `VoiceCode-v0.2.0-Windows-x64-Setup.exe`. The setup wizard lets you choose the destination directory. Core dependencies and an embedded Python/pip runtime are included; future optional packages, models, and download caches stay under `<install-dir>\runtime`.
+
+The installer build configuration is maintained in `packaging/windows/`. Generated installers remain ignored under `dist/windows/` and are release artifacts rather than source files. The v0.2.0 functional installer pass completed on **July 24, 2026**, covering custom-path install/repair, single-instance behavior, multilingual assets, embedded pip, cached-model reuse, transcription, uninstall, and reinstall. See the [final validation record](docs/RELEASE_VALIDATION_0.2.0.md). The locally validated artifact was not signed; a timestamped Authenticode signature and post-signing smoke test remain release gates.
+
+## Source requirements
+
+- Python 3.10+ (the Windows installer is built with CPython 3.12 x64)
 - A microphone supported by PortAudio / `sounddevice`
 - Network access for first model/dependency download unless models and runtime packages are already cached or installed
 - Optional NVIDIA GPU with a CUDA/CuDNN runtime compatible with CTranslate2
-
-VoiceCode is distributed as a Python project. This repository intentionally does not include one-click installer scripts or generated installer artifacts.
 
 ## Install from source
 
@@ -109,7 +117,8 @@ Additional overrides: `VOICECODE_CONFIG_FILE`, `VOICECODE_STATIC_DIR`, `VOICECOD
 - [Hardware and model selection](docs/HARDWARE.md) for CPU/GPU, CUDA, compute types, and VRAM guidance
 - [Error handling and resilience](docs/ERROR_HANDLING.md) for request IDs, JSON errors, progress overlays, and fallback behavior
 - [Troubleshooting](docs/TROUBLESHOOTING.md) for common model, CUDA, and UI issues
-- [Packaging](docs/PACKAGING.md) and [release process](docs/RELEASING.md) for wheel/sdist contents, validation, and release gates
+- [Windows installer](docs/WINDOWS_INSTALLER.md), [packaging](docs/PACKAGING.md), and [release process](docs/RELEASING.md) for desktop/wheel contents, validation, and release gates
+- [v0.2.0 final installer validation](docs/RELEASE_VALIDATION_0.2.0.md) for the tested artifact, environment, results, and remaining signing/microphone gates
 - [Roadmap](docs/ROADMAP.md) for optional extension ideas and future work
 - [FAQ](docs/FAQ.md) for user-facing answers
 
@@ -168,3 +177,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CODE_OF
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Recent desktop improvements
+
+VoiceCode now validates model caches before offering **Load**, loads verified snapshots directly from disk, distinguishes partial downloads, supports reliable error-detail copying, and recovers stale windowless instances that keep the local port occupied. The top bar shows compact CPU/GPU/memory summaries; detailed hardware information is available in Settings. Minesweeper includes Beginner, Intermediate, and Expert modes. All new UI text is maintained in English, Simplified Chinese, and Japanese.

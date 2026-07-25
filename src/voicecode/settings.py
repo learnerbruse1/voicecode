@@ -89,6 +89,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "history_enabled": True,
     "history_limit": 50,
     "font_size": "1rem",
+    "theme": "system",
     "append_mode": "append",
     "on_top": False,
     "onboarding": {"completed": False, "completed_version": "", "skipped": False},
@@ -410,6 +411,8 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Unsupported append mode. Use append or replace.")
     if "font_size" in patch and patch["font_size"] not in {"0.85rem", "1rem", "1.2rem", "1.5rem"}:
         raise ValueError("Unsupported font size.")
+    if "theme" in patch and patch["theme"] not in {"dark", "light", "system"}:
+        raise ValueError("Unsupported theme. Use dark, light, or system.")
     if "on_top" in patch and not isinstance(patch["on_top"], bool):
         raise ValueError("on_top must be a boolean.")
     if "onboarding" in patch:

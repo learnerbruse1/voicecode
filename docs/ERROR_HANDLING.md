@@ -1,4 +1,4 @@
-﻿# Error Handling and Resilience
+# Error Handling and Resilience
 
 VoiceCode is a local desktop application, but it should behave like a production service: failures must be visible, diagnosable, and recoverable whenever possible.
 
@@ -101,3 +101,11 @@ Onboarding completion records user intent; it does not hide dependency, micropho
 ## Browser/API security errors
 
 Invalid Host headers return `421`; foreign Origins on mutations and invalid API tokens return `403`. Security headers are applied to successful and error responses.
+
+## Packaged startup failures
+
+The desktop launcher treats an existing VoiceCode instance as a successful single-instance handoff. Unrelated port owners, missing packaged UI assets, and unavailable desktop backends remain explicit startup failures. Frozen entry points convert these failures into a clear Windows message and non-zero exit without printing a Python traceback. Installer prerequisite downloads occur before PyInstaller, use atomic temporary files, validate the embedded ZIP, retry transient failures, and preserve successful downloads across subsequent builds.
+
+## User-facing recovery details
+
+Error dialogs include the user message, technical details, suggested actions, and request ID. Copy Details uses the browser clipboard API, an in-page fallback, and a native Windows clipboard bridge in that order. Incomplete model caches use the `model_cache_incomplete` code rather than the generic load failure.

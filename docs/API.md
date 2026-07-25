@@ -1,4 +1,6 @@
-﻿# VoiceCode API
+# VoiceCode API
+
+The installed v0.2.0 artifact was revalidated on July 24, 2026 against the health, status, hardware, configuration/schema, onboarding, extensions, dependencies, models, audio devices, history, diagnostics, static-resource, and JSON-sample transcription paths. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md). No endpoint contract changed during the final installer pass.
 
 VoiceCode exposes a local-only HTTP API on `127.0.0.1` for the desktop UI and local integrations. The default port is `7788` and can be overridden with `PORT`.
 
@@ -395,3 +397,7 @@ Downloads a ZIP containing redacted diagnostics, redacted config, recent depende
 ### `GET /diagnostics`
 
 Returns privacy-safe runtime diagnostics such as Python version, platform, config path, log path, model state, static directory, CUDA device count, and active inference profile. It does not include audio or transcript text.
+
+## Model operation state fields
+
+`GET /status` and `GET /models` expose `configured_model`/`configured` and a detailed `model_state`. During downloads, clients can render `target_model`, `phase`, `progress`, `downloaded_bytes`, `estimated_bytes`, `download_speed_bps`, `elapsed_seconds`, `stalled_seconds`, `endpoint`, and `cache_dir`. Errors include `error_code`, `user_message`, sanitized `technical_details`, `suggestions`, `retryable`, and whether a previous active model remains available. Model cache entries now distinguish `partial`, `complete`, and `cached`; `cached` means the required faster-whisper files are complete.

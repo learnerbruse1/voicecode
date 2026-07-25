@@ -9,6 +9,7 @@ VoiceCode is an installable Python package with a mirrored source-tree UI. The a
 | Wheel | Normal Python installation | `python -m build --wheel` |
 | Source distribution | Reproducible source release | `python -m build --sdist` |
 | Local wheel smoke build | Quick packaging check without extra tools | `python -m pip wheel . --no-deps -w dist` |
+| Windows x64 installer | Self-contained desktop installation | `python -X utf8 packaging/windows/build_windows_installer.py` |
 
 Generated files under `dist/`, `build/`, and `*.egg-info` are ignored and must not be committed.
 
@@ -47,11 +48,13 @@ Managed installs may provision packages ahead of time. The local API remains bou
 
 ```text
 runtime/
-??? cache/
-?   ??? huggingface/
-?   ??? transformers/
-??? dependencies/       # in-app isolated packages in packaged runtime mode
-??? models/             # faster-whisper model cache
+|-- cache/
+|   |-- huggingface/
+|   |-- transformers/
+|   `-- pip/
+|-- dependencies/       # in-app isolated packages in packaged runtime mode
+|-- models/             # faster-whisper model cache
+`-- python/             # embedded CPython + pip used by dependency installs
 ```
 
 Configuration, logs, and transcript history remain in the user config directory, not beside package code.
@@ -73,7 +76,7 @@ Inspect wheel contents with Python's `zipfile` module or `tar -tf` for the sourc
 
 ## Desktop bundlers
 
-PyInstaller, Nuitka, MSI/DMG/AppImage, and code signing are downstream release choices, not committed generated artifacts. A desktop bundle must:
+VoiceCode maintains a PyInstaller + Inno Setup Windows pipeline under `packaging/windows/`. Nuitka, MSI, DMG, AppImage, and code signing remain downstream release choices. A desktop bundle must:
 
 1. include all packaged static assets and external JSON catalogs;
 2. call runtime path setup before importing `voicecode.app`;
@@ -97,6 +100,14 @@ PyInstaller, Nuitka, MSI/DMG/AppImage, and code signing are downstream release c
 | CPU transcription | Optional CI | Optional CI | Release gate |
 | CUDA transcription | Hardware CI/manual | Hardware CI/manual | Release gate when advertised |
 
+## Windows installer verification
+
+The Windows builder downloads and validates embedded-Python bootstrap assets before PyInstaller, caches them under `build/windows/downloads/`, and retries interrupted downloads through an atomic `.part` file. After building, run `packaging/windows/verify_windows_installer.py` on a disposable Windows path. Release CI performs silent install, file/catalog/icon checks, embedded-pip execution, and uninstall before uploading the installer and `verification.json`. Interactive release validation must additionally cover startup PID/bind checks, UI rendering, repeat launch, cached-model readiness, transcription, and a physical microphone. See [WINDOWS_INSTALLER.md](WINDOWS_INSTALLER.md) and [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md).
+
 ## Supply-chain artifacts
 
 Tagged release CI creates SHA-256 checksums, a CycloneDX JSON SBOM, and GitHub build-provenance attestations. It installs the built wheel into a clean virtual environment and verifies packaged catalogs/onboarding assets before upload. In-app dependency catalog entries must use bounded package-index specs; mutable GitHub branches are not accepted.
+
+## Shutdown and clipboard packaging
+
+The Windows bundle includes the native icon, tray dependencies, GPU telemetry dependencies, and the final frozen-process exit guard. The clipboard bridge uses Win32 APIs and requires no additional package. Silent installer validation does not auto-launch the application.

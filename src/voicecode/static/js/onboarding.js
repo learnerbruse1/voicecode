@@ -24,7 +24,14 @@ function renderOnboarding() {
   if (step === "language") {
     body.innerHTML = `<p>${t("onboarding_intro")}</p><div class="onboarding-form-grid"><label><span>${t("ui_language")}</span>${onboardingSelect("onboarding-ui-language", [{value:"en",label:"ui_en"},{value:"zh",label:"ui_zh"},{value:"ja",label:"ui_ja"}], config.ui_language || "en")}</label><label><span>${t("language")}</span>${onboardingSelect("onboarding-language", [{value:"auto",label:"lang_auto"},{value:"zh",label:"lang_zh"},{value:"en",label:"lang_en"},{value:"ja",label:"lang_ja"}], config.language || "zh")}</label></div>`;
     const languageSelect = onboardingElement("onboarding-ui-language");
-    languageSelect.onchange = async () => { await ensureI18nCatalog(languageSelect.value); uiLanguage = languageSelect.value; applyTranslations(); renderOnboarding(); };
+    languageSelect.onchange = async () => {
+      captureOnboardingStep();
+      const selectedLanguage = onboardingState.config.ui_language || "en";
+      await ensureI18nCatalog(selectedLanguage);
+      uiLanguage = selectedLanguage;
+      applyTranslations();
+      renderOnboarding();
+    };
   } else if (step === "runtime") {
     const runtime = steps.runtime || {};
     const missing = runtime.missing || [];
@@ -99,7 +106,15 @@ async function completeOnboarding(skipped = false) {
   const result = await requestJSON("POST", "/onboarding/complete", {config:onboardingState.config || {}, skipped}, {errorTitle:t("failed_save_settings")});
   if (!result.ok) return;
   const overlay = onboardingElement("onboarding-overlay"); overlay.classList.remove("show"); overlay.setAttribute("aria-hidden", "true"); deactivateDialog(overlay); sessionStorage.removeItem("voicecode.onboardingStep");
-  await loadAudioDevices(); await loadConfig(); await pollModelStatus(true);
+  await loadAudioDevices();
+  await loadConfig();
+  const modelStatus = await requestJSON("GET", "/status", {}, {suppressPopup: true});
+  const selectedModel = onboardingState.config?.model || modelSel?.value || "base";
+  const needsModelLoad = !modelStatus.ok || !modelStatus.model_loaded || modelStatus.model !== selectedModel || modelStatus.model_state?.status === "awaiting_selection";
+  if (needsModelLoad && typeof reloadWhisperModel === "function") await reloadWhisperModel();
+  else await pollModelStatus(true);
+  await updateAutoDeviceLabel();
+  await warnMissingDependenciesOnce();
 }
 
 export function setupOnboarding() {

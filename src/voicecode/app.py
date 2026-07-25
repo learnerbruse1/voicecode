@@ -1,8 +1,10 @@
 import atexit
+import gc
 from pathlib import Path
 import logging
 import multiprocessing
 import platform
+import re
 import os
 import secrets
 import sys
@@ -46,8 +48,13 @@ from .management_api import ManagementContext, create_management_blueprint  # no
 from .model_cache import ModelCacheService  # noqa: E402
 from .model_runtime import ModelRuntime  # noqa: E402
 from .recording_api import RecordingContext, create_recording_blueprint  # noqa: E402
+from .runtime import migrate_legacy_model_cache  # noqa: E402
 from .history_api import HistoryContext, create_history_blueprint  # noqa: E402
-from .system_api import SystemContext, create_system_blueprint  # noqa: E402
+from .system_api import (  # noqa: E402
+    SystemContext,
+    create_system_blueprint,
+    shutdown_gpu_monitoring,
+)
 from . import history as history_store  # noqa: E402
 from . import settings as settings_store  # noqa: E402
 
@@ -272,13 +279,9 @@ def _cuda_device_count() -> int:
 
 
 def _gpu_memory_total_mb() -> int | None:
+    """Return physical NVIDIA VRAM even when the CUDA inference runtime is unavailable."""
     try:
-        if _cuda_device_count() <= 0:
-            return None
-        try:
-            import pynvml
-        except Exception:
-            return None
+        pynvml = importlib.import_module("pynvml")
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         gpu_mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
@@ -391,6 +394,9 @@ _cancel_lock = threading.Lock()
 _cancel_token = 0
 _model_state_lock = _model_runtime.state_lock
 _model_state = _model_runtime.state
+_http_server: Any | None = None
+_http_server_lock = threading.Lock()
+_application_shutdown_event = threading.Event()
 
 
 def _model_error_message(exc: BaseException) -> str:
@@ -400,8 +406,76 @@ def _model_error_message(exc: BaseException) -> str:
     )
 
 
-def _set_model_state(status_value: str, error: str | None = None) -> None:
-    _model_runtime.set_state(status_value, error)
+def _sanitize_model_error_detail(exc: BaseException) -> str:
+    detail = str(exc).strip() or exc.__class__.__name__
+    detail = re.sub(r"(https?://[^\s?]+)\?[^\s]+", r"\1?<redacted>", detail)
+    detail = re.sub(r"\s+", " ", detail)
+    return detail[:1200]
+
+
+def _model_failure_details(exc: BaseException, model_name: str) -> dict[str, Any]:
+    technical = _sanitize_model_error_detail(exc)
+    lowered = technical.lower()
+    if any(
+        token in lowered for token in ("outgoing traffic has been disabled", "local_files_only")
+    ):
+        code = "model_offline_cache_missing"
+        message = "Offline mode is enabled, but the selected model is not completely cached."
+        suggestions = ["disable_offline", "retry", "use_smaller_model"]
+    elif any(token in lowered for token in ("timed out", "timeout", "read operation timed out")):
+        code = "model_network_timeout"
+        message = "The model download timed out before all required files were received."
+        suggestions = ["retry", "check_network", "check_proxy", "use_smaller_model"]
+    elif any(
+        token in lowered
+        for token in (
+            "connection",
+            "network is unreachable",
+            "name resolution",
+            "dns",
+            "certificate",
+            "proxy",
+            "502",
+            "503",
+            "504",
+        )
+    ):
+        code = "model_network_unreachable"
+        message = "The model host could not be reached from this computer."
+        suggestions = ["check_network", "check_proxy", "retry", "use_smaller_model"]
+    elif any(
+        token in lowered
+        for token in ("model.bin", "file reconstruction", "incomplete", "unexpected end of file")
+    ):
+        code = "model_cache_incomplete"
+        message = "The selected model cache is incomplete or damaged."
+        suggestions = ["retry", "delete_partial_cache", "check_network"]
+    elif any(token in lowered for token in ("no space", "disk full", "not enough space")):
+        code = "model_disk_full"
+        message = "There is not enough free disk space to download this model."
+        suggestions = ["free_disk_space", "use_smaller_model", "retry"]
+    elif any(token in lowered for token in ("permission denied", "access is denied", "read-only")):
+        code = "model_cache_not_writable"
+        message = "VoiceCode cannot write to the configured model cache directory."
+        suggestions = ["check_cache_permissions", "retry"]
+    else:
+        code = "model_load_failed"
+        message = "The selected Whisper model could not be downloaded or initialized."
+        suggestions = ["retry", "check_network", "use_smaller_model", "switch_to_cpu"]
+    return {
+        "error_code": code,
+        "user_message": message,
+        "technical_details": technical,
+        "suggestions": suggestions,
+        "retryable": code not in {"model_disk_full", "model_cache_not_writable"},
+        "target_model": model_name,
+        "cache_dir": str(_model_cache_dir()),
+        "endpoint": os.environ.get("HF_ENDPOINT", "https://huggingface.co"),
+    }
+
+
+def _set_model_state(status_value: str, error: str | None = None, **details: Any) -> None:
+    _model_runtime.set_state(status_value, error, **details)
 
 
 def _sync_model_runtime() -> None:
@@ -426,7 +500,9 @@ def _monitor_model_download(model_name: str, future: Future) -> None:
     estimated = _estimated_model_bytes(model_name)
     previous_bytes = 0
     previous_time = time.monotonic()
-    while not future.done():
+    started = previous_time
+    last_progress = previous_time
+    while not future.done() and not _application_shutdown_event.is_set():
         try:
             current = int(_model_cache_service.status(model_name, force=True)["size_bytes"])
         except Exception:
@@ -434,14 +510,30 @@ def _monitor_model_download(model_name: str, future: Future) -> None:
         now = time.monotonic()
         elapsed = max(0.001, now - previous_time)
         speed = max(0, round((current - previous_bytes) / elapsed))
+        if current > previous_bytes:
+            last_progress = now
+        complete = _cached_model_complete(model_name)
         with _model_state_lock:
-            if _model_state.get("status") == "loading":
+            if (
+                _model_state.get("status") in {"checking", "downloading", "loading"}
+                and _model_state.get("target_model") == model_name
+            ):
                 _model_state.update(
                     {
+                        "status": "loading" if complete else "downloading",
+                        "phase": "initializing" if complete else "download",
                         "downloaded_bytes": current,
                         "estimated_bytes": estimated,
                         "download_speed_bps": speed,
-                        "progress": min(99, round(current / estimated * 100)) if estimated else 0,
+                        "elapsed_seconds": round(now - started),
+                        "stalled_seconds": round(now - last_progress),
+                        "progress": (
+                            99
+                            if complete
+                            else min(98, round(current / estimated * 100))
+                            if estimated
+                            else 0
+                        ),
                     }
                 )
         previous_bytes = current
@@ -463,14 +555,124 @@ def _model_cache_dir() -> Path:
     return (dependency_manager.project_root() / "models").resolve()
 
 
-def _whisper_model_kwargs(device: str, compute_type: str, cpu_threads: int) -> dict[str, Any]:
+def _minimum_model_bytes(model_name: str) -> int:
+    minimum_mb = {
+        "tiny": 45,
+        "base": 100,
+        "small": 350,
+        "medium": 1000,
+        "large-v3": 2200,
+        "large-v3-turbo": 1200,
+        "distil-large-v3": 900,
+    }
+    return minimum_mb.get(model_name, 40) * 1024 * 1024
+
+
+def _cached_model_snapshot(model_name: str) -> Path | None:
+    try:
+        candidates = _model_cache_service.candidates(model_name)
+    except (OSError, ValueError):
+        return None
+    for candidate in candidates:
+        roots = [candidate]
+        snapshots = candidate / "snapshots"
+        if snapshots.is_dir():
+            roots = (
+                sorted(
+                    (item for item in snapshots.iterdir() if item.is_dir()),
+                    key=lambda item: item.stat().st_mtime,
+                    reverse=True,
+                )
+                + roots
+            )
+        for root in roots:
+            model_file = root / "model.bin"
+            try:
+                model_size = model_file.stat().st_size
+            except OSError:
+                model_size = 0
+            if (
+                (root / "config.json").is_file()
+                and model_size >= _minimum_model_bytes(model_name)
+                and (root / "tokenizer.json").is_file()
+                and any(root.glob("vocabulary.*"))
+            ):
+                return root.resolve()
+    return None
+
+
+def _cached_model_complete(model_name: str) -> bool:
+    return _cached_model_snapshot(model_name) is not None
+
+
+def _begin_model_operation(model_name: str) -> bool:
+    if _application_shutdown_event.is_set():
+        return False
+    cached = _cached_model_complete(model_name)
+    return _model_runtime.begin_operation(
+        model_name=model_name,
+        cached=cached,
+        estimated_bytes=_estimated_model_bytes(model_name),
+        cache_dir=str(_model_cache_dir()),
+        started_at=time.time(),
+    )
+
+
+def _model_operation_busy_response(requested_model: str):
+    with _model_state_lock:
+        state = dict(_model_state)
+    target = str(state.get("target_model") or MODEL_SIZE)
+    return _error(
+        f"Model '{target}' is already being downloaded or initialized.",
+        409,
+        error_code="model_operation_busy",
+        requested_model=requested_model,
+        model_state=state,
+        retryable=True,
+    )
+
+
+def _set_huggingface_endpoint(endpoint: str) -> None:
+    os.environ["HF_ENDPOINT"] = endpoint
+    try:
+        constants = importlib.import_module("huggingface_hub.constants")
+        setattr(constants, "ENDPOINT", endpoint)
+    except Exception as exc:
+        logger.debug("Unable to update the loaded Hugging Face endpoint: %s", exc)
+
+
+def _select_reachable_huggingface_endpoint() -> str | None:
+    configured = os.environ.get("HF_ENDPOINT", "").strip().rstrip("/")
+    if configured:
+        _set_huggingface_endpoint(configured)
+        return configured
+    try:
+        httpx = importlib.import_module("httpx")
+    except Exception:
+        return None
+    for endpoint in ("https://huggingface.co", "https://hf-mirror.com"):
+        try:
+            with httpx.Client(timeout=5, follow_redirects=True, trust_env=True) as client:
+                response = client.get(f"{endpoint}/api/models", params={"limit": 1})
+            if response.status_code < 500:
+                _set_huggingface_endpoint(endpoint)
+                logger.info("Using reachable Hugging Face endpoint: %s", endpoint)
+                return endpoint
+        except Exception as exc:
+            logger.warning("Hugging Face endpoint is unavailable: %s (%s)", endpoint, exc)
+    return None
+
+
+def _whisper_model_kwargs(
+    device: str, compute_type: str, cpu_threads: int, model_name: str
+) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "device": device,
         "compute_type": compute_type,
         "cpu_threads": cpu_threads,
         "download_root": str(_model_cache_dir()),
     }
-    if _env_flag("VOICECODE_OFFLINE"):
+    if _env_flag("VOICECODE_OFFLINE") or _cached_model_complete(model_name):
         kwargs["local_files_only"] = True
     return kwargs
 
@@ -500,26 +702,33 @@ def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True
             else:
                 raise RuntimeError(message)
 
+    migrate_legacy_model_cache(requested_size)
+    if not _cached_model_complete(requested_size) and not _env_flag("VOICECODE_OFFLINE"):
+        _select_reachable_huggingface_endpoint()
     logger.info("Loading Whisper model '%s' on %s (%s)...", requested_size, _device, _compute_type)
     whisper_model_class = _load_whisper_model_class()
+    cached_snapshot = _cached_model_snapshot(requested_size)
+    model_source = str(cached_snapshot) if cached_snapshot is not None else requested_size
+    if cached_snapshot is not None:
+        logger.info("Loading Whisper model from verified cache snapshot: %s", cached_snapshot)
     try:
         loaded_model = whisper_model_class(
-            requested_size,
-            **_whisper_model_kwargs(_device, _compute_type, _cpu_threads),
+            model_source,
+            **_whisper_model_kwargs(_device, _compute_type, _cpu_threads, requested_size),
         )
     except Exception as exc:
-        if not allow_cpu_fallback or _device == "cpu":
+        if not allow_cpu_fallback or _device == "cpu" or not _is_cuda_runtime_error(exc):
             raise RuntimeError(_model_error_message(exc)) from exc
         logger.warning(
             "Failed to initialize %s inference (%s). Falling back to CPU int8.",
             _device,
-            exc,
+            _sanitize_model_error_detail(exc),
         )
         _device, _compute_type, _cpu_threads = "cpu", "int8", _default_cpu_threads()
         try:
             loaded_model = whisper_model_class(
-                requested_size,
-                **_whisper_model_kwargs("cpu", "int8", _cpu_threads),
+                model_source,
+                **_whisper_model_kwargs("cpu", "int8", _cpu_threads, requested_size),
             )
         except Exception as cpu_exc:
             raise RuntimeError(_model_error_message(cpu_exc)) from cpu_exc
@@ -541,8 +750,11 @@ def _model_unavailable_reason() -> str | None:
     with _model_state_lock:
         status_value = _model_state["status"]
         error = _model_state["error"]
-    if status_value == "loading":
-        return "Whisper model is still loading. Please try again in a moment."
+    if status_value in {"checking", "downloading", "loading"}:
+        target = _model_state.get("target_model") or MODEL_SIZE
+        return f"Whisper model '{target}' is still downloading or initializing."
+    if status_value == "awaiting_selection":
+        return "Choose a model in the first-start guide or Settings before recording."
     if error:
         return error
     return "Whisper model is not loaded yet. Please reload the model and try again."
@@ -574,16 +786,32 @@ def _start_initial_model_load() -> None:
         )
         return
 
-    with _model_state_lock:
-        if _model_state["status"] == "loading":
-            return
-        _model_state.update(
-            {"status": "loading", "error": None, "progress": 0, "downloaded_bytes": 0}
+    config = load_config()
+    requested_model = str(config.get("model", MODEL_SIZE))
+    if requested_model not in VALID_MODELS:
+        logger.warning("Ignoring unsupported configured model during startup: %s", requested_model)
+        requested_model = MODEL_SIZE
+    onboarding = config.get("onboarding", {})
+    if isinstance(onboarding, dict) and not onboarding.get("completed", False):
+        _set_model_state(
+            "awaiting_selection",
+            None,
+            phase="selection",
+            target_model=requested_model,
+            configured_model=requested_model,
+            progress=0,
+            downloaded_bytes=0,
+            estimated_bytes=_estimated_model_bytes(requested_model),
+            cache_dir=str(_model_cache_dir()),
         )
+        logger.info("Waiting for onboarding model selection before starting a download.")
+        return
 
-    future = _model_runtime.submit(_load_model_sync, MODEL_SIZE)
-    future.add_done_callback(lambda f: _model_reload_done(f, MODEL_SIZE))
-    _start_model_download_monitor(MODEL_SIZE, future)
+    if not _begin_model_operation(requested_model):
+        return
+    future = _model_runtime.submit(_load_model_sync, requested_model)
+    future.add_done_callback(lambda f: _model_reload_done(f, requested_model))
+    _start_model_download_monitor(requested_model, future)
 
 
 def _sync_config_file() -> None:
@@ -645,16 +873,19 @@ def _json_payload() -> dict[str, Any]:
     return payload
 
 
-def _error(message: str, status_code: int):
+def _error(message: str, status_code: int, **details: Any):
     logger.warning(
         "Request failed: id=%s status=%s error=%s",
         getattr(g, "request_id", "unknown"),
         status_code,
         message,
     )
-    return jsonify(
-        {"error": message, "request_id": getattr(g, "request_id", "unknown")}
-    ), status_code
+    payload: dict[str, Any] = {
+        "error": message,
+        "request_id": getattr(g, "request_id", "unknown"),
+    }
+    payload.update(details)
+    return jsonify(payload), status_code
 
 
 @app.errorhandler(HTTPException)
@@ -767,6 +998,7 @@ def status():
             "status": "ok",
             "version": __version__,
             "model": MODEL_SIZE,
+            "configured_model": load_config().get("model", MODEL_SIZE),
             "recording": _recorder.is_recording(),
             "model_loaded": model_loaded,
             "model_state": model_state,
@@ -820,22 +1052,40 @@ def post_config():
 
 
 def _model_reload_done(future: Future, size: str) -> None:
+    if _application_shutdown_event.is_set():
+        logger.info("Ignoring model completion during application shutdown: %s", size)
+        return
     try:
         future.result()
     except Exception as exc:
-        logger.exception("Failed to reload Whisper model '%s'.", size)
+        failure = _model_failure_details(exc, size)
+        logger.error("Failed to reload Whisper model '%s': %s", size, failure["technical_details"])
         with model_lock:
             has_active_model = model is not None
-        if has_active_model:
-            _set_model_state(
-                "ready",
-                f"Failed to reload Whisper model '{size}'. The previous model remains active. Details: {exc}",
-            )
-        else:
-            _set_model_state("error", str(exc))
+            active_model = MODEL_SIZE if has_active_model else None
+        _set_model_state(
+            "error",
+            str(failure["user_message"]),
+            **failure,
+            active_model_available=has_active_model,
+            active_model=active_model,
+            phase="failed",
+        )
     else:
         logger.info("Whisper model reloaded: %s", size)
-        _set_model_state("ready")
+        _set_model_state(
+            "ready",
+            None,
+            phase="ready",
+            target_model=size,
+            active_model=size,
+            active_model_available=True,
+            retryable=False,
+            error_code=None,
+            user_message=None,
+            technical_details=None,
+            suggestions=[],
+        )
 
 
 @app.route("/reload_model", methods=["POST"])
@@ -857,23 +1107,35 @@ def reload_model():
             409,
         )
 
-    with _model_state_lock:
-        if _model_state["status"] == "loading":
-            return _error("A model reload is already in progress.", 409)
-        _model_state.update(
-            {"status": "loading", "error": None, "progress": 0, "downloaded_bytes": 0}
-        )
+    current_cfg = load_config()
+    size = str(validated_patch.get("model", current_cfg.get("model", MODEL_SIZE)))
+    if size not in VALID_MODELS:
+        return _error(f"Unsupported model: {size}", 400)
+    if _model_operation_in_progress():
+        return _model_operation_busy_response(size)
 
     try:
-        current_cfg = update_config(validated_patch) if validated_patch else load_config()
-        size = str(current_cfg.get("model", MODEL_SIZE))
-        if size not in VALID_MODELS:
-            _set_model_state("error", f"Unsupported model: {size}")
-            return _error(f"Unsupported model: {size}", 400)
+        _model_cache_dir().mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        failure = _model_failure_details(exc, size)
+        _set_model_state("error", str(failure["user_message"]), **failure, phase="failed")
+        return _error(str(failure["user_message"]), 500, **failure)
+
+    if not _begin_model_operation(size):
+        return _model_operation_busy_response(size)
+    try:
+        current_cfg = update_config(validated_patch) if validated_patch else current_cfg
     except HTTPException:
         raise
     except Exception as exc:
-        _set_model_state("error", f"Failed to save model configuration: {exc}")
+        _set_model_state(
+            "error",
+            f"Failed to save model configuration: {exc}",
+            error_code="model_config_save_failed",
+            target_model=size,
+            retryable=True,
+            phase="failed",
+        )
         logger.exception("Failed to save model configuration.")
         return _error(f"Failed to save model configuration: {exc}", 500)
 
@@ -951,7 +1213,7 @@ def _fallback_to_cpu_model() -> Any:
     try:
         loaded_model = whisper_model_class(
             MODEL_SIZE,
-            **_whisper_model_kwargs("cpu", "int8", _cpu_threads),
+            **_whisper_model_kwargs("cpu", "int8", _cpu_threads, MODEL_SIZE),
         )
     except Exception as load_exc:
         raise RuntimeError(_model_error_message(load_exc)) from load_exc
@@ -1042,11 +1304,16 @@ _model_cache_service = ModelCacheService(
 
 
 def _model_cache_status(model_name: str, *, force: bool = False) -> dict[str, Any]:
-    return _model_cache_service.status(model_name, force=force)
+    status = dict(_model_cache_service.status(model_name, force=force))
+    complete = _cached_model_complete(model_name)
+    status["partial"] = bool(status.get("paths")) and not complete
+    status["complete"] = complete
+    status["cached"] = complete
+    return status
 
 
 def _all_model_cache_statuses() -> dict[str, dict[str, Any]]:
-    return _model_cache_service.all_statuses()
+    return {model_name: _model_cache_status(model_name) for model_name in MODEL_INFO}
 
 
 def _delete_model_cache(model_name: str, *, confirm: bool = False) -> dict[str, Any]:
@@ -1148,6 +1415,7 @@ def models():
     return jsonify(
         {
             "current": MODEL_SIZE,
+            "configured": load_config().get("model", MODEL_SIZE),
             "device": _device,
             "compute_type": _compute_type,
             "model_loaded": model_loaded,
@@ -1181,19 +1449,18 @@ def model_download(model_name: str):
     if _env_flag("VOICECODE_SKIP_MODEL_LOAD"):
         return _error("Model loading is disabled by VOICECODE_SKIP_MODEL_LOAD.", 409)
 
-    with _model_state_lock:
-        if _model_state["status"] == "loading":
-            return _error("A model load is already in progress.", 409)
-        _model_state.update(
-            {"status": "loading", "error": None, "progress": 0, "downloaded_bytes": 0}
-        )
+    if _model_operation_in_progress():
+        return _model_operation_busy_response(model_name)
 
     try:
         _model_cache_dir().mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        _set_model_state("error", str(exc))
-        return _error(f"Failed to create model cache directory: {exc}", 500)
+        failure = _model_failure_details(exc, model_name)
+        _set_model_state("error", str(failure["user_message"]), **failure, phase="failed")
+        return _error(str(failure["user_message"]), 500, **failure)
 
+    if not _begin_model_operation(model_name):
+        return _model_operation_busy_response(model_name)
     future = _model_runtime.submit(_load_model_sync, model_name)
     future.add_done_callback(lambda f: _model_reload_done(f, model_name))
     _start_model_download_monitor(model_name, future)
@@ -1220,12 +1487,58 @@ def model_cache_delete(model_name: str):
 
 
 def start_server() -> None:
-    from waitress import serve  # type: ignore[import-untyped]
+    from waitress import create_server  # type: ignore[import-untyped]
 
+    global _http_server
+    _application_shutdown_event.clear()
     _configure_file_logging()
     _start_initial_model_load()
     logger.info("Starting HTTP server on 127.0.0.1:%s", PORT)
-    serve(app, host="127.0.0.1", port=PORT, threads=4)
+    http_server = create_server(app, host="127.0.0.1", port=PORT, threads=4)
+    with _http_server_lock:
+        _http_server = http_server
+    try:
+        http_server.run()
+    finally:
+        with _http_server_lock:
+            if _http_server is http_server:
+                _http_server = None
+        logger.info("HTTP server stopped.")
+
+
+def stop_server() -> None:
+    with _http_server_lock:
+        http_server = _http_server
+    if http_server is None:
+        return
+    try:
+        http_server.close()
+    except Exception as exc:
+        logger.warning("Failed to stop HTTP server cleanly: %s", exc)
+
+
+def shutdown_application() -> None:
+    """Stop all VoiceCode-owned background work and release heavyweight resources."""
+    global model
+    if _application_shutdown_event.is_set():
+        stop_server()
+        return
+    _application_shutdown_event.set()
+    logger.info("Stopping VoiceCode background services.")
+    _bump_cancel_token()
+    try:
+        _recorder.cancel()
+    except Exception as exc:
+        logger.debug("Failed to cancel active recording during shutdown: %s", exc)
+    dependency_manager.shutdown_tasks()
+    _model_runtime.shutdown()
+    stop_server()
+    with model_lock:
+        model = None
+    _model_runtime.set_model(None)
+    shutdown_gpu_monitoring()
+    gc.collect()
+    logger.info("VoiceCode background services stopped.")
 
 
 def _deliver_transcription(text_value: str, request_cancel_token: int) -> None:

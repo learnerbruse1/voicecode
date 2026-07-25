@@ -53,3 +53,5 @@ Lists recent persisted tasks.
 ## `POST /dependencies/tasks/<task_id>/cancel`
 
 Cancels a queued/running install and terminates its pip process tree.
+
+> v0.2.0 installed-artifact smoke revalidated this API area on July 24, 2026; contracts were unchanged. See [the final installer validation](../RELEASE_VALIDATION_0.2.0.md).

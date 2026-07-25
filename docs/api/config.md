@@ -1,4 +1,4 @@
-﻿# Configuration API
+# Configuration API
 
 ## `GET /config`
 
@@ -19,3 +19,5 @@ The config includes `onboarding.completed`, `onboarding.completed_version`, and 
 ## `GET /config/schema`
 
 Returns `config_version` and core field constraints used by clients.
+
+> v0.2.0 installed-artifact smoke revalidated this API area on July 24, 2026; contracts were unchanged. See [the final installer validation](../RELEASE_VALIDATION_0.2.0.md).

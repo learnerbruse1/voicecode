@@ -156,3 +156,15 @@ The server binds to loopback, validates loopback Host names, rejects foreign Ori
 ## Extension execution pipeline
 
 Silero VAD compacts detected speech before Whisper. Punctuation restoration runs after text-mode and Chinese normalization. When timestamped segments and audio are available, pyannote diarization assigns the speaker with maximum temporal overlap to each Whisper segment. Heavy adapters are lazy-loaded and expose `operational`, `experimental`, dependency-missing, and runtime-error states.
+
+## Windows packaged runtime (v0.2.0)
+
+The Windows launcher acquires a per-session named mutex before starting Waitress. A repeat launch restores the existing pywebview window and exits successfully. Startup verifies both `/health` (including the current PID) and `/`; a bundle missing frontend assets is rejected before the 404 page can become the desktop UI. The maintained installer stores embedded Python/pip, optional dependencies, models, and caches below the selected `<install-dir>/runtime`. The build front-loads validated/retried embedded-runtime downloads and preserves their cache across clean PyInstaller work builds. Release CI then performs an actual silent install, payload/catalog/pip verification, and uninstall before artifact upload. User-created runtime files are outside Inno Setup's installed-file manifest and may survive uninstall for reuse.
+
+## Model operation state
+
+Model operations expose terminal and active phases rather than a single ambiguous loading flag. Active states are `checking`, `downloading`, and `loading`; first launch can use `awaiting_selection`; terminal states include `ready`, `error`, `skipped`, and `not_loaded`. State snapshots include the target model, cache completeness, approximate bytes, speed, elapsed/stalled time, endpoint, cache path, structured error code, sanitized technical details, retryability, and suggestion codes. A failed replacement leaves the previous model usable but reports the replacement as `error` so the UI does not falsely claim success.
+
+## Desktop lifecycle additions
+
+The desktop layer owns the tray, hotkey listener, native clipboard bridge, single-instance mutex, stale-instance recovery, and final frozen-process exit. Model operations use verified cache snapshots and a daemon serial executor; the HTTP service remains bound to `127.0.0.1`.

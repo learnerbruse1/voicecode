@@ -104,15 +104,15 @@ async function installExtensionDependencies(extensionId) {
     await loadExtensionsPanel();
     return;
   }
-  showProgress(t("extension_install_dependencies"), t("extension_install_started"));
+  updateDownloadCenter(t("extension_install_dependencies"), t("extension_install_started"), null);
   try {
     for (const task of result.tasks) await waitForDependencyTask(task.id);
     await loadExtensionsPanel();
     await loadDependenciesPanel();
   } catch (error) {
-    showError(t("dependency_install_failed"), error.message || String(error));
-  } finally {
-    hideProgress();
+    const detail = error.message || String(error);
+    showError(t("dependency_install_failed"), detail);
+    failDownloadCenter(t("dependency_install_failed"), detail);
   }
 }
 

@@ -14,9 +14,12 @@ python -m ruff check app.py main.py tests src/voicecode     # Lint
 python -m ruff format app.py main.py tests src/voicecode    # Format
 python -m mypy app.py main.py src/voicecode                 # Type-check
 python -m pip wheel . --no-deps -w dist                     # Build wheel
+python -X utf8 tools/generate_icon.py                          # Regenerate icon assets
+python -X utf8 packaging/windows/build_windows_installer.py    # Build Windows installer
+python -X utf8 packaging/windows/verify_windows_installer.py --help # Installer smoke options
 ```
 
-Use PowerShell with UTF-8 enabled on Windows. This repository intentionally does not keep one-click setup/installer scripts or generated packaging artifacts.
+Use PowerShell with UTF-8 enabled on Windows. The maintained Windows installer sources live under `packaging/windows/`; generated artifacts under `dist/` and `build/` remain ignored.
 
 ## Project Shape
 
@@ -123,6 +126,8 @@ python -m ruff check app.py main.py tests src/voicecode
 python -m mypy app.py main.py src/voicecode
 python -X utf8 -m pytest -q
 ```
+
+For installer changes, build the setup executable and run `packaging/windows/verify_windows_installer.py` against a disposable custom path; never use its uninstall option on a production install.
 
 For metadata/runtime changes, also run or justify skipping:
 

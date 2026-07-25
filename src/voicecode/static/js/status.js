@@ -1,17 +1,41 @@
-﻿async function pollModelStatus(force = false) {
+var modelStatusProgressVisible = false;
+
+async function pollModelStatus(force = false) {
   try {
     const resp = await fetch("/status");
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || resp.statusText || "Failed to read status");
     const state = data.model_state || {};
     const onboardingVisible = document.getElementById("onboarding-overlay")?.classList.contains("show");
-    if (state.error && !onboardingVisible && (force || !shownModelErrors.has(state.error))) {
-      shownModelErrors.add(state.error);
-      showError(state.status === "ready" ? t("model_warning") : t("model_unavailable"), state.error);
+    const active = ["checking", "downloading", "loading"].includes(state.status);
+    const errorKey = `${state.error_code || ""}:${state.technical_details || state.error || ""}`;
+    if (state.status === "error" && !onboardingVisible && (force || !shownModelErrors.has(errorKey))) {
+      shownModelErrors.add(errorKey);
+      showError(t("model_unavailable"), modelOperationErrorMessage(state));
     }
-    if (state.status === "ready") { setStatus("connected", "connected"); return true; }
-    if (state.status === "loading") { setStatus("processing", "loading_model"); return false; }
-    if (state.error) { setStatus("error", "model_unavailable"); return true; }
+    if (state.status === "ready") {
+      setStatus("connected", "connected");
+      if (modelStatusProgressVisible) finishDownloadCenter(t("model_download_complete"));
+      modelStatusProgressVisible = false;
+      return true;
+    }
+    if (active) {
+      setStatus("processing", state.status === "downloading" ? "model_downloading" : "loading_model");
+      const progressInfo = modelOperationProgress(state, data.configured_model || data.model);
+      if (!onboardingVisible) {
+        updateDownloadCenter(progressInfo.title, progressInfo.detail, progressInfo.progress);
+        modelStatusProgressVisible = true;
+      }
+      return false;
+    }
+    if (state.status === "awaiting_selection") {
+      setStatus("processing", "model_waiting_selection");
+      return false;
+    }
+    if (state.error) {
+      setStatus("error", "model_unavailable");
+      return true;
+    }
     return false;
   } catch (e) {
     showError(t("failed_load_settings"), e.message || String(e));
@@ -37,10 +61,9 @@ async function updateStats() {
 
     if (systemStatusEl) {
       systemStatusEl.innerHTML = [
-        `<span class="status-chip">CPU <b>${fmtPercent(s.cpu_percent)}</b></span>`,
-        `<span class="status-chip">GPU <b>${gpu ? fmtPercent(gpu.util) : "n/a"}</b></span>`,
-        `<span class="status-chip">Memory <b>${fmtPercent(s.system_memory_percent)}</b></span>`,
-        `<span class="status-chip">App <b>${fmtMb(s.process_memory_mb)}</b></span>`
+        `<span class="status-chip"><span>${t("stats_cpu")}</span><b>${fmtPercent(s.cpu_percent)}</b></span>`,
+        `<span class="status-chip"><span>${t("stats_gpu")}</span><b>${gpu ? fmtPercent(gpu.util) : t("unavailable_short")}</b></span>`,
+        `<span class="status-chip"><span>${t("stats_ram")}</span><b>${fmtPercent(s.system_memory_percent)}</b></span>`
       ].join("");
     }
 

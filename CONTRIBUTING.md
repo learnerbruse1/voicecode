@@ -1,4 +1,4 @@
-﻿# Contributing
+# Contributing
 
 Thanks for helping improve VoiceCode.
 
@@ -30,7 +30,7 @@ python -m pip wheel . --no-deps -w dist
 - Treat non-empty API JSON request bodies as objects only; malformed/non-object payloads must return `400` before side effects.
 - Do not write config, logs, history, or model caches into the installed package directory by default.
 - Do not commit generated caches or outputs such as `__pycache__`, `.pytest_cache`, `htmlcov`, `dist/`, `build/`, or `*.egg-info`.
-- Do not reintroduce repository-specific one-click setup or installer scripts without a documented maintenance plan.
+- Keep installer changes in `packaging/windows/`, regenerate icon assets through `tools/generate_icon.py`, run `verify_windows_installer.py` against a disposable path, and update the applicable validation record.
 
 ## Frontend and extensions
 
@@ -38,7 +38,7 @@ Keep root and packaged static trees synchronized. Add visible copy to all extern
 
 ## Packaging and release changes
 
-For package-data, runtime-path, or release workflow changes, follow `docs/PACKAGING.md` and `docs/RELEASING.md`, build both wheel and sdist, and inspect catalog/static inclusion.
+For package-data, runtime-path, or release workflow changes, follow `docs/PACKAGING.md` and `docs/RELEASING.md`, build both wheel and sdist, and inspect catalog/static inclusion. Windows installer changes also require a setup build, embedded-pip check, disposable install/uninstall smoke, and documentation of code-signing status. Never use the verifier's uninstall option on a production installation.
 
 ## Documentation
 

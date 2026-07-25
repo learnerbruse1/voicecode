@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 import importlib
 import json
 import os
@@ -173,6 +173,89 @@ def test_models_endpoint_reports_cache_directory(client):
     assert body["cache"]["base"]["cached"] is False
 
 
+def test_partial_model_cache_is_not_reported_as_complete(app_module):
+    root = Path(os.environ["VOICECODE_MODEL_DIR"])
+    snapshot = root / "models--Systran--faster-whisper-base" / "snapshots" / "revision"
+    snapshot.mkdir(parents=True)
+    (snapshot / "model.bin").write_bytes(b"partial")
+
+    partial = app_module._model_cache_status("base", force=True)
+
+    assert partial["partial"] is True
+    assert partial["complete"] is False
+    assert partial["cached"] is False
+
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (snapshot / "vocabulary.txt").write_text("token", encoding="utf-8")
+    with (snapshot / "model.bin").open("r+b") as model_file:
+        model_file.truncate(app_module._minimum_model_bytes("base"))
+    complete = app_module._model_cache_status("base", force=True)
+
+    assert complete["partial"] is False
+    assert complete["complete"] is True
+    assert complete["cached"] is True
+
+
+def test_huggingface_endpoint_selector_falls_back_to_reachable_mirror(app_module, monkeypatch):
+    calls: list[str] = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, params):
+            calls.append(url)
+            if url.startswith("https://huggingface.co"):
+                raise TimeoutError("official endpoint unavailable")
+            return Response(200)
+
+    fake_httpx = types.SimpleNamespace(Client=Client)
+    original_import_module = app_module.importlib.import_module
+
+    def fake_import_module(name):
+        if name == "httpx":
+            return fake_httpx
+        return original_import_module(name)
+
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    monkeypatch.setattr(app_module.importlib, "import_module", fake_import_module)
+
+    endpoint = app_module._select_reachable_huggingface_endpoint()
+
+    assert endpoint == "https://hf-mirror.com"
+    assert calls == [
+        "https://huggingface.co/api/models",
+        "https://hf-mirror.com/api/models",
+    ]
+    assert os.environ["HF_ENDPOINT"] == endpoint
+
+
+def test_cached_whisper_model_uses_local_files_only(app_module):
+    cache_root = app_module._model_cache_dir()
+    snapshot = cache_root / "models--Systran--faster-whisper-base" / "snapshots" / "test-revision"
+    snapshot.mkdir(parents=True)
+    for name in ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt"):
+        (snapshot / name).write_bytes(b"cached")
+    with (snapshot / "model.bin").open("r+b") as model_file:
+        model_file.truncate(app_module._minimum_model_bytes("base"))
+
+    kwargs = app_module._whisper_model_kwargs("cpu", "int8", 2, "base")
+
+    assert kwargs["local_files_only"] is True
+    assert kwargs["download_root"] == str(cache_root)
+
+
 def test_model_cache_delete_requires_confirmation_and_keeps_active_model(client, app_module):
     cache_dir = Path(app_module._model_cache_dir())
     base_dir = cache_dir / "base"
@@ -344,11 +427,12 @@ def test_package_launcher_and_static_asset_are_importable():
     import voicecode
     import voicecode.__main__ as launcher
 
-    assert voicecode.__version__ == "0.1.0"
+    assert voicecode.__version__ == "0.2.0"
     assert callable(launcher.main)
     static_root = resources.files("voicecode").joinpath("static")
     assert static_root.joinpath("index.html").is_file()
     assert static_root.joinpath("css", "app.css").is_file()
+    assert static_root.joinpath("voicecode-icon.png").is_file()
     for script in [
         "i18n.js",
         "accessibility.js",
@@ -370,16 +454,36 @@ def test_package_launcher_and_static_asset_are_importable():
         assert static_root.joinpath("js", script).is_file()
 
 
+def test_application_icon_assets_are_valid_and_documented():
+    from PIL import Image
+
+    repo_root = Path(__file__).resolve().parents[1]
+    png_path = repo_root / "assets" / "voicecode-icon.png"
+    ico_path = repo_root / "assets" / "voicecode-icon.ico"
+    svg_path = repo_root / "assets" / "voicecode-icon.svg"
+
+    with Image.open(png_path) as image:
+        assert image.size == (1024, 1024)
+        assert image.mode == "RGBA"
+    with Image.open(ico_path) as image:
+        assert image.format == "ICO"
+        assert (256, 256) in image.info["sizes"]
+    assert "<svg" in svg_path.read_text(encoding="utf-8")
+    assert "voicecode-icon.png" in (repo_root / "README.md").read_text(encoding="utf-8")
+
+
 def test_runtime_paths_keep_download_caches_under_runtime_dir(tmp_path, monkeypatch):
     from voicecode.runtime import configure_runtime_paths
 
     for name in [
         "VOICECODE_RUNTIME_DIR",
         "VOICECODE_MODEL_DIR",
+        "VOICECODE_DEP_DIR",
         "HF_HOME",
         "HF_HUB_CACHE",
         "HUGGINGFACE_HUB_CACHE",
         "TRANSFORMERS_CACHE",
+        "PIP_CACHE_DIR",
         "XDG_CACHE_HOME",
     ]:
         monkeypatch.delenv(name, raising=False)
@@ -389,14 +493,64 @@ def test_runtime_paths_keep_download_caches_under_runtime_dir(tmp_path, monkeypa
     assert runtime_dir == (tmp_path / "install" / "runtime").resolve()
     for name in [
         "VOICECODE_MODEL_DIR",
+        "VOICECODE_DEP_DIR",
         "HF_HOME",
         "HF_HUB_CACHE",
         "HUGGINGFACE_HUB_CACHE",
         "TRANSFORMERS_CACHE",
+        "PIP_CACHE_DIR",
         "XDG_CACHE_HOME",
     ]:
         assert Path(os.environ[name]).is_relative_to(runtime_dir)
         assert Path(os.environ[name]).exists()
+
+
+def test_frozen_runtime_migrates_existing_whisper_cache(tmp_path, monkeypatch):
+    import voicecode.runtime as runtime
+
+    executable = tmp_path / "install" / "VoiceCode.exe"
+    target = executable.parent / "runtime" / "models"
+    legacy_root = tmp_path / "legacy-huggingface"
+    legacy_model = legacy_root / "models--Systran--faster-whisper-base"
+    (legacy_model / "snapshots" / "revision").mkdir(parents=True)
+    (legacy_model / "snapshots" / "revision" / "model.bin").write_bytes(b"model")
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.touch()
+    monkeypatch.setattr(runtime.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(runtime.sys, "executable", str(executable))
+    monkeypatch.setenv("VOICECODE_MODEL_DIR", str(target))
+
+    migrated = runtime.migrate_legacy_model_cache("base", (legacy_root,))
+
+    assert migrated == target / legacy_model.name
+    assert (migrated / "snapshots" / "revision" / "model.bin").read_bytes() == b"model"
+
+
+def test_frozen_runtime_uses_bundled_python_for_optional_dependency_installs(tmp_path, monkeypatch):
+    import voicecode.runtime as runtime
+
+    executable = tmp_path / "VoiceCode" / "VoiceCode.exe"
+    bundled_python = executable.parent / "runtime" / "python" / "python.exe"
+    bundled_python.parent.mkdir(parents=True)
+    executable.touch()
+    bundled_python.touch()
+    monkeypatch.setattr(runtime.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(runtime.sys, "executable", str(executable))
+
+    assert runtime.pip_python_executable() == bundled_python
+
+
+def test_frozen_runtime_reports_missing_bundled_dependency_python(tmp_path, monkeypatch):
+    import voicecode.runtime as runtime
+
+    executable = tmp_path / "VoiceCode" / "VoiceCode.exe"
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    monkeypatch.setattr(runtime.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(runtime.sys, "executable", str(executable))
+
+    with pytest.raises(RuntimeError, match="bundled dependency installer"):
+        runtime.pip_python_executable()
 
 
 def test_root_wrappers_delegate_to_package_modules():
@@ -411,11 +565,59 @@ def test_root_wrappers_delegate_to_package_modules():
     assert root_main.run is package_main.run
 
 
+def test_package_launcher_configures_runtime_and_static_assets(monkeypatch):
+    import voicecode.__main__ as launcher
+    import voicecode.main as desktop_main
+    import voicecode.runtime as runtime
+
+    calls: list[str] = []
+    monkeypatch.delenv("VOICECODE_STATIC_DIR", raising=False)
+    monkeypatch.setattr(runtime, "configure_runtime_paths", lambda: calls.append("runtime"))
+    monkeypatch.setattr(desktop_main, "run", lambda: calls.append("desktop") or True)
+
+    launcher.main()
+
+    assert calls == ["runtime", "desktop"]
+    assert Path(os.environ["VOICECODE_STATIC_DIR"]).name == "static"
+
+
+def test_package_launcher_exits_when_desktop_startup_fails(monkeypatch):
+    import voicecode.__main__ as launcher
+    import voicecode.main as desktop_main
+    import voicecode.runtime as runtime
+
+    monkeypatch.setattr(runtime, "configure_runtime_paths", lambda: None)
+    monkeypatch.setattr(desktop_main, "run", lambda: False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        launcher.main()
+
+    assert exc_info.value.code == 1
+
+
+def test_development_runtime_uses_current_python_and_no_implicit_runtime_dir(monkeypatch):
+    import voicecode.runtime as runtime
+
+    monkeypatch.setattr(runtime.sys, "frozen", False, raising=False)
+    monkeypatch.delenv("VOICECODE_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("HF_HUB_ETAG_TIMEOUT", raising=False)
+    monkeypatch.delenv("HF_HUB_DOWNLOAD_TIMEOUT", raising=False)
+    monkeypatch.delenv("HF_HUB_DISABLE_XET", raising=False)
+
+    assert runtime.configure_runtime_paths() is None
+    assert os.environ["HF_HUB_ETAG_TIMEOUT"] == "10"
+    assert os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] == "30"
+    assert os.environ["HF_HUB_DISABLE_XET"] == "1"
+    assert runtime.pip_python_executable() == Path(runtime.sys.executable).resolve()
+    assert runtime.migrate_legacy_model_cache("base") is None
+
+
 def test_distribution_static_assets_stay_synchronized():
     repo_root = Path(__file__).resolve().parents[1]
 
     for asset in [
         Path("static/index.html"),
+        Path("static/voicecode-icon.png"),
         Path("static/css/app.css"),
         Path("static/js/i18n.js"),
         Path("static/js/accessibility.js"),
@@ -437,9 +639,14 @@ def test_distribution_static_assets_stay_synchronized():
         Path("static/js/status.js"),
         Path("static/js/app.js"),
     ]:
-        assert (repo_root / asset).read_text(encoding="utf-8") == (
-            repo_root / "src" / "voicecode" / asset
-        ).read_text(encoding="utf-8")
+        source_asset = repo_root / "src" / "voicecode" / asset
+        mirror_asset = repo_root / asset
+        if asset.suffix == ".png":
+            assert mirror_asset.read_bytes() == source_asset.read_bytes()
+        else:
+            assert mirror_asset.read_text(encoding="utf-8") == source_asset.read_text(
+                encoding="utf-8"
+            )
 
 
 def test_config_accepts_inference_controls_and_hardware_endpoint(client):
@@ -842,19 +1049,25 @@ def test_history_rejects_non_integer_limit(client):
     assert "limit" in response.get_json()["error"]
 
 
-def test_one_click_installer_scripts_are_not_part_of_source_tree():
+def test_windows_installer_configuration_keeps_runtime_data_beside_the_app():
     repo_root = Path(__file__).resolve().parents[1]
+    packaging_dir = repo_root / "packaging" / "windows"
+    installer = (packaging_dir / "VoiceCode.iss").read_text(encoding="utf-8")
+    builder = (packaging_dir / "build_windows_installer.py").read_text(encoding="utf-8")
+    runtime_hook = (packaging_dir / "runtime_hook.py").read_text(encoding="utf-8")
 
-    for path in [
-        repo_root / "setup.ps1",
-        repo_root / "setup.bat",
-        repo_root / "run.ps1",
-        repo_root / "run.bat",
-        repo_root / "packaging" / "installer",
-    ]:
-        assert not path.exists()
-    assert (repo_root / "pyproject.toml").is_file()
-    assert (repo_root / ".github" / "workflows" / "release.yml").is_file()
+    assert "DefaultDirName={localappdata}\\Programs\\{#AppName}" in installer
+    assert "PrivilegesRequired=lowest" in installer
+    assert "{app}\\runtime\\dependencies" in installer
+    assert "{app}\\runtime\\models" in installer
+    assert "PyInstaller" in builder
+    assert "voicecode/static" in builder
+    assert "voicecode-icon.ico" in builder
+    assert "SetupIconFile={#IconFile}" in installer
+    assert "packaged_index.is_file()" in builder
+    assert "get-pip.py" in builder
+    assert "VOICECODE_RUNTIME_DIR" in runtime_hook
+    assert "VOICECODE_DEP_DIR" in runtime_hook
 
 
 def test_skip_model_load_blocks_reload(client, app_module, monkeypatch):
@@ -957,7 +1170,28 @@ def test_wait_for_server_rejects_other_voicecode_process(monkeypatch):
         lambda *args, **kwargs: FakeHealthResponse(b'{"status":"ok","pid":5678}'),
     )
 
-    with pytest.raises(RuntimeError, match="another VoiceCode process.*5678"):
+    with pytest.raises(
+        main_module.VoiceCodeAlreadyRunningError, match="VoiceCode is already running.*5678"
+    ):
+        main_module._wait_for_server(timeout_seconds=0.1)
+
+
+def test_wait_for_server_rejects_missing_ui_assets(monkeypatch):
+    from urllib.error import HTTPError
+
+    import voicecode.main as main_module
+
+    monkeypatch.setattr(main_module.server, "PORT", 8899)
+    monkeypatch.setattr(main_module.os, "getpid", lambda: 1234)
+
+    def fake_urlopen(url, *args, **kwargs):
+        if url.endswith("/health"):
+            return FakeHealthResponse(b'{"status":"ok","pid":1234}')
+        raise HTTPError(url, 404, "not found", {}, None)
+
+    monkeypatch.setattr(main_module, "urlopen", fake_urlopen)
+
+    with pytest.raises(RuntimeError, match="UI assets are unavailable.*404"):
         main_module._wait_for_server(timeout_seconds=0.1)
 
 
@@ -974,6 +1208,96 @@ def test_wait_for_server_rejects_unrelated_health_endpoint(monkeypatch):
 
     with pytest.raises(RuntimeError, match="does not identify itself as VoiceCode"):
         main_module._wait_for_server(timeout_seconds=0.1)
+
+
+def test_initial_model_load_waits_for_onboarding_selection(app_module, monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "load_config",
+        lambda: {"model": "small", "onboarding": {"completed": False}},
+    )
+    monkeypatch.setattr(
+        app_module._model_runtime,
+        "submit",
+        lambda *args, **kwargs: pytest.fail("model load started before onboarding completion"),
+    )
+
+    app_module._start_initial_model_load()
+
+    with app_module._model_state_lock:
+        state = dict(app_module._model_state)
+    assert state["status"] == "awaiting_selection"
+    assert state["target_model"] == "small"
+    assert state["phase"] == "selection"
+
+
+def test_initial_model_load_uses_configured_model(app_module, monkeypatch):
+    calls = []
+    completed = Future()
+    completed.set_result(app_module.model)
+    monkeypatch.setattr(
+        app_module,
+        "load_config",
+        lambda: {"model": "small", "onboarding": {"completed": True}},
+    )
+    monkeypatch.setattr(app_module, "_cached_model_complete", lambda name: True)
+    monkeypatch.setattr(app_module, "_start_model_download_monitor", lambda *args: None)
+    monkeypatch.setattr(
+        app_module._model_runtime,
+        "submit",
+        lambda function, model_name: calls.append((function, model_name)) or completed,
+    )
+    app_module._set_model_state("ready")
+
+    app_module._start_initial_model_load()
+
+    assert calls == [(app_module._load_model_sync, "small")]
+    with app_module._model_state_lock:
+        assert app_module._model_state["target_model"] == "small"
+        assert app_module._model_state["status"] == "ready"
+
+
+def test_model_network_failure_is_structured_and_redacts_signed_urls(app_module):
+    failure = app_module._model_failure_details(
+        TimeoutError(
+            "The read operation timed out at "
+            "https://cas-bridge.xethub.hf.co/model.bin?X-Amz-Signature=secret"
+        ),
+        "small",
+    )
+
+    assert failure["error_code"] == "model_network_timeout"
+    assert failure["retryable"] is True
+    assert failure["target_model"] == "small"
+    assert "<redacted>" in failure["technical_details"]
+    assert "secret" not in failure["technical_details"]
+    assert {"retry", "check_network", "check_proxy"} <= set(failure["suggestions"])
+
+
+def test_network_download_error_does_not_retry_model_on_cpu(app_module, monkeypatch):
+    calls = []
+
+    class TimeoutWhisperModel:
+        def __init__(self, model_name, **kwargs):
+            calls.append((model_name, kwargs["device"]))
+            raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(
+        app_module,
+        "load_config",
+        lambda: {"device": "cuda", "compute_type": "auto"},
+    )
+    monkeypatch.setattr(app_module, "_resolve_device_profile", lambda *args: ("cuda", "float16", 4))
+    monkeypatch.setattr(app_module, "_gpu_has_enough_vram", lambda name: (True, 8192, 2.0))
+    monkeypatch.setattr(app_module, "migrate_legacy_model_cache", lambda name: None)
+    monkeypatch.setattr(app_module, "_cached_model_complete", lambda name: False)
+    monkeypatch.setattr(app_module, "_select_reachable_huggingface_endpoint", lambda: None)
+    monkeypatch.setattr(app_module, "_load_whisper_model_class", lambda: TimeoutWhisperModel)
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        app_module._load_model_sync("small")
+
+    assert calls == [("small", "cuda")]
 
 
 def test_reload_model_recovers_after_failed_reload(client, app_module, monkeypatch):
@@ -997,12 +1321,16 @@ def test_reload_model_recovers_after_failed_reload(client, app_module, monkeypat
         with app_module._model_state_lock:
             state = app_module._model_state["status"]
             error = app_module._model_state["error"]
-        if state == "ready" and error:
+        if state == "error" and error:
             break
         time.sleep(0.01)
 
-    assert state == "ready"
-    assert error is not None and "simulated reload failure" in error
+    assert state == "error"
+    assert error is not None and "could not be downloaded or initialized" in error
+    with app_module._model_state_lock:
+        assert app_module._model_state["error_code"] == "model_load_failed"
+        assert app_module._model_state["active_model_available"] is True
+        assert "simulated reload failure" in app_module._model_state["technical_details"]
 
     second = client.post("/reload_model", json={"model": "small"})
     assert second.status_code == 200
@@ -1044,7 +1372,10 @@ def test_reload_model_rejects_second_request_while_load_is_in_progress(
 
     second = client.post("/reload_model", json={"model": "small"})
     assert second.status_code == 409
-    assert second.get_json()["error"] == "A model reload is already in progress."
+    second_body = second.get_json()
+    assert second_body["error_code"] == "model_operation_busy"
+    assert second_body["model_state"]["target_model"] == "tiny"
+    assert second_body["requested_model"] == "small"
 
     release.set()
     deadline = time.monotonic() + 2
@@ -1173,6 +1504,16 @@ def test_i18n_catalogs_cover_supported_languages_and_layout_hooks():
     for language in ("zh", "ja"):
         assert english_keys <= set(catalogs[language])
         assert catalogs[language]["settings_language"] != catalogs["en"]["settings_language"]
+        assert all("??" not in value for value in catalogs[language].values())
+        assert any(
+            any(ord(character) > 127 for character in value)
+            for value in catalogs[language].values()
+        )
+
+    for readme_name in ("README_zh.md", "README_ja.md"):
+        readme = (repo_root / readme_name).read_text(encoding="utf-8")
+        assert "??" not in readme
+        assert "v0.2.0" in readme
 
     css = (repo_root / "static" / "css" / "app.css").read_text(encoding="utf-8")
     assert 'html[data-ui-language="en"] .form-grid' in css
@@ -1537,7 +1878,29 @@ def test_frontend_dialog_stack_and_onboarding_warning_guards():
     assert "const onboardingVisible = await loadOnboarding(false)" in app_source
     assert "if (!onboardingVisible) await warnMissingDependenciesOnce()" in app_source
     assert "if (onboardingVisible) return false" in dependencies
+    onboarding = (static_root / "js" / "onboarding.js").read_text(encoding="utf-8")
+    completion = onboarding.split("async function completeOnboarding", 1)[1].split(
+        "export function setupOnboarding", 1
+    )[0]
+    language_handler = onboarding.split("languageSelect.onchange", 1)[1].split("} else if", 1)[0]
+    assert "captureOnboardingStep();" in language_handler
+    assert (
+        'const selectedLanguage = onboardingState.config.ui_language || "en";' in language_handler
+    )
+    assert "deactivateDialog(overlay);" in completion
+    assert "await warnMissingDependenciesOnce();" in completion
+    assert completion.index("deactivateDialog(overlay);") < completion.index(
+        "await warnMissingDependenciesOnce();"
+    )
     assert ".modal-backdrop" in styles and "z-index:1400" in styles
+    models_script = (static_root / "js" / "models.js").read_text(encoding="utf-8")
+    settings_script = (static_root / "js" / "settings.js").read_text(encoding="utf-8")
+    dom_script = (static_root / "js" / "dom.js").read_text(encoding="utf-8")
+    assert (
+        "modelOperationProgress" in models_script and "modelOperationErrorMessage" in models_script
+    )
+    assert "modelOperationProgress" in settings_script and "suppressPopup: true" in settings_script
+    assert "model_download_stalled" in dom_script and "progressBar.classList.add" in dom_script
 
 
 def test_manifest_recursively_includes_all_python_tests():
@@ -1645,7 +2008,7 @@ def test_desktop_window_api_fallbacks_and_hotkey_update(monkeypatch):
     assert api.rec_stopped_from_ui() is True
     assert main_module._consume_typing_from_global() is False
     assert main_module._listener is replacement_listener
-    assert calls == ["minimize", "toggle", "destroy", "listener-stop", "listener-join-0.5"]
+    assert calls == ["minimize", "toggle", "destroy", "listener-stop", "listener-join-1"]
 
 
 def test_desktop_main_lifecycle_with_fake_backends(monkeypatch):
@@ -1672,6 +2035,10 @@ def test_desktop_main_lifecycle_with_fake_backends(monkeypatch):
             func()
 
     monkeypatch.setattr(main_module, "webview", FakeWebview())
+    monkeypatch.setattr(main_module, "_acquire_instance_mutex", lambda: True)
+    monkeypatch.setattr(
+        main_module, "_release_instance_mutex", lambda: calls.append("mutex-release")
+    )
     monkeypatch.setattr(main_module.threading, "Thread", FakeThread)
     monkeypatch.setattr(main_module.server, "start_server", lambda: calls.append("server-start"))
     monkeypatch.setattr(main_module, "_wait_for_server", lambda: calls.append("server-ready"))
@@ -1683,16 +2050,49 @@ def test_desktop_main_lifecycle_with_fake_backends(monkeypatch):
     monkeypatch.setattr(main_module, "_start_listener", lambda config: fake_listener)
     monkeypatch.setattr(main_module, "_start_tray_icon", lambda: calls.append("tray"))
     monkeypatch.setattr(main_module, "_hide_console", lambda: calls.append("hide-console"))
+    monkeypatch.setattr(
+        main_module,
+        "_apply_windows_window_icon_with_retry",
+        lambda: calls.append("window-icon"),
+    )
+    monkeypatch.setattr(
+        main_module.server,
+        "shutdown_application",
+        lambda: calls.append("server-shutdown"),
+    )
 
     main_module.main()
 
     assert main_module._window is fake_window
-    assert main_module._listener is fake_listener
+    assert main_module._listener is None
     assert main_module.server.on_transcription is main_module._on_transcription
     assert calls[0:2] == ["server-start", "server-ready"]
-    assert ("webview-start", main_module._hide_console) in calls
+    assert any(isinstance(call, tuple) and call[0] == "webview-start" for call in calls)
     assert "tray" in calls
     assert "hide-console" in calls
+    assert "window-icon" in calls
+    assert "server-shutdown" in calls
+    assert "mutex-release" in calls
+
+
+def test_desktop_helpers_handle_optional_ui_failures(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+
+    monkeypatch.setenv("VOICECODE_TEST_FLAG", "yes")
+    assert main_module._env_flag("VOICECODE_TEST_FLAG") is True
+
+    monkeypatch.setattr(main_module, "_window", None)
+    main_module._eval_js_safe("window.noop()")
+
+    class BrokenWindow:
+        def evaluate_js(self, script):
+            raise RuntimeError(f"cannot evaluate {script}")
+
+    monkeypatch.setattr(main_module, "_window", BrokenWindow())
+    main_module._eval_js_safe("window.fail()")
+
+    monkeypatch.setattr(main_module, "main", lambda: None)
+    assert main_module.run() is True
 
 
 def test_desktop_run_reports_startup_errors(monkeypatch):
@@ -1703,10 +2103,39 @@ def test_desktop_run_reports_startup_errors(monkeypatch):
     )
     monkeypatch.setattr(main_module, "_show_startup_error", lambda exc: reported.append(str(exc)))
 
-    with pytest.raises(RuntimeError, match="desktop failed"):
-        main_module.run()
-
+    assert main_module.run() is False
     assert reported == ["desktop failed"]
+
+
+def test_second_desktop_launch_focuses_existing_instance_without_starting_server(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    calls: list[str] = []
+
+    monkeypatch.setattr(main_module, "_acquire_instance_mutex", lambda: False)
+    monkeypatch.setattr(
+        main_module, "_focus_existing_window", lambda: calls.append("focus") or True
+    )
+
+    with pytest.raises(main_module.VoiceCodeAlreadyRunningError, match="already running"):
+        main_module.main()
+
+    assert calls == ["focus"]
+
+
+def test_run_treats_second_desktop_launch_as_success(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    reported: list[str] = []
+
+    monkeypatch.setattr(
+        main_module,
+        "main",
+        lambda: (_ for _ in ()).throw(main_module.VoiceCodeAlreadyRunningError("already running")),
+    )
+    monkeypatch.setattr(main_module, "_focus_existing_window", lambda: True)
+    monkeypatch.setattr(main_module, "_show_startup_error", lambda exc: reported.append(str(exc)))
+
+    assert main_module.run() is True
+    assert reported == []
 
 
 def test_dependency_task_persistence_pruning_and_restart_recovery(tmp_path, monkeypatch):

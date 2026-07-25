@@ -119,11 +119,22 @@ async function pollDependencyTask(taskId, dependencyId) {
       return;
     }
     dependencyTaskState[dependencyId] = r.task;
+    updateDownloadCenter(t("downloads"), `${r.task.progress || 0}% · ${r.task.message || r.task.status || ""}`, Number(r.task.progress || 0));
     await loadDependenciesPanel(dependencyTaskState);
     if (["completed", "failed", "cancelled"].includes(r.task.status)) {
-      if (r.task.status === "failed") showError(t("dependency_install_failed"), r.task.error || r.task.message || t("operation_failed"));
-      if (r.task.status === "cancelled") showError(t("dependency_cancel"), t("dependency_cancelled"));
-      if (r.task.status === "completed" && r.task.restart_required) showError(t("dependency_restart_required"), t("dependency_restart_required_detail"));
+      if (r.task.status === "failed") {
+        const detail = r.task.error || r.task.message || t("operation_failed");
+        showError(t("dependency_install_failed"), detail);
+        failDownloadCenter(t("dependency_install_failed"), detail);
+      }
+      if (r.task.status === "cancelled") {
+        showError(t("dependency_cancel"), t("dependency_cancelled"));
+        failDownloadCenter(t("dependency_cancel"), t("dependency_cancelled"));
+      }
+      if (r.task.status === "completed") {
+        finishDownloadCenter(r.task.restart_required ? t("dependency_restart_required_detail") : r.task.message || t("dependency_installed"));
+        if (r.task.restart_required) showError(t("dependency_restart_required"), t("dependency_restart_required_detail"));
+      }
       delete dependencyTaskState[dependencyId];
       await loadDependenciesPanel();
       if (typeof loadExtensionsPanel === "function") await loadExtensionsPanel();
@@ -137,8 +148,9 @@ async function pollDependencyTask(taskId, dependencyId) {
 
 async function startDependencyInstall(dependencyId) {
   if (!dependencyId) return;
+  updateDownloadCenter(t("downloads"), t("onboarding_installing"), null);
   const r = await requestJSON("POST", `/dependencies/${encodeURIComponent(dependencyId)}/install`, {}, {errorTitle: t("dependency_install_failed"), timeout: 20000});
-  if (!r.ok || !r.task) return;
+  if (!r.ok || !r.task) { failDownloadCenter(t("dependency_install_failed"), r.display_error || r.error || t("request_failed")); return; }
   await pollDependencyTask(r.task.id, dependencyId);
 }
 
@@ -185,7 +197,7 @@ export async function waitForDependencyTask(taskId, timeoutMs = 600000) {
     const result = await requestJSON("GET", `/dependencies/tasks/${encodeURIComponent(taskId)}`, {}, {suppressPopup: true, timeout: 10000});
     if (!result.ok) throw new Error(result.error || t("request_failed"));
     const task = result.task || {};
-    updateProgress(`${task.progress || 0}% ? ${task.message || task.status || ""}`);
+    updateProgress(`${task.progress || 0}% · ${task.message || task.status || ""}`);
     if (task.status === "completed") return task;
     if (task.status === "failed") throw new Error(task.error || task.message || t("dependency_install_failed"));
     if (task.status === "cancelled") throw new Error(t("dependency_cancelled"));
@@ -210,14 +222,14 @@ if (dependenciesInstallRequiredBtn) dependenciesInstallRequiredBtn.onclick = asy
   const result = await requestJSON("POST", "/dependencies/install-required", {}, {errorTitle: t("dependency_install_failed"), timeout: 20000});
   if (!result.ok) return;
   if (!(result.tasks || []).length) { await loadDependenciesPanel(); return; }
-  showProgress(t("dependency_install_all_required"), t("onboarding_installing"));
+  updateDownloadCenter(t("dependency_install_all_required"), t("onboarding_installing"), null);
   try {
     for (const task of result.tasks) await waitForDependencyTask(task.id);
     await loadDependenciesPanel();
   } catch (error) {
-    showError(t("dependency_install_failed"), error.message || String(error));
-  } finally {
-    hideProgress();
+    const detail = error.message || String(error);
+    showError(t("dependency_install_failed"), detail);
+    failDownloadCenter(t("dependency_install_failed"), detail);
   }
 };
 

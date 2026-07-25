@@ -40,6 +40,9 @@ dependencies = [
 runtime = [
   "faster-whisper>=1.1.1,<2",
   "sounddevice>=0.5,<1",
+  "nvidia-ml-py>=12.560.30",
+  "pystray>=0.19.5",
+  "Pillow>=10,<13",
 ]
 dev = [
   "pytest>=9.0.0",
@@ -48,6 +51,8 @@ dev = [
   "mypy>=1.10.0",
   "pre-commit>=4.0.0",
   "types-psutil",
+  "pyinstaller>=6.0,<7",
+  "Pillow>=10,<13",
 ]
 e2e = [
   "pytest>=9.0.0",
@@ -94,7 +99,7 @@ version = { attr = "voicecode.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-voicecode = ["static/index.html", "static/css/*.css", "static/js/*.js", "static/i18n/*.json"]
+voicecode = ["static/index.html", "static/*.png", "static/*.ico", "static/css/*.css", "static/js/*.js", "static/i18n/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

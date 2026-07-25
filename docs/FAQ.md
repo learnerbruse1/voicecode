@@ -1,4 +1,4 @@
-﻿# FAQ
+# FAQ
 
 ## Does VoiceCode require an internet connection?
 
@@ -29,9 +29,9 @@ python -m voicecode
 
 You can also choose CPU from the UI.
 
-## Why remove installer scripts?
+## Is there a Windows installer?
 
-This repository is maintained as a clean open-source Python project. Generated installer artifacts and one-click local setup scripts often become stale, hide errors, and make cross-platform support harder. Use virtual environments, `pip install -e .`, and CI-tested commands instead.
+Yes. VoiceCode v0.2.0 provides a maintained Windows x64 installer with a selectable destination directory. It includes core dependencies plus an embedded Python/pip runtime. Models, optional packages, and download caches are stored below `<install-dir>\runtime`. Installer sources are in `packaging/windows/`; generated Setup executables remain ignored release artifacts under `dist/windows/`.
 
 ## Where are settings stored?
 
@@ -54,7 +54,7 @@ VoiceCode opens a local setup guide for language, required runtime packages, mic
 
 ## Can extensions install their own packages?
 
-Yes. The Extensions page uses the dependency catalog to install optional packages into an isolated directory. It does not write into the installed package directory. Some heavyweight extensions expose configuration/dependency boundaries before their full inference adapter is enabled by default.
+Yes. The Extensions page uses the dependency catalog to install optional packages into an isolated directory. In packaged mode it writes only to the writable `<install-dir>\runtime\dependencies` directory; source/wheel runs use their configured isolated directory. Some heavyweight extensions expose configuration/dependency boundaries before their full inference adapter is enabled by default.
 
 ## Where do translations live?
 
@@ -71,3 +71,11 @@ No. Silero VAD, pyannote diarization, and NeMo punctuation have real lazy adapte
 ## What is included in a diagnostic export?
 
 System diagnostics, a redacted config, recent dependency tasks, and a recent redacted application-log tail when available. Transcript history, API tokens, token values, and the configured hotkey key are not included.
+
+## What remains after uninstalling the Windows app?
+
+The Inno Setup uninstaller removes the executable and files that were part of the installer payload. Models, optional dependencies, and caches downloaded later by VoiceCode can remain under `<install-dir>\runtime` so a reinstall can reuse them. To remove everything, uninstall VoiceCode and then manually delete the remaining installation directory.
+
+## Has the v0.2.0 installer been validated?
+
+Yes. Functional validation completed on July 24, 2026, including custom-path install/repair, embedded pip, English/Chinese/Japanese assets, installed-app HTTP/UI checks, single-instance behavior, cached `base` model loading, sample transcription, uninstall, retained-model verification, and reinstall. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md). The locally tested artifact was unsigned; public release still requires timestamped code signing and one physical microphone check.

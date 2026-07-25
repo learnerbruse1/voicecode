@@ -19,6 +19,8 @@ async function loadConfig() {
     textModeSel.value = cfg.text_mode || "plain";
     historyEnabledSel.value = String(cfg.history_enabled !== false);
     fsizeSel.value = cfg.font_size || "1rem";
+    if (themeSel) themeSel.value = cfg.theme || "system";
+    applyTheme(cfg.theme || "system");
     appendSel.value = cfg.append_mode || "append";
     onTop = Boolean(cfg.on_top);
     transcriptEl.style.fontSize = fsizeSel.value;

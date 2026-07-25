@@ -225,3 +225,24 @@ class Recorder:
             "Audio recorder stopped: %s samples (%.1fs)", len(audio), len(audio) / self.RATE
         )
         return audio
+
+    def cancel(self) -> bool:
+        """Discard buffered audio and close the input stream without transcription."""
+        with self._lock:
+            was_active = self._active or self._stream is not None
+            self._active = False
+            stream = self._stream
+            self._stream = None
+            self._buf = []
+        if stream:
+            try:
+                stream.stop()
+            except Exception:
+                logger.debug("Failed to stop audio stream during cancellation.", exc_info=True)
+            try:
+                stream.close()
+            except Exception:
+                logger.debug("Failed to close audio stream during cancellation.", exc_info=True)
+        if was_active:
+            logger.info("Audio recorder cancelled.")
+        return was_active

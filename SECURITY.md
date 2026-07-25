@@ -40,3 +40,7 @@ VoiceCode validates loopback Host names, rejects foreign Origins on mutations, r
 Catalog specs default to the configured Python package index. Installs check free disk space, serialize across threads/processes, persist task state, enforce timeouts, support cancellation, and terminate process trees. Manifests are containment-checked during uninstall. Mutable or user-supplied package specs are not accepted by API routes.
 
 The optional dependency directory is never placed ahead of application or standard-library paths, and its `.pth` files are not executed during path activation.
+
+## Windows release artifact integrity
+
+The release workflow performs a disposable silent install and payload/pip/uninstall verification before uploading the Windows installer. Public Windows artifacts must also be Authenticode-signed and timestamped by the maintainer, then re-smoked and checksummed because signing changes the executable bytes. The repository does not contain the signing key or certificate. Installer verification reports contain paths and version data only; they must not include tokens, user configuration, transcripts, or model contents.

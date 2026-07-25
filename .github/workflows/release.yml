@@ -25,8 +25,8 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Quality gates
         run: |
-          python -m ruff format --check app.py main.py tests src/voicecode
-          python -m ruff check app.py main.py tests src/voicecode
+          python -m ruff format --check app.py main.py tests src/voicecode packaging/windows tools
+          python -m ruff check app.py main.py tests src/voicecode packaging/windows tools
           python -m mypy app.py main.py src/voicecode
           python -X utf8 -m pytest -q
           python -X utf8 -m pytest tests/test_app_smoke.py --cov=voicecode --cov-report=term-missing --cov-fail-under=75
@@ -41,7 +41,7 @@ jobs:
           python -m venv .release-venv
           .release-venv/bin/python -m pip install --upgrade pip
           .release-venv/bin/python -m pip install dist/*.whl
-          .release-venv/bin/python -c "import importlib.resources as r, voicecode; root=r.files('voicecode').joinpath('static'); assert root.joinpath('i18n','en.json').is_file(); assert root.joinpath('js','onboarding.js').is_file(); print(voicecode.__version__)"
+          .release-venv/bin/python -c "import importlib.resources as r, voicecode; root=r.files('voicecode').joinpath('static'); assert root.joinpath('i18n','en.json').is_file(); assert root.joinpath('js','onboarding.js').is_file(); assert root.joinpath('voicecode-icon.png').is_file(); print(voicecode.__version__)"
       - name: Generate checksums and SBOM
         run: |
           sha256sum dist/* > dist/SHA256SUMS.txt
@@ -59,3 +59,58 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS.txt
             dist/voicecode-sbom.json
+
+
+  build-windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install release dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[runtime,dev]"
+          choco install innosetup --yes --no-progress
+      - name: Validate version tag
+        shell: pwsh
+        run: |
+          $version = python -c "import voicecode; print(voicecode.__version__)"
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag/version mismatch: ${{ github.ref_name }} vs v$version" }
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          python -X utf8 tools/generate_icon.py
+          python -X utf8 packaging/windows/build_windows_installer.py
+      - name: Install and verify Windows installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/windows/installer/*.exe | Select-Object -First 1
+          $installDir = Join-Path $env:RUNNER_TEMP "VoiceCode-installer-smoke"
+          python -X utf8 packaging/windows/verify_windows_installer.py `
+            --installer $installer.FullName `
+            --install-dir $installDir `
+            --version (python -c "import voicecode; print(voicecode.__version__)") `
+            --skip-launch `
+            --uninstall `
+            --report dist/windows/installer/verification.json
+      - name: Generate Windows installer checksum
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/windows/installer/*.exe | Select-Object -First 1
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content dist/windows/installer/SHA256SUMS-windows.txt -Encoding utf8
+      - name: Attest Windows installer provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: "dist/windows/installer/*.exe"
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: voicecode-windows-installer
+          path: |
+            dist/windows/installer/*.exe
+            dist/windows/installer/verification.json
+            dist/windows/installer/SHA256SUMS-windows.txt

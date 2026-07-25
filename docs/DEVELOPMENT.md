@@ -1,4 +1,4 @@
-﻿# Development Guide
+# Development Guide
 
 ## Setup
 
@@ -19,15 +19,15 @@ python -m pip install -e ".[dev]"
 python -m voicecode
 ```
 
-This project intentionally avoids repository-specific one-click setup scripts. Use the standard Python packaging workflow above.
+Source development uses the standard Python packaging workflow above. The maintained end-user Windows installer pipeline is documented in [WINDOWS_INSTALLER.md](WINDOWS_INSTALLER.md).
 
 ## Quality checks
 
 Run before submitting changes:
 
 ```powershell
-python -m ruff format --check app.py main.py tests src/voicecode
-python -m ruff check app.py main.py tests src/voicecode
+python -m ruff format --check app.py main.py tests src/voicecode packaging/windows tools
+python -m ruff check app.py main.py tests src/voicecode packaging/windows tools
 python -m mypy app.py main.py src/voicecode
 python -X utf8 -m pytest -q
 Get-ChildItem src/voicecode/static/js/*.js | ForEach-Object { node --check $_.FullName }
@@ -39,7 +39,7 @@ Build a wheel when packaging metadata changes:
 python -m pip wheel . --no-deps -w dist
 ```
 
-Generated directories such as `dist/`, `build/`, caches, and egg-info are ignored and should not be committed.
+Generated directories such as `dist/`, `build/`, caches, and egg-info are ignored and should not be committed. Windows packaging changes must also run `python -X utf8 -m py_compile packaging/windows/*.py`, build the installer, and execute `packaging/windows/verify_windows_installer.py` against a disposable installation path.
 
 ## Running without a model
 
@@ -117,3 +117,7 @@ Treat `src/voicecode/static/` as the editing source, then run `python -X utf8 to
 ## Browser E2E
 
 Install `.[e2e]`, run `python -m playwright install chromium`, set `VOICECODE_RUN_E2E=1`, and run `pytest tests/e2e`. The smoke test starts a skip-model-load server, verifies first-start rendering, dynamic version metadata, and external catalog loading, and fails on page errors.
+
+## Installer validation
+
+The repeatable Windows verifier performs silent install, payload/catalog/icon checks, embedded-pip execution, optional installed-app HTTP checks, and optional uninstall. Release CI uses `--skip-launch --uninstall`; interactive validation omits `--skip-launch` and additionally checks the desktop UI, single-instance behavior, model readiness, transcription, and microphone capture. The download prerequisites used by the builder are cached below `build/windows/downloads/` so an interrupted download does not force another complete PyInstaller run.

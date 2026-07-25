@@ -1,4 +1,6 @@
-﻿# Hardware and Model Selection
+# Hardware and Model Selection
+
+The July 24, 2026 v0.2.0 installer pass confirmed that a cached `base` model reached `ready` and completed a JSON-sample transcription in the installed runtime. This is not a substitute for the full CPU/CUDA matrix or a physical microphone test; see [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md).
 
 VoiceCode uses faster-whisper and CTranslate2 for local transcription. Hardware support depends on the installed Python packages, NVIDIA driver, CUDA/CuDNN runtime, and CTranslate2 capabilities.
 
@@ -52,3 +54,7 @@ The guide defaults to `base` with automatic hardware selection. Resolve required
 ## Extension hardware
 
 Silero VAD runs as preprocessing and can add PyTorch memory use. Pyannote and NeMo have independent `device` settings (`auto`, `cpu`, `cuda`) and lazy-load their models. Enabling multiple GPU extensions alongside a large Whisper model can exceed VRAM even when Whisper alone is compatible.
+
+## GPU detection and model cache validation
+
+Physical GPU telemetry is detected independently from CUDA inference support through NVML, `nvidia-smi`, and Windows CIM fallbacks. A model cache is loadable only when its configuration, tokenizer, vocabulary, and a plausibly complete `model.bin` are present. Verified cache snapshots are passed directly to faster-whisper.

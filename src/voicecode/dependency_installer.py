@@ -11,13 +11,13 @@ import os
 from queue import Empty, Queue
 import shutil
 import subprocess
-import sys
 import threading
 import time
 import uuid
 from typing import Iterator
 
 from .dependency_catalog import get_dependency_spec
+from .runtime import pip_python_executable
 from .dependency_environment import (
     _write_manifest,
     changed_entries,
@@ -209,7 +209,7 @@ def _run_pip_install(
     report_path = target / ".voicecode" / f"pip-report-{task.id}-{attempt}.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     command = [
-        sys.executable,
+        str(pip_python_executable()),
         "-m",
         "pip",
         "install",

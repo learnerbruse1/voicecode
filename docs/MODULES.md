@@ -84,3 +84,10 @@ VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry 
 5. Add config choices/required-dependency rules in the registry.
 6. Add translation keys to all three JSON catalogs.
 7. Add API/behavior tests and update API/module docs.
+
+## v0.2.0 packaging modules
+
+- `voicecode.runtime` configures install-local caches, locates the embedded pip interpreter, and migrates compatible legacy faster-whisper caches.
+- `packaging/windows/build_windows_installer.py` downloads/caches validated embedded-Python prerequisites with retries, builds the PyInstaller one-folder application, validates frontend assets, embeds Python/pip, and invokes Inno Setup.
+- `packaging/windows/verify_windows_installer.py` silently installs a generated setup executable, checks payload/catalog/icon/runtime/pip integrity, optionally verifies installed HTTP endpoints, writes a JSON report, and can uninstall disposable test installations.
+- `tools/generate_icon.py` deterministically generates the SVG, PNG, and multi-size ICO application assets.
