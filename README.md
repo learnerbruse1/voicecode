@@ -25,12 +25,13 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 - Upload/API transcription endpoint for tests, integrations, and batch workflows.
 - User-writable config/log/history paths; packaged models, dependencies, and caches are intentionally kept under the selected installation directory.
 - English diagnostics and error messages for maintainers.
+- Built-in Minesweeper with Beginner, Intermediate, and Expert modes; card-game content is not shipped.
 
 ## Windows installer
 
-For normal Windows use, install `VoiceCode-v0.2.0-Windows-x64-Setup.exe`. The setup wizard lets you choose the destination directory. Core dependencies and an embedded Python/pip runtime are included; future optional packages, models, and download caches stay under `<install-dir>\runtime`.
+For normal Windows use, install `VoiceCode-v0.2.0-Windows-x64-Setup.exe`. The setup wizard lets you choose the destination directory. Core dependencies and an embedded Python/pip runtime are included; future optional packages, models, and download caches stay under `<install-dir>\runtime`. The packaged UI includes the Minesweeper-only game panel and its `games.js` asset.
 
-The installer build configuration is maintained in `packaging/windows/`. Generated installers remain ignored under `dist/windows/` and are release artifacts rather than source files. The v0.2.0 functional installer pass completed on **July 24, 2026**, covering custom-path install/repair, single-instance behavior, multilingual assets, embedded pip, cached-model reuse, transcription, uninstall, and reinstall. See the [final validation record](docs/RELEASE_VALIDATION_0.2.0.md). The locally validated artifact was not signed; a timestamped Authenticode signature and post-signing smoke test remain release gates.
+The installer build configuration is maintained in `packaging/windows/`. Generated installers remain ignored under `dist/windows/` and are release artifacts rather than source files. The v0.2.0 functional installer pass completed on **July 24, 2026**, and the Minesweeper-only payload was rebuilt and revalidated on **July 25, 2026**, covering custom-path installation, multilingual assets, embedded pip, removal of card-game content, and uninstall. The earlier full pass also covered repair, single-instance behavior, cached-model reuse, transcription, and reinstall. See the [final validation record](docs/RELEASE_VALIDATION_0.2.0.md). The locally validated artifact was not signed; a timestamped Authenticode signature and post-signing smoke test remain release gates.
 
 ## Source requirements
 

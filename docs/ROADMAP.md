@@ -1,6 +1,6 @@
 # Roadmap and Extension Ideas
 
-VoiceCode should remain a speech-to-text app first. New features should be optional, local-first where practical, and easy to disable or remove.
+VoiceCode should remain a speech-to-text app first. New features should be optional, local-first where practical, and easy to disable or remove. The built-in leisure scope is intentionally limited to Minesweeper; card games are out of scope unless a future product decision explicitly reverses this.
 
 ## Module boundaries
 

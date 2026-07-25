@@ -20,7 +20,7 @@ The wheel must include:
 - `voicecode` Python modules and `voicecode.extensions`;
 - `voicecode/static/index.html`;
 - `voicecode/static/css/*.css`;
-- `voicecode/static/js/*.js`, including ES Module bootstrap files;
+- `voicecode/static/js/*.js`, including ES Module bootstrap files and the Minesweeper-only `games.js`;
 - `voicecode/static/i18n/en.json`, `zh.json`, and `ja.json`.
 
 `pyproject.toml` declares package data and `MANIFEST.in` supplies documentation/static files to source distributions. Run the static synchronization test before building because `static/` and `src/voicecode/static/` must be byte-identical.
@@ -78,7 +78,7 @@ Inspect wheel contents with Python's `zipfile` module or `tar -tf` for the sourc
 
 VoiceCode maintains a PyInstaller + Inno Setup Windows pipeline under `packaging/windows/`. Nuitka, MSI, DMG, AppImage, and code signing remain downstream release choices. A desktop bundle must:
 
-1. include all packaged static assets and external JSON catalogs;
+1. include all packaged static assets and external JSON catalogs, including `games.js` for Minesweeper;
 2. call runtime path setup before importing `voicecode.app`;
 3. keep the HTTP listener on `127.0.0.1`;
 4. preserve `/health` PID verification;
@@ -102,7 +102,7 @@ VoiceCode maintains a PyInstaller + Inno Setup Windows pipeline under `packaging
 
 ## Windows installer verification
 
-The Windows builder downloads and validates embedded-Python bootstrap assets before PyInstaller, caches them under `build/windows/downloads/`, and retries interrupted downloads through an atomic `.part` file. After building, run `packaging/windows/verify_windows_installer.py` on a disposable Windows path. Release CI performs silent install, file/catalog/icon checks, embedded-pip execution, and uninstall before uploading the installer and `verification.json`. Interactive release validation must additionally cover startup PID/bind checks, UI rendering, repeat launch, cached-model readiness, transcription, and a physical microphone. See [WINDOWS_INSTALLER.md](WINDOWS_INSTALLER.md) and [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md).
+The Windows builder downloads and validates embedded-Python bootstrap assets before PyInstaller, caches them under `build/windows/downloads/`, and retries interrupted downloads through an atomic `.part` file. After building, run `packaging/windows/verify_windows_installer.py` on a disposable Windows path. Release CI performs silent install, file/catalog/icon/Minesweeper-payload checks, embedded-pip execution, and uninstall before uploading the installer and `verification.json`. Interactive release validation must additionally cover startup PID/bind checks, UI rendering, repeat launch, cached-model readiness, transcription, and a physical microphone. See [WINDOWS_INSTALLER.md](WINDOWS_INSTALLER.md) and [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md).
 
 ## Supply-chain artifacts
 

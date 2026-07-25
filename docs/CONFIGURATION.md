@@ -1,6 +1,6 @@
 # Configuration Guide
 
-VoiceCode stores configuration in a user-writable path, never inside the installed package directory. Packaged models, optional dependencies, and caches live under the selected installation directory and can remain after uninstall so a reinstall can reuse them.
+VoiceCode stores configuration in a user-writable path, never inside the installed package directory. Packaged models, optional dependencies, and caches live under the selected installation directory and can remain after uninstall so a reinstall can reuse them. The Minesweeper panel is client-only: board state, flags, timer, and difficulty selection are not written to `config.json`.
 
 ## Default paths
 

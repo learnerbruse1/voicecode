@@ -65,11 +65,12 @@ flowchart LR
   App --> Recorder["recorder.js"]
   App --> History["history.js"]
   App --> Status["status.js"]
+  Games["games.js\nMinesweeper-only client logic"] --> UI
   Shared["dom.js / api.js / modal.js"] --> App
   CatalogJSON["i18n/en.json\ni18n/zh.json\ni18n/ja.json"] --> I18n
 ```
 
-`app.js` waits for the English catalog before translating or bootstrapping feature panels. `loadConfig()` then loads the selected catalog and reapplies translations. Feature-specific rendering is separated: extension controls no longer live in history code, and first-start behavior has its own module.
+`app.js` waits for the English catalog before translating or bootstrapping feature panels. `loadConfig()` then loads the selected catalog and reapplies translations. Feature-specific rendering is separated: extension controls no longer live in history code, and first-start behavior has its own module. `games.js` is a small non-module script that owns only the Minesweeper board, timer, difficulty selector, and localized status; no card-game runtime is included.
 
 ## First-start lifecycle
 

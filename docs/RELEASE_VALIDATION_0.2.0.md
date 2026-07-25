@@ -1,6 +1,6 @@
 # VoiceCode v0.2.0 Windows Installer Final Validation
 
-**Validation date:** July 24, 2026  
+**Validation date:** July 24, 2026; Minesweeper-only installer refresh: July 25, 2026
 **Result:** Functional validation passed; code signing remains required before public distribution.
 
 ## Artifact
@@ -8,8 +8,8 @@
 | Field | Value |
 | --- | --- |
 | File | `VoiceCode-v0.2.0-Windows-x64-Setup.exe` |
-| Size | 125,480,573 bytes |
-| SHA-256 | `3E60EAC4B557EF679B53674EA552BD93DB9FB4B663B5F668B01C85B606297D49` |
+| Size | 126,050,582 bytes |
+| SHA-256 | `2B065DE305DC44CAE82F6287087219B9351A2A008EECFAF24582F2F7A6C76525` |
 | Product version | `0.2.0` |
 | Signature at validation time | Not signed |
 
@@ -29,10 +29,11 @@ The first clean build exposed a 90-second embedded-Python download timeout after
 
 | Check | Result |
 | --- | --- |
-| PyInstaller one-folder bundle | Passed; 4,439 files, 460,519,295 uncompressed bytes |
+| PyInstaller one-folder bundle | Passed; refreshed bundle has 4,584 files and 462,315,749 uncompressed bytes |
 | Required executable, license, multilingual READMEs, static UI, and icon | Passed |
+| Minesweeper-only packaged UI | Passed; `games.js`, board markup, and styles present; removed card-game markers absent |
 | Embedded CPython and pip | Passed; Python 3.12 and pip 26.1.2 |
-| English, Chinese, and Japanese catalogs | Passed; 312 entries per catalog |
+| English, Chinese, and Japanese catalogs | Passed; refreshed installer has 371 entries per catalog |
 | Silent custom-path install/repair | Passed |
 | Installed `/health` PID matches `VoiceCode.exe` | Passed |
 | Local server binding | Passed; only `127.0.0.1:7788` |
@@ -45,11 +46,13 @@ The first clean build exposed a 90-second embedded-Python download timeout after
 | Silent uninstall | Passed; installed executable/uninstaller removed |
 | User-downloaded model preservation | Passed; model remained with unchanged SHA-256 |
 | Reinstall after uninstall | Passed; model was reused and returned to `ready` |
-| Automated verifier | Passed with `packaging/windows/verify_windows_installer.py` |
+| Automated verifier | Passed on July 25 with a disposable custom path, embedded pip, Minesweeper-only payload check, silent uninstall, and JSON report |
 | Configured-model startup regression | Passed; installed app started `small` rather than hard-coded `base` |
 | Partial cache reporting | Passed; incomplete `small` cache reported `partial=true`, `cached=false` |
 | Download progress UI | Passed; bytes, approximate total, percent, speed, elapsed/stalled time, source, and cache path rendered in Chinese |
 | Structured timeout popup | Passed; localized summary, previous active model, sanitized technical detail, retry suggestions, source, and cache path rendered |
+
+The July 25 refresh rebuilt the same v0.2.0 version after removing card-game content. The automated verifier installed to `.tmp_installer_validation/minesweeper-only-final-20260725`, confirmed 12 required payload files, verified Minesweeper-only assets and 371-key catalog parity, ran embedded pip, and completed silent uninstall. The broader interactive/model checks in this record remain from the July 24 pass.
 
 The physical microphone capture path was not automated in this pass. The installed `/audio/devices` endpoint returned successfully, and the release checklist still requires a human microphone recording check on the target release machine.
 

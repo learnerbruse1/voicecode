@@ -637,6 +637,7 @@ def test_distribution_static_assets_stay_synchronized():
         Path("static/i18n/zh.json"),
         Path("static/i18n/ja.json"),
         Path("static/js/status.js"),
+        Path("static/js/games.js"),
         Path("static/js/app.js"),
     ]:
         source_asset = repo_root / "src" / "voicecode" / asset
@@ -878,6 +879,9 @@ def test_static_ui_exposes_three_language_controls():
         encoding="utf-8"
     )
     assert 'src="/js/recorder.js"' in html
+    assert 'src="/js/games.js"' in html
+    assert 'id="game-minesweeper"' in html
+    assert "solitaire" not in html.lower()
     assert 'type="module" src="/js/app.js"' in html
     assert 'class="panel language-panel"' in html
     assert 'data-i18n="settings_language"' in html
@@ -1065,6 +1069,10 @@ def test_windows_installer_configuration_keeps_runtime_data_beside_the_app():
     assert "voicecode-icon.ico" in builder
     assert "SetupIconFile={#IconFile}" in installer
     assert "packaged_index.is_file()" in builder
+    assert "verify_minesweeper_static_assets" in builder
+    assert "js/games.js" in (packaging_dir / "verify_windows_installer.py").read_text(
+        encoding="utf-8"
+    )
     assert "get-pip.py" in builder
     assert "VOICECODE_RUNTIME_DIR" in runtime_hook
     assert "VOICECODE_DEP_DIR" in runtime_hook

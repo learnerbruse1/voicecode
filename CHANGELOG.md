@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Removed card-game content and retained a single Minesweeper panel with Beginner, Intermediate, and Expert modes.
+- Updated the Windows builder and installer verifier to require the Minesweeper `games.js` payload and reject removed card-game markers.
+
 ## 0.2.0 - 2026-07-24
 
 - Added a standard Windows x64 installer with selectable install directory, embedded Python/pip, runtime-local dependencies, models, and caches.

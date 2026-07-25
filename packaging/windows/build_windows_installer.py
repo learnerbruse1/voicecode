@@ -177,6 +177,33 @@ def prepare_embedded_python(archive: Path, get_pip: Path) -> None:
     subprocess.run([str(python), "-m", "pip", "--version"], check=True)
 
 
+def verify_minesweeper_static_assets(static_dir: Path) -> None:
+    """Reject packaged UI payloads that omit Minesweeper or retain removed card-game code."""
+    assets = {
+        "index": static_dir / "index.html",
+        "script": static_dir / "js" / "games.js",
+        "styles": static_dir / "css" / "app.css",
+    }
+    missing = [name for name, path in assets.items() if not path.is_file()]
+    if missing:
+        raise RuntimeError("Packaged Minesweeper assets are missing: " + ", ".join(missing))
+
+    payload = "\n".join(path.read_text(encoding="utf-8") for path in assets.values()).lower()
+    required_markers = ("game-minesweeper", "newminesweeper", "mine-board")
+    missing_markers = [marker for marker in required_markers if marker not in payload]
+    if missing_markers:
+        raise RuntimeError(
+            "Packaged Minesweeper assets are incomplete: " + ", ".join(missing_markers)
+        )
+
+    removed_markers = ("solitaire", "card-slot", "game-tabs")
+    retained_markers = [marker for marker in removed_markers if marker in payload]
+    if retained_markers:
+        raise RuntimeError(
+            "Packaged UI still contains removed card-game content: " + ", ".join(retained_markers)
+        )
+
+
 def build_app() -> None:
     remove_tree(PYINSTALLER_WORK_DIR)
     remove_tree(PYINSTALLER_SPEC_DIR)
@@ -228,6 +255,7 @@ def build_app() -> None:
     packaged_index = APP_DIR / "_internal" / "voicecode" / "static" / "index.html"
     if not packaged_index.is_file():
         raise RuntimeError(f"PyInstaller did not include the frontend assets: {packaged_index}")
+    verify_minesweeper_static_assets(packaged_index.parent)
     for name in ("LICENSE", "README.md", "README_zh.md", "README_ja.md"):
         shutil.copy2(ROOT / name, APP_DIR / name)
 

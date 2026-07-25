@@ -8,7 +8,7 @@ This guide describes the repository release process. The package version has a s
 2. Move completed `CHANGELOG.md` entries from **Unreleased** into a dated version section.
 3. Update version strings, the sidebar version if still static, and compatibility notes.
 4. Review dependency ranges and supported Python classifiers.
-5. Confirm documentation for onboarding, extensions, APIs, packaging, and migration behavior.
+5. Confirm documentation for onboarding, extensions, APIs, packaging, Minesweeper-only UI behavior, and migration behavior.
 
 ## 2. Run quality gates
 
@@ -47,6 +47,7 @@ At minimum verify:
 - required dependency installation reports progress and survives reload;
 - an extension can be enabled, configured, and supplied with dependencies;
 - English, Chinese, and Japanese catalogs load from JSON and round-trip `en -> zh -> ja -> en` without losing the selected state;
+- the Minesweeper-only page renders Beginner, Intermediate, and Expert modes and no card-game view is present;
 - CPU recording/transcription works;
 - model download/load/cache deletion works;
 - history search/export/delete works;

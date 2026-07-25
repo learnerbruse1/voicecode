@@ -82,7 +82,7 @@ Route groups live in `management_api.py`, `history_api.py`, `system_api.py`, and
 
 ## Static assets
 
-The source-tree UI under `static/` and the packaged UI under `src/voicecode/static/` must stay byte-for-byte synchronized. The test suite enforces this.
+The source-tree UI under `static/` and the packaged UI under `src/voicecode/static/` must stay byte-for-byte synchronized. The test suite enforces this, including the Minesweeper-only `games.js` asset. Do not add a card-game view or leave legacy card selectors in the shared stylesheet.
 
 ## API contracts
 
@@ -120,4 +120,4 @@ Install `.[e2e]`, run `python -m playwright install chromium`, set `VOICECODE_RU
 
 ## Installer validation
 
-The repeatable Windows verifier performs silent install, payload/catalog/icon checks, embedded-pip execution, optional installed-app HTTP checks, and optional uninstall. Release CI uses `--skip-launch --uninstall`; interactive validation omits `--skip-launch` and additionally checks the desktop UI, single-instance behavior, model readiness, transcription, and microphone capture. The download prerequisites used by the builder are cached below `build/windows/downloads/` so an interrupted download does not force another complete PyInstaller run.
+The repeatable Windows verifier performs silent install, payload/catalog/icon/Minesweeper checks, rejects removed card-game markers, executes embedded pip, and supports optional installed-app HTTP checks and uninstall. Release CI uses `--skip-launch --uninstall`; interactive validation omits `--skip-launch` and additionally checks the desktop UI, single-instance behavior, model readiness, transcription, and microphone capture. The download prerequisites used by the builder are cached below `build/windows/downloads/` so an interrupted download does not force another complete PyInstaller run.

@@ -29,6 +29,10 @@ python -m voicecode
 
 You can also choose CPU from the UI.
 
+## Does VoiceCode include games?
+
+VoiceCode includes only a client-side Minesweeper page with Beginner, Intermediate, and Expert modes. Card-game content is not included in the source UI or Windows installer. Minesweeper has no backend API and does not persist board state.
+
 ## Is there a Windows installer?
 
 Yes. VoiceCode v0.2.0 provides a maintained Windows x64 installer with a selectable destination directory. It includes core dependencies plus an embedded Python/pip runtime. Models, optional packages, and download caches are stored below `<install-dir>\runtime`. Installer sources are in `packaging/windows/`; generated Setup executables remain ignored release artifacts under `dist/windows/`.
@@ -78,4 +82,4 @@ The Inno Setup uninstaller removes the executable and files that were part of th
 
 ## Has the v0.2.0 installer been validated?
 
-Yes. Functional validation completed on July 24, 2026, including custom-path install/repair, embedded pip, English/Chinese/Japanese assets, installed-app HTTP/UI checks, single-instance behavior, cached `base` model loading, sample transcription, uninstall, retained-model verification, and reinstall. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md). The locally tested artifact was unsigned; public release still requires timestamped code signing and one physical microphone check.
+Yes. Full functional validation completed on July 24, 2026, including custom-path install/repair, embedded pip, English/Chinese/Japanese assets, installed-app HTTP/UI checks, single-instance behavior, cached `base` model loading, sample transcription, uninstall, retained-model verification, and reinstall. The Minesweeper-only payload was rebuilt and revalidated on July 25, 2026 with card-game markers absent. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md). The locally tested artifact was unsigned; public release still requires timestamped code signing and one physical microphone check.

@@ -58,6 +58,7 @@ VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry 
 | `static/js/recorder.js` | recording and transcription interaction |
 | `static/js/history.js` | history search/filter/export/copy/delete and diagnostics |
 | `static/js/status.js` | model and process status summaries |
+| `static/js/games.js` | Minesweeper-only board generation, timer, flags, and localized state |
 | `static/css/app.css` | desktop layout, language-specific sizing, onboarding/extensions UI |
 
 ## Extension modules

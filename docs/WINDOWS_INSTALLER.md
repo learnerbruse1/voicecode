@@ -2,7 +2,7 @@
 
 VoiceCode ships a standard Windows x64 installer built from a PyInstaller **one-folder** bundle and wrapped by Inno Setup. The setup wizard always displays the destination page; the default is `%LOCALAPPDATA%\Programs\VoiceCode`, which is writable without administrator rights.
 
-The v0.2.0 functional installer pass completed on **July 24, 2026**. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md) for the tested artifact, environment, checks, and remaining signing gate.
+The v0.2.0 functional installer pass completed on **July 24, 2026**, and the Minesweeper-only payload was rebuilt and revalidated on **July 25, 2026**. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md) for the tested artifact, environment, checks, and remaining signing gate.
 
 ## Installed layout
 
@@ -40,7 +40,7 @@ The installer is written to `dist/windows/installer/`. For diagnosing only the P
 python -X utf8 packaging/windows/build_windows_installer.py --skip-installer
 ```
 
-The build downloads the exact CPython 3.12 embedded ZIP and `get-pip.py` **before** the expensive PyInstaller stage. Files are cached under `build/windows/downloads/`; downloads use a `.part` file, atomic replacement, validation, a five-minute socket timeout, and bounded retries. The PyInstaller `work` and `spec` directories are cleaned without deleting this download cache.
+The build downloads the exact CPython 3.12 embedded ZIP and `get-pip.py` **before** the expensive PyInstaller stage. Files are cached under `build/windows/downloads/`; downloads use a `.part` file, atomic replacement, validation, a five-minute socket timeout, and bounded retries. The PyInstaller `work` and `spec` directories are cleaned without deleting this download cache. After bundling, the build requires the Minesweeper index, `games.js`, and board styles, and rejects removed card-game markers.
 
 Do not publish an unpacked development directory or a wheel as the desktop installation. Publish only the generated `VoiceCode-v<version>-Windows-x64-Setup.exe` after signing it and running the release checks.
 
@@ -58,7 +58,7 @@ python -X utf8 packaging/windows/verify_windows_installer.py `
   --report dist/windows/installer/verification.json
 ```
 
-The verifier checks the installed executable, license/README files, packaged UI, PNG icon, all three JSON catalogs, writable runtime directories, embedded Python/pip, and silent uninstall. Omit `--skip-launch` on an interactive desktop to additionally launch `VoiceCode.exe` and verify `/health`, `/status`, the icon, and language resources.
+The verifier checks the installed executable, license/README files, packaged Minesweeper-only UI (`games.js`, board markup, and no removed card-game markers), PNG icon, all three JSON catalogs, writable runtime directories, embedded Python/pip, and silent uninstall. Omit `--skip-launch` on an interactive desktop to additionally launch `VoiceCode.exe` and verify `/health`, `/status`, the icon, and language resources.
 
 `--uninstall` must only be used for a disposable installation path. The installer uses a stable Inno Setup AppId, so do not run destructive installer smoke tests alongside a production installation for the same Windows user.
 
@@ -68,6 +68,7 @@ Before publishing, also verify:
 
 - install and repair-install to a custom writable path;
 - first-start guide and full `en -> zh -> ja -> en` language round trip;
+- the Minesweeper page opens in all three languages and offers Beginner, Intermediate, and Expert without any card-game view;
 - `/health` reports the installed process PID and the listener is only `127.0.0.1:7788`;
 - repeat launch leaves exactly one running application instance;
 - a cached/downloaded model reaches `ready` and a real transcription succeeds;

@@ -1,6 +1,6 @@
 # VoiceCode API
 
-The installed v0.2.0 artifact was revalidated on July 24, 2026 against the health, status, hardware, configuration/schema, onboarding, extensions, dependencies, models, audio devices, history, diagnostics, static-resource, and JSON-sample transcription paths. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md). No endpoint contract changed during the final installer pass.
+The installed v0.2.0 artifact completed its full API pass on July 24, 2026. A Minesweeper-only installer refresh was validated on July 25, 2026 without changing any endpoint contract. The retained game is entirely client-side and adds no API routes. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md).
 
 VoiceCode exposes a local-only HTTP API on `127.0.0.1` for the desktop UI and local integrations. The default port is `7788` and can be overridden with `PORT`.
 
