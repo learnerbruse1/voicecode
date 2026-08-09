@@ -12,6 +12,7 @@ import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
+from contextlib import suppress
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -25,11 +26,9 @@ def _configure_console_encoding() -> None:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure:
-            try:
+            # Keep startup resilient; logging is configured below.
+            with suppress(Exception):
                 reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                # Keep startup resilient; logging is configured below.
-                pass
 
 
 _configure_console_encoding()

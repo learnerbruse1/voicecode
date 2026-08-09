@@ -47,8 +47,8 @@ def _nvidia_smi_candidates() -> list[str]:
     discovered = shutil.which("nvidia-smi")
     if discovered:
         candidates.append(discovered)
-    system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
-    program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    system_root = Path(os.environ.get("SYSTEMROOT", r"C:\Windows"))
+    program_files = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
     candidates.extend(
         str(path)
         for path in (
@@ -146,7 +146,7 @@ def _windows_video_controller_info() -> dict[str, Any] | None:
     if os.name != "nt":
         return None
     powershell = (
-        Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        Path(os.environ.get("SYSTEMROOT", r"C:\Windows"))
         / "System32"
         / "WindowsPowerShell"
         / "v1.0"

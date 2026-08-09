@@ -6,6 +6,7 @@ import os
 import sys
 import threading
 import time
+from contextlib import suppress
 from ctypes import wintypes
 from pathlib import Path
 from typing import Any
@@ -46,10 +47,8 @@ def _configure_console_encoding() -> None:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure:
-            try:
+            with suppress(Exception):
                 reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
 
 
 _configure_console_encoding()
@@ -172,9 +171,7 @@ def _clipboard_clear() -> bool:
     if not _open_clipboard():
         return False
     try:
-        if not user32.EmptyClipboard():
-            return False
-        return True
+        return bool(user32.EmptyClipboard())
     except Exception as exc:
         logger.debug("Failed to clear the Windows clipboard: %s", exc)
         return False
@@ -562,10 +559,8 @@ def _release_windows_window_icons() -> None:
         return
     user32 = ctypes.windll.user32
     for handle in _window_icon_handles:
-        try:
+        with suppress(Exception):
             user32.DestroyIcon(handle)
-        except Exception:
-            pass
     _window_icon_handles = []
 
 
@@ -851,10 +846,8 @@ def _release_instance_mutex() -> None:
         return
     try:
         kernel32 = ctypes.windll.kernel32
-        try:
+        with suppress(Exception):
             kernel32.ReleaseMutex(_instance_mutex_handle)
-        except Exception:
-            pass
         kernel32.CloseHandle(_instance_mutex_handle)
     except Exception as exc:
         logger.debug("Unable to close the VoiceCode single-instance lock: %s", exc)
@@ -878,10 +871,8 @@ def _show_existing_instance_message(message: str) -> None:
     logger.info("%s", message)
     if os.name != "nt":
         return
-    try:
+    with suppress(Exception):
         ctypes.windll.user32.MessageBoxW(None, message, "VoiceCode", 0x40)
-    except Exception:
-        pass
 
 
 def _show_startup_error(exc: BaseException) -> None:

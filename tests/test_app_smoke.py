@@ -3023,9 +3023,11 @@ def test_dependency_cross_process_lock_handles_busy_and_stale_files(tmp_path, mo
     assert not lock_path.exists()
 
     lock_path.write_text("busy", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="already modifying"):
-        with installer._cross_process_install_lock(60):
-            pass
+    with (
+        pytest.raises(RuntimeError, match="already modifying"),
+        installer._cross_process_install_lock(60),
+    ):
+        pass
 
     old_time = time.time() - 1000
     os.utime(lock_path, (old_time, old_time))

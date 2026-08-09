@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -153,9 +154,7 @@ def create_recording_blueprint(context: RecordingContext) -> Blueprint:
             return context.error(f"Transcription failed: {exc}", 500)
         finally:
             if temporary_path is not None:
-                try:
+                with suppress(OSError):
                     temporary_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
 
     return blueprint

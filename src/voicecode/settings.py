@@ -424,11 +424,15 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Unsupported language. Use one of: auto, zh, en, ja.")
     if "ui_language" in patch and patch["ui_language"] not in VALID_UI_LANGUAGES:
         raise ValueError("Unsupported UI language. Use one of: en, zh, ja.")
-    if "audio_device" in patch and patch["audio_device"] is not None:
-        if isinstance(patch["audio_device"], bool) or not isinstance(
-            patch["audio_device"], (str, int)
-        ):
-            raise ValueError("audio_device must be an empty string, device index, or device name.")
+    if (
+        "audio_device" in patch
+        and patch["audio_device"] is not None
+        and (
+            isinstance(patch["audio_device"], bool)
+            or not isinstance(patch["audio_device"], (str, int))
+        )
+    ):
+        raise ValueError("audio_device must be an empty string, device index, or device name.")
     if "text_mode" in patch and patch["text_mode"] not in VALID_TEXT_MODES:
         raise ValueError("Unsupported text mode. Use one of: plain, coding, markdown, prompt.")
     if "history_enabled" in patch and not isinstance(patch["history_enabled"], bool):

@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import fields
 from queue import Empty, Queue
 
@@ -155,10 +155,8 @@ def _cross_process_install_lock(timeout_seconds: int) -> Iterator[None]:
         except OSError:
             age = 0
         if age > timeout_seconds + 300:
-            try:
+            with suppress(OSError):
                 path.unlink()
-            except OSError:
-                pass
             descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         else:
             raise RuntimeError(
@@ -169,10 +167,8 @@ def _cross_process_install_lock(timeout_seconds: int) -> Iterator[None]:
         os.close(descriptor)
         yield
     finally:
-        try:
+        with suppress(OSError):
             path.unlink()
-        except OSError:
-            pass
 
 
 def _terminate_process(process: subprocess.Popen[str]) -> None:
@@ -195,10 +191,8 @@ def _terminate_process(process: subprocess.Popen[str]) -> None:
         process.terminate()
         process.wait(timeout=5)
     except Exception:
-        try:
+        with suppress(Exception):
             process.kill()
-        except Exception:
-            pass
 
 
 def _run_pip_install(
@@ -289,10 +283,8 @@ def _run_pip_install(
             _processes.pop(task.id, None)
             task.process_id = None
             _save_tasks_locked()
-        try:
+        with suppress(OSError):
             report_path.unlink()
-        except OSError:
-            pass
     if task.cancel_requested:
         return False
     if return_code == 0:
@@ -455,10 +447,8 @@ def shutdown_tasks() -> None:
     with _task_lock:
         task_ids = list(_processes)
     for task_id in task_ids:
-        try:
+        with suppress(ValueError):
             cancel_task(task_id)
-        except ValueError:
-            pass
 
 
 _load_tasks()

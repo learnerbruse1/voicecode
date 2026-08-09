@@ -48,10 +48,7 @@ def test_input_level(device: int | str | None = None, *, duration_ms: int = 1000
         if status:
             logger.warning("Audio test recorder status: %s", status)
         data = np.asarray(indata, dtype=np.float32)
-        if data.ndim == 2:
-            data = data[:, 0]
-        else:
-            data = data.reshape(-1)
+        data = data[:, 0] if data.ndim == 2 else data.reshape(-1)
         with lock:
             samples.append(data.copy())
         seen_audio.set()
