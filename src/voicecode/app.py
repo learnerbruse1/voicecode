@@ -648,11 +648,19 @@ def _set_huggingface_endpoint(endpoint: str) -> None:
         logger.debug("Unable to update the loaded Hugging Face endpoint: %s", exc)
 
 
+_reachable_hf_endpoint: str | None = None
+
+
 def _select_reachable_huggingface_endpoint() -> str | None:
+    global _reachable_hf_endpoint
     configured = os.environ.get("HF_ENDPOINT", "").strip().rstrip("/")
     if configured:
         _set_huggingface_endpoint(configured)
+        _reachable_hf_endpoint = configured
         return configured
+    if _reachable_hf_endpoint is not None:
+        _set_huggingface_endpoint(_reachable_hf_endpoint)
+        return _reachable_hf_endpoint
     try:
         httpx = importlib.import_module("httpx")
     except Exception:
@@ -663,6 +671,7 @@ def _select_reachable_huggingface_endpoint() -> str | None:
                 response = client.get(f"{endpoint}/api/models", params={"limit": 1})
             if response.status_code < 500:
                 _set_huggingface_endpoint(endpoint)
+                _reachable_hf_endpoint = endpoint
                 logger.info("Using reachable Hugging Face endpoint: %s", endpoint)
                 return endpoint
         except Exception as exc:

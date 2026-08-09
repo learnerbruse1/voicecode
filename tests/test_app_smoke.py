@@ -252,6 +252,48 @@ def test_huggingface_endpoint_selector_falls_back_to_reachable_mirror(app_module
     assert os.environ["HF_ENDPOINT"] == endpoint
 
 
+def test_huggingface_endpoint_is_cached_after_first_probe(app_module, monkeypatch):
+    calls: list[str] = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, params):
+            calls.append(url)
+            return Response(200)
+
+    fake_httpx = types.SimpleNamespace(Client=Client)
+    original_import_module = app_module.importlib.import_module
+
+    def fake_import_module(name):
+        if name == "httpx":
+            return fake_httpx
+        return original_import_module(name)
+
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    monkeypatch.setattr(app_module.importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(app_module, "_set_huggingface_endpoint", lambda endpoint: None)
+    monkeypatch.setattr(app_module, "_reachable_hf_endpoint", None)
+
+    first = app_module._select_reachable_huggingface_endpoint()
+    second = app_module._select_reachable_huggingface_endpoint()
+
+    assert first == "https://huggingface.co"
+    assert second == first
+    assert calls == ["https://huggingface.co/api/models"]
+
+
 def test_cached_whisper_model_uses_local_files_only(app_module):
     cache_root = app_module._model_cache_dir()
     snapshot = cache_root / "models--Systran--faster-whisper-base" / "snapshots" / "test-revision"
