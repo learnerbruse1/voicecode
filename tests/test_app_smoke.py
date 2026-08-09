@@ -840,6 +840,60 @@ def test_config_schema_exposes_partial_fields(client):
     assert fields["partial_interval_ms"] == {"type": "integer", "minimum": 200, "maximum": 5000}
 
 
+def test_decode_preset_maps_transcription_kwargs(client):
+    response = client.post("/config", json={"decode_preset": "fast"})
+    assert response.status_code == 200
+    response = client.post("/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en"})
+    kwargs = DummyWhisperModel.last_transcribe_kwargs
+    assert kwargs["beam_size"] == 1
+    assert kwargs["temperature"] == 0.0
+    assert kwargs["condition_on_previous_text"] is False
+
+    response = client.post("/config", json={"decode_preset": "high_quality"})
+    assert response.status_code == 200
+    response = client.post("/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en"})
+    kwargs = DummyWhisperModel.last_transcribe_kwargs
+    assert kwargs["beam_size"] == 8
+    assert kwargs["temperature"] == (0.0, 0.2, 0.4, 0.6, 0.8)
+
+    response = client.post("/config", json={"decode_preset": "balanced", "beam_size": 3})
+    assert response.status_code == 200
+    response = client.post("/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en"})
+    kwargs = DummyWhisperModel.last_transcribe_kwargs
+    assert kwargs["beam_size"] == 3
+
+
+def test_manual_decode_settings_switch_preset_to_custom(client):
+    response = client.post("/config", json={"decode_preset": "balanced"})
+    assert response.status_code == 200
+    response = client.post("/config", json={"beam_size": 3})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["decode_preset"] == "custom"
+    assert body["beam_size"] == 3
+
+
+def test_config_rejects_invalid_decode_preset(client):
+    response = client.post("/config", json={"decode_preset": "ultra"})
+    assert response.status_code == 400
+    assert "Unsupported decode preset" in response.get_json()["error"]
+
+
+def test_config_schema_exposes_decode_preset(client):
+    response = client.get("/config/schema")
+    fields = response.get_json()["fields"]
+    assert fields["decode_preset"]["choices"] == ["balanced", "custom", "fast", "high_quality"]
+
+
+def test_reload_model_accepts_decode_preset(client):
+    response = client.post("/reload_model", json={"model": "base", "decode_preset": "fast"})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "loading"
+    config = client.get("/config").get_json()
+    assert config["decode_preset"] == "fast"
+
+
 def test_config_schema_exposes_typing_and_decode_fields(client):
     response = client.get("/config/schema")
     assert response.status_code == 200

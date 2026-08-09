@@ -46,6 +46,14 @@ class TranscriptionService:
             "initial_prompt": initial_prompt,
             "temperature": 0.0,
         }
+        preset = str(config.get("decode_preset", "balanced"))
+        if preset == "fast":
+            kwargs["beam_size"] = 1
+            kwargs["temperature"] = 0.0
+            kwargs["condition_on_previous_text"] = False
+        elif preset == "high_quality":
+            kwargs["beam_size"] = 8
+            kwargs["temperature"] = (0.0, 0.2, 0.4, 0.6, 0.8)
         kwargs.update(vad.transcribe_options(vad_config, bool(config.get("vad_filter", True))))
         return kwargs
 

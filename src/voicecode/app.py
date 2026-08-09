@@ -942,6 +942,10 @@ def save_config(cfg: dict[str, Any]) -> None:
 def update_config(patch: dict[str, Any]) -> dict[str, Any]:
     """Atomically merge and persist a validated configuration patch."""
     _sync_config_file()
+    if "decode_preset" not in patch and any(
+        key in patch for key in ("beam_size", "condition_on_previous_text")
+    ):
+        patch = {**patch, "decode_preset": "custom"}
     with _config_lock:
         current = settings_store.load_config(CONFIG_FILE)
         updated = settings_store.merge_config(current, patch)

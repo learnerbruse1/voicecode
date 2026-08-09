@@ -73,6 +73,7 @@ Supported keys:
 | `device` | `auto`, `cpu`, `cuda` |
 | `compute_type` | `auto`, `default`, `int8`, `int8_float16`, `int16`, `float16`, `float32` |
 | `beam_size` | integer from 1 to 10 |
+| `decode_preset` | `fast`, `balanced`, `high_quality`, `custom` |
 | `vad_filter` | boolean |
 | `condition_on_previous_text` | boolean |
 | `typing_mode` | `clipboard`, `keystrokes` |

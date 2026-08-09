@@ -9,6 +9,7 @@ langSel.onchange = () => saveConfig({language: langSel.value});
 audioDeviceSel.onchange = () => saveConfig({audio_device: audioDeviceSel.value});
 textModeSel.onchange = () => saveConfig({text_mode: textModeSel.value});
 beamSizeSel.onchange = () => saveConfig({beam_size: Number(beamSizeSel.value)});
+decodePresetSel.onchange = () => saveConfig({decode_preset: decodePresetSel.value});
 vadFilterSel.onchange = () => saveConfig({vad_filter: vadFilterSel.value === "true"});
 conditionOnPreviousTextSel.onchange = () => saveConfig({condition_on_previous_text: conditionOnPreviousTextSel.value === "true"});
 historyEnabledSel.onchange = () => saveConfig({history_enabled: historyEnabledSel.value === "true"});
@@ -173,6 +174,7 @@ ${t("switching_model_detail")}`, null);
     device: deviceSel.value,
     compute_type: computeTypeSel.value,
     beam_size: Number(beamSizeSel.value),
+    decode_preset: decodePresetSel.value,
     vad_filter: vadFilterSel.value === "true",
     condition_on_previous_text: conditionOnPreviousTextSel.value === "true"
   }, {errorTitle: t("failed_reload_model"), suppressPopup: true});

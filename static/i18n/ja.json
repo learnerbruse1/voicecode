@@ -33,6 +33,7 @@
   "text_markdown": "Markdown",
   "text_prompt": "Prompt",
   "label_beam_size": "Beam",
+  "label_decode_preset": "デコードプリセット",
   "label_condition_on_previous_text": "前文コンテキスト",
   "label_vad_filter": "VAD",
   "vad_on": "On",
@@ -376,5 +377,9 @@
   "label_typing_delay_ms": "入力遅延（ms）",
   "typing_clipboard": "クリップボード貼り付け（高速）",
   "typing_keystrokes": "キー入力シミュレーション",
-  "label_partial_interval_ms": "プレビュー間隔（ms）"
+  "label_partial_interval_ms": "プレビュー間隔（ms）",
+  "decode_fast": "高速",
+  "decode_balanced": "バランス",
+  "decode_high_quality": "高精度",
+  "decode_custom": "カスタム"
 }

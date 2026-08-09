@@ -33,6 +33,7 @@
   "text_markdown": "Markdown",
   "text_prompt": "Prompt",
   "label_beam_size": "Beam",
+  "label_decode_preset": "解码预设",
   "label_condition_on_previous_text": "结合上文",
   "label_vad_filter": "VAD",
   "vad_on": "On",
@@ -376,5 +377,9 @@
   "label_typing_delay_ms": "上屏延迟（毫秒）",
   "typing_clipboard": "剪贴板粘贴（快）",
   "typing_keystrokes": "模拟按键",
-  "label_partial_interval_ms": "预览间隔（毫秒）"
+  "label_partial_interval_ms": "预览间隔（毫秒）",
+  "decode_fast": "快速",
+  "decode_balanced": "均衡",
+  "decode_high_quality": "高准确",
+  "decode_custom": "自定义"
 }

@@ -65,6 +65,7 @@ def create_model_blueprint(context: ModelContext) -> Blueprint:
                     "beam_size",
                     "vad_filter",
                     "condition_on_previous_text",
+                    "decode_preset",
                 )
                 if key in payload
             }

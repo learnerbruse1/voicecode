@@ -20,6 +20,10 @@ _Avoid_: clip
 A provisional transcription preview shown in the VoiceCode panel while recording; it is replaced by the final transcription when recording stops, and is never delivered to the target application.
 _Avoid_: draft, live transcript
 
+**Decode preset**:
+A named bundle of decoding parameters expressing a speed/accuracy trade-off (`fast`, `balanced`, `high_quality`); `custom` disables the bundle so individual settings apply.
+_Avoid_: mode, profile
+
 **Final transcription**:
 The definitive transcription produced from the complete utterance after recording stops; it is delivered to the target application and stored in history.
 _Avoid_: output

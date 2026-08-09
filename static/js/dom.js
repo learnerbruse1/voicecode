@@ -27,6 +27,7 @@ var micTestStatusEl = $("mic-test-status");
 var micLevelBarEl = $("mic-level-bar");
 var textModeSel = $("text-mode");
 var beamSizeSel = $("beam-size");
+var decodePresetSel = $("decode-preset");
 var vadFilterSel = $("vad-filter");
 var conditionOnPreviousTextSel = $("condition-on-previous-text");
 var historyEnabledSel = $("history-enabled");

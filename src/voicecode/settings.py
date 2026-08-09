@@ -21,6 +21,7 @@ VALID_UI_LANGUAGES = {"en", "zh", "ja"}
 VALID_TEXT_MODES = {"plain", "coding", "markdown", "prompt"}
 VALID_DEVICES = {"auto", "cpu", "cuda"}
 VALID_COMPUTE_TYPES = {"auto", "default", "int8", "int8_float16", "int16", "float16", "float32"}
+VALID_DECODE_PRESETS = {"fast", "balanced", "high_quality", "custom"}
 VALID_TYPING_MODES = {"clipboard", "keystrokes"}
 TYPING_DELAY_DEFAULT_MS = 150
 TYPING_DELAY_MIN_MS = 0
@@ -91,6 +92,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "partial_results": True,
     "partial_interval_ms": PARTIAL_INTERVAL_DEFAULT_MS,
     "beam_size": 5,
+    "decode_preset": "balanced",
     "vad_filter": True,
     "language": "zh",
     "ui_language": "en",
@@ -400,6 +402,8 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
             or not 1 <= beam_size <= 10
         ):
             raise ValueError("beam_size must be an integer between 1 and 10.")
+    if "decode_preset" in patch and patch["decode_preset"] not in VALID_DECODE_PRESETS:
+        raise ValueError("Unsupported decode preset. Use fast, balanced, high_quality, or custom.")
     if "vad_filter" in patch and not isinstance(patch["vad_filter"], bool):
         raise ValueError("vad_filter must be a boolean.")
     if "condition_on_previous_text" in patch and not isinstance(
@@ -519,6 +523,7 @@ def config_schema() -> dict[str, Any]:
             "device": {"type": "select", "choices": sorted(VALID_DEVICES)},
             "compute_type": {"type": "select", "choices": sorted(VALID_COMPUTE_TYPES)},
             "beam_size": {"type": "integer", "minimum": 1, "maximum": 10},
+            "decode_preset": {"type": "select", "choices": sorted(VALID_DECODE_PRESETS)},
             "condition_on_previous_text": {"type": "boolean"},
             "partial_results": {"type": "boolean"},
             "partial_interval_ms": {

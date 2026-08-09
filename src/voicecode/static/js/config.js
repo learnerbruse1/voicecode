@@ -11,6 +11,7 @@ async function loadConfig() {
     renderDeviceMode();
     updateModelDescription();
     beamSizeSel.value = String(cfg.beam_size || 5);
+    decodePresetSel.value = cfg.decode_preset || "balanced";
     vadFilterSel.value = String(cfg.vad_filter !== false);
     conditionOnPreviousTextSel.value = String(cfg.condition_on_previous_text === true);
     langSel.value = cfg.language || "zh";

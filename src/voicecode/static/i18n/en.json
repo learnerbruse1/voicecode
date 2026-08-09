@@ -77,6 +77,7 @@
   "text_markdown": "Markdown",
   "text_prompt": "Prompt",
   "label_beam_size": "Beam",
+  "label_decode_preset": "Decode preset",
   "label_condition_on_previous_text": "Previous text context",
   "label_vad_filter": "VAD",
   "vad_on": "On",
@@ -376,5 +377,9 @@
   "label_typing_delay_ms": "Typing delay (ms)",
   "typing_clipboard": "Clipboard paste (fast)",
   "typing_keystrokes": "Simulated keystrokes",
-  "label_partial_interval_ms": "Preview interval (ms)"
+  "label_partial_interval_ms": "Preview interval (ms)",
+  "decode_fast": "Fast",
+  "decode_balanced": "Balanced",
+  "decode_high_quality": "High quality",
+  "decode_custom": "Custom"
 }
