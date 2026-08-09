@@ -144,6 +144,10 @@
               <select id="typing-mode"><option value="clipboard" data-i18n="typing_clipboard">Clipboard paste (fast)</option><option value="keystrokes" data-i18n="typing_keystrokes">Simulated keystrokes</option></select>
               <label for="typing-delay" data-i18n="label_typing_delay_ms">Typing delay (ms)</label>
               <input id="typing-delay" type="number" min="0" max="5000" step="10">
+              <label for="partial-results" data-i18n="label_partial_results">Live preview</label>
+              <select id="partial-results"><option value="true" data-i18n="vad_on">On</option><option value="false" data-i18n="vad_off">Off</option></select>
+              <label for="partial-interval" data-i18n="label_partial_interval_ms">Preview interval (ms)</label>
+              <input id="partial-interval" type="number" min="200" max="5000" step="50">
             </div>
           </section>
 

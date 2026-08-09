@@ -25,6 +25,9 @@ VALID_TYPING_MODES = {"clipboard", "keystrokes"}
 TYPING_DELAY_DEFAULT_MS = 150
 TYPING_DELAY_MIN_MS = 0
 TYPING_DELAY_MAX_MS = 5000
+PARTIAL_INTERVAL_DEFAULT_MS = 600
+PARTIAL_INTERVAL_MIN_MS = 200
+PARTIAL_INTERVAL_MAX_MS = 5000
 MODEL_INFO = {
     "tiny": {
         "size": "~75 MB",
@@ -85,6 +88,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "device": "auto",
     "compute_type": "auto",
     "condition_on_previous_text": False,
+    "partial_results": True,
+    "partial_interval_ms": PARTIAL_INTERVAL_DEFAULT_MS,
     "beam_size": 5,
     "vad_filter": True,
     "language": "zh",
@@ -401,6 +406,15 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
         patch["condition_on_previous_text"], bool
     ):
         raise ValueError("condition_on_previous_text must be a boolean.")
+    if "partial_results" in patch and not isinstance(patch["partial_results"], bool):
+        raise ValueError("partial_results must be a boolean.")
+    if "partial_interval_ms" in patch:
+        patch["partial_interval_ms"] = _validate_positive_int(
+            patch["partial_interval_ms"],
+            "partial_interval_ms",
+            PARTIAL_INTERVAL_MIN_MS,
+            PARTIAL_INTERVAL_MAX_MS,
+        )
     if "language" in patch and patch["language"] not in VALID_LANGUAGES:
         raise ValueError("Unsupported language. Use one of: auto, zh, en, ja.")
     if "ui_language" in patch and patch["ui_language"] not in VALID_UI_LANGUAGES:
@@ -506,6 +520,12 @@ def config_schema() -> dict[str, Any]:
             "compute_type": {"type": "select", "choices": sorted(VALID_COMPUTE_TYPES)},
             "beam_size": {"type": "integer", "minimum": 1, "maximum": 10},
             "condition_on_previous_text": {"type": "boolean"},
+            "partial_results": {"type": "boolean"},
+            "partial_interval_ms": {
+                "type": "integer",
+                "minimum": PARTIAL_INTERVAL_MIN_MS,
+                "maximum": PARTIAL_INTERVAL_MAX_MS,
+            },
             "language": {"type": "select", "choices": ["auto", "zh", "en", "ja"]},
             "ui_language": {"type": "select", "choices": sorted(VALID_UI_LANGUAGES)},
             "typing_delay_ms": {

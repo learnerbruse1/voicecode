@@ -27,6 +27,7 @@
   "audio_default": "システム既定",
   "label_text_mode": "テキストモード",
   "label_typing_mode": "入力方法",
+  "label_partial_results": "ライブプレビュー",
   "text_plain": "プレーン",
   "text_coding": "コーディング",
   "text_markdown": "Markdown",
@@ -374,5 +375,6 @@
   "games_minesweeper_only_hint": "初級・中級・上級の3段階で遊べるクラシックマインスイーパーです。",
   "label_typing_delay_ms": "入力遅延（ms）",
   "typing_clipboard": "クリップボード貼り付け（高速）",
-  "typing_keystrokes": "キー入力シミュレーション"
+  "typing_keystrokes": "キー入力シミュレーション",
+  "label_partial_interval_ms": "プレビュー間隔（ms）"
 }

@@ -71,6 +71,7 @@ flowchart TD
 | Whisper model | `model_lock` (`threading.RLock`) |
 | Config file I/O | `_config_lock` |
 | Audio buffer + active flag | `Recorder._lock` (`threading.RLock`) |
+| Partial draft state | `_partial_lock` |
 | Model reload state | `_model_state_lock` |
 | Cancellation token | `_cancel_lock` |
 | Global typing flag | `_typing_lock` |

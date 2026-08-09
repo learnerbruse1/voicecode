@@ -25,6 +25,8 @@ async function loadConfig() {
     appendSel.value = cfg.append_mode || "append";
     typingModeSel.value = cfg.typing_mode || "clipboard";
     typingDelaySel.value = String(cfg.typing_delay_ms == null ? 150 : cfg.typing_delay_ms);
+    partialResultsSel.value = String(cfg.partial_results !== false);
+    partialIntervalSel.value = String(cfg.partial_interval_ms == null ? 600 : cfg.partial_interval_ms);
     onTop = Boolean(cfg.on_top);
     transcriptEl.style.fontSize = fsizeSel.value;
     if (cfg.hotkey) currentHotkey = cfg.hotkey;

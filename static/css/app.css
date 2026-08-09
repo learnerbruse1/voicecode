@@ -398,3 +398,7 @@ html[data-theme="light"] .onboarding-dialog,
 html[data-theme="light"] .download-center{
   background:var(--surface-overlay)!important;
 }
+.partial-draft{
+  opacity:.65;
+  font-style:italic;
+}

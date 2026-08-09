@@ -3,6 +3,8 @@ if (themeSel) themeSel.onchange = () => { applyTheme(themeSel.value); saveConfig
 appendSel.onchange = () => saveConfig({append_mode: appendSel.value});
 typingModeSel.onchange = () => saveConfig({typing_mode: typingModeSel.value});
 typingDelaySel.onchange = () => saveConfig({typing_delay_ms: Number(typingDelaySel.value)});
+partialResultsSel.onchange = () => saveConfig({partial_results: partialResultsSel.value === "true"});
+partialIntervalSel.onchange = () => saveConfig({partial_interval_ms: Number(partialIntervalSel.value)});
 langSel.onchange = () => saveConfig({language: langSel.value});
 audioDeviceSel.onchange = () => saveConfig({audio_device: audioDeviceSel.value});
 textModeSel.onchange = () => saveConfig({text_mode: textModeSel.value});

@@ -201,6 +201,13 @@ class Recorder:
             if self._active:
                 self._buf.append(indata[:, 0].copy())
 
+    def snapshot(self) -> np.ndarray:
+        """Return a copy of the audio buffered so far without stopping recording."""
+        with self._lock:
+            if not self._buf:
+                return np.array([], dtype=np.float32)
+            return np.concatenate(self._buf).copy()
+
     def stop_and_get(self) -> np.ndarray:
         with self._lock:
             if not self._active:

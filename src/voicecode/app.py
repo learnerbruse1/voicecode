@@ -1000,6 +1000,8 @@ def status():
             "model": MODEL_SIZE,
             "configured_model": load_config().get("model", MODEL_SIZE),
             "recording": _recorder.is_recording(),
+            "partial_text": _partial_text(),
+            "partial_active": _partial_active(),
             "model_loaded": model_loaded,
             "model_state": model_state,
             "missing_required_dependencies": dependency_manager.missing_dependencies(
@@ -1285,6 +1287,87 @@ def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> d
     return result
 
 
+_PARTIAL_MIN_SAMPLES = 8000  # 0.5 s at 16 kHz
+_partial_lock = threading.Lock()
+_partial_state: dict[str, Any] = {"text": "", "active": False}
+_partial_generation = 0
+_partial_stop = threading.Event()
+_partial_worker: threading.Thread | None = None
+
+
+def _partial_text() -> str:
+    with _partial_lock:
+        return str(_partial_state.get("text", ""))
+
+
+def _partial_active() -> bool:
+    with _partial_lock:
+        return bool(_partial_state.get("active", False))
+
+
+def _set_partial(text: str, active: bool) -> None:
+    with _partial_lock:
+        _partial_state["text"] = text
+        _partial_state["active"] = active
+
+
+def _run_partial_worker(interval_ms: int, language: str | None, generation: int) -> None:
+    while not _partial_stop.wait(interval_ms / 1000.0):
+        if _partial_stop.is_set() or not _recorder.is_recording():
+            continue
+        try:
+            audio = _recorder.snapshot()
+        except Exception as exc:
+            logger.debug("Partial snapshot failed: %s", exc)
+            continue
+        if audio.size < _PARTIAL_MIN_SAMPLES:
+            continue
+        try:
+            result = _transcribe_audio(audio, language)
+            text = str(result.get("text", "")).strip()
+        except Exception as exc:
+            logger.debug("Partial transcription failed: %s", exc)
+            continue
+        if not text:
+            continue
+        with _partial_lock:
+            if generation != _partial_generation:
+                return
+            _partial_state["text"] = text
+            _partial_state["active"] = True
+
+
+def _start_partial_worker(interval_ms: int, language: str | None) -> None:
+    global _partial_generation, _partial_worker
+    with _partial_lock:
+        _partial_generation += 1
+        generation = _partial_generation
+        _partial_state["text"] = ""
+        _partial_state["active"] = False
+    _partial_stop.clear()
+    worker = threading.Thread(
+        target=_run_partial_worker,
+        args=(interval_ms, language, generation),
+        daemon=True,
+        name="voicecode-partial",
+    )
+    _partial_worker = worker
+    worker.start()
+
+
+def _stop_partial_worker() -> None:
+    global _partial_generation, _partial_worker
+    _partial_stop.set()
+    with _partial_lock:
+        _partial_generation += 1
+        _partial_state["text"] = ""
+        _partial_state["active"] = False
+    worker = _partial_worker
+    _partial_worker = None
+    if worker is not None and worker is not threading.current_thread():
+        worker.join(timeout=1.0)
+
+
 def _coerce_audio_samples(value: Any) -> np.ndarray:
     return _transcription_service.coerce_audio_samples(value)
 
@@ -1534,6 +1617,7 @@ def shutdown_application() -> None:
     _application_shutdown_event.set()
     logger.info("Stopping VoiceCode background services.")
     _bump_cancel_token()
+    _stop_partial_worker()
     try:
         _recorder.cancel()
     except Exception as exc:
@@ -1656,6 +1740,8 @@ app.register_blueprint(
             get_cancel_token=_get_cancel_token,
             bump_cancel_token=_bump_cancel_token,
             deliver_transcription=_deliver_transcription,
+            start_partial_worker=_start_partial_worker,
+            stop_partial_worker=_stop_partial_worker,
         )
     )
 )

@@ -15,3 +15,11 @@ _Avoid_: paste, autotype, input
 **Utterance**:
 A single continuous audio capture between recording start and stop; the unit fed to transcription.
 _Avoid_: clip
+
+**Partial result**:
+A provisional transcription preview shown in the VoiceCode panel while recording; it is replaced by the final transcription when recording stops, and is never delivered to the target application.
+_Avoid_: draft, live transcript
+
+**Final transcription**:
+The definitive transcription produced from the complete utterance after recording stops; it is delivered to the target application and stored in history.
+_Avoid_: output

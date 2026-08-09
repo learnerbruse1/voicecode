@@ -47,6 +47,8 @@ Returns model and recorder state.
   "status": "ok",
   "model": "base",
   "recording": false,
+  "partial_text": "",
+  "partial_active": false,
   "model_loaded": true,
   "model_state": {"status": "ready", "error": null}
 }
@@ -72,6 +74,11 @@ Supported keys:
 | `compute_type` | `auto`, `default`, `int8`, `int8_float16`, `int16`, `float16`, `float32` |
 | `beam_size` | integer from 1 to 10 |
 | `vad_filter` | boolean |
+| `condition_on_previous_text` | boolean |
+| `typing_mode` | `clipboard`, `keystrokes` |
+| `typing_delay_ms` | integer from 0 to 5000 |
+| `partial_results` | boolean |
+| `partial_interval_ms` | integer from 200 to 5000 |
 | `language` | `auto`, `zh`, `en`, `ja` |
 | `ui_language` | `en`, `zh`, `ja` |
 | `audio_device` | empty string, `null`, device index, or device name |
@@ -124,7 +131,7 @@ Request:
 Response:
 
 ```json
-{"status": "loading", "model": "small", "device": "auto", "compute_type": "auto"}
+{"status": "loading", "model": "small", "device": "auto", "compute_type": "auto", "condition_on_previous_text": false}
 ```
 
 If another reload is in progress, returns `409`.

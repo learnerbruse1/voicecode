@@ -1,3 +1,25 @@
+var partialPollTimer = null;
+async function pollPartial() {
+  if (!recording) return;
+  try {
+    const resp = await fetch("/status");
+    const data = await resp.json();
+    partialDraft = data.partial_text || "";
+    renderDraft();
+  } catch (e) { /* transient status failures are ignored */ }
+  // 700 ms draft poll interval while recording
+  partialPollTimer = setTimeout(pollPartial, 700);
+}
+function startPartialPolling() {
+  stopPartialPolling();
+  // 700 ms draft poll interval while recording
+  partialPollTimer = setTimeout(pollPartial, 700);
+}
+function stopPartialPolling() {
+  if (partialPollTimer) { clearTimeout(partialPollTimer); partialPollTimer = null; }
+  partialDraft = "";
+  renderText();
+}
 async function startRec() {
   if (recording) return;
   cancelled = false;
@@ -7,6 +29,7 @@ async function startRec() {
   dbg("start response: " + JSON.stringify(r));
   if (r.status === "recording") {
     recording = true;
+    startPartialPolling();
     recBtn.classList.add("recording");
     recLabel.textContent = t("recording_release");
     setStatus("recording", "recording");
@@ -18,6 +41,7 @@ async function startRec() {
 async function stopRec() {
   if (!recording) return;
   recording = false;
+  stopPartialPolling();
   recBtn.classList.remove("recording");
   recLabel.textContent = t("record_idle");
   if (cancelled) {
@@ -65,4 +89,4 @@ copyBtn.onclick = () => {
   }).catch(err => showError(t("clipboard_failed"), err.message || t("clipboard_failed_detail")));
 };
 clearBtn.onclick = () => { text = ""; renderText(); };
-cancelBtn.onclick = () => { cancelled = true; hideProgress(); cancelBtn.style.display = "none"; if (currentRequest) currentRequest.abort(); requestJSON("POST", "/record/cancel", {}, {silentAbort: true, suppressPopup: true}); };
+cancelBtn.onclick = () => { cancelled = true; stopPartialPolling(); hideProgress(); cancelBtn.style.display = "none"; if (currentRequest) currentRequest.abort(); requestJSON("POST", "/record/cancel", {}, {silentAbort: true, suppressPopup: true}); };

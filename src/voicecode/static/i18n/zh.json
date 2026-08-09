@@ -27,6 +27,7 @@
   "audio_default": "系统默认",
   "label_text_mode": "文本模式",
   "label_typing_mode": "上屏方式",
+  "label_partial_results": "实时预览",
   "text_plain": "普通",
   "text_coding": "编程",
   "text_markdown": "Markdown",
@@ -374,5 +375,6 @@
   "games_minesweeper_only_hint": "经典扫雷，提供初级、中级和高级三种难度。",
   "label_typing_delay_ms": "上屏延迟（毫秒）",
   "typing_clipboard": "剪贴板粘贴（快）",
-  "typing_keystrokes": "模拟按键"
+  "typing_keystrokes": "模拟按键",
+  "label_partial_interval_ms": "预览间隔（毫秒）"
 }

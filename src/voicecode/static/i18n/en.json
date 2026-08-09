@@ -71,6 +71,7 @@
   "audio_default": "System default",
   "label_text_mode": "Text mode",
   "label_typing_mode": "Typing method",
+  "label_partial_results": "Live preview",
   "text_plain": "Plain",
   "text_coding": "Coding",
   "text_markdown": "Markdown",
@@ -374,5 +375,6 @@
   "games_minesweeper_only_hint": "Classic Minesweeper with Beginner, Intermediate, and Expert modes.",
   "label_typing_delay_ms": "Typing delay (ms)",
   "typing_clipboard": "Clipboard paste (fast)",
-  "typing_keystrokes": "Simulated keystrokes"
+  "typing_keystrokes": "Simulated keystrokes",
+  "label_partial_interval_ms": "Preview interval (ms)"
 }

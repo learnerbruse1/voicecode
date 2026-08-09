@@ -35,6 +35,8 @@ var themeSel = $("theme");
 var appendSel = $("appendmode");
 var typingModeSel = $("typing-mode");
 var typingDelaySel = $("typing-delay");
+var partialResultsSel = $("partial-results");
+var partialIntervalSel = $("partial-interval");
 var topBtn = $("topbtn");
 var resetDefaultsBtn = $("reset-defaults-btn");
 var historyBtn = $("history-btn");
@@ -309,5 +311,14 @@ function renderText() {
     transcriptEl.textContent = text;
   } else {
     transcriptEl.innerHTML = `<span class="placeholder" data-i18n="transcript_placeholder">${t("transcript_placeholder")}</span>`;
+  }
+}
+
+var partialDraft = "";
+function renderDraft() {
+  if (partialDraft) {
+    transcriptEl.innerHTML = `<span class="partial-draft">${htmlEscape(partialDraft)}…</span>`;
+  } else {
+    renderText();
   }
 }

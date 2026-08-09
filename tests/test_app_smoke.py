@@ -88,6 +88,7 @@ def app_module(monkeypatch):
     DummyWhisperModel.last_transcribe_kwargs = None
     module._recorder.stop_and_get()
     yield module
+    module._stop_partial_worker()
     module._recorder.stop_and_get()
     sys.modules.pop("app", None)
 
@@ -368,6 +369,81 @@ def test_json_null_request_is_rejected_without_side_effects(client, app_module, 
     assert response.status_code == 400
     assert response.get_json()["error"] == "JSON payload must be an object."
     assert app_module._recorder.is_recording() is False
+
+
+def test_recorder_snapshot_returns_copy_without_consuming(app_module):
+    recorder = app_module._recorder
+    recorder.start()
+    try:
+        initial = recorder.snapshot()
+        assert initial.shape == (4,)
+        recorder._cb(np.ones((1024, 1), dtype=np.float32), None, None, None)
+        recorder._cb(np.ones((1024, 1), dtype=np.float32), None, None, None)
+        snapshot = recorder.snapshot()
+        assert snapshot.shape == (4 + 2048,)
+        full = recorder.stop_and_get()
+        assert full.shape == (4 + 2048,)
+    finally:
+        recorder.cancel()
+
+
+def test_partial_transcription_streams_draft_and_clears_on_stop(client, app_module):
+    response = client.post("/config", json={"partial_results": True, "partial_interval_ms": 200})
+    assert response.status_code == 200
+
+    response = client.post("/record/start", json={"language": "zh"})
+    assert response.status_code == 200
+    recorder = app_module._recorder
+    for _ in range(8):
+        recorder._cb(np.ones((1024, 1), dtype=np.float32), None, None, None)
+
+    deadline = time.monotonic() + 3
+    partial_text = ""
+    while time.monotonic() < deadline:
+        status = client.get("/status").get_json()
+        if status.get("partial_text"):
+            partial_text = status["partial_text"]
+            break
+        time.sleep(0.05)
+    assert partial_text == "hello"
+
+    response = client.post("/record/stop", json={"language": "zh"})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["text"] == "hello"
+    assert client.get("/status").get_json()["partial_text"] == ""
+
+
+def test_partial_transcription_clears_on_cancel(client, app_module):
+    client.post("/config", json={"partial_results": True, "partial_interval_ms": 200})
+    client.post("/record/start", json={"language": "zh"})
+    recorder = app_module._recorder
+    for _ in range(8):
+        recorder._cb(np.ones((1024, 1), dtype=np.float32), None, None, None)
+
+    deadline = time.monotonic() + 3
+    seen = False
+    while time.monotonic() < deadline:
+        if client.get("/status").get_json().get("partial_text"):
+            seen = True
+            break
+        time.sleep(0.05)
+    assert seen is True
+
+    response = client.post("/record/cancel", json={})
+    assert response.status_code == 200
+    assert client.get("/status").get_json()["partial_text"] == ""
+
+
+def test_partial_transcription_disabled_by_config(client, app_module):
+    client.post("/config", json={"partial_results": False, "partial_interval_ms": 200})
+    client.post("/record/start", json={"language": "zh"})
+    recorder = app_module._recorder
+    for _ in range(8):
+        recorder._cb(np.ones((1024, 1), dtype=np.float32), None, None, None)
+    time.sleep(0.5)
+    assert client.get("/status").get_json()["partial_text"] == ""
+    client.post("/record/stop", json={"language": "zh"})
 
 
 def test_record_start_failure_does_not_leave_recorder_active(client, app_module):
@@ -718,6 +794,50 @@ def test_config_rejects_invalid_typing_and_decode_controls(client, typing_patch,
     response = client.post("/config", json=typing_patch)
     assert response.status_code == 400
     assert error_fragment in response.get_json()["error"]
+
+
+def test_config_accepts_partial_controls(client):
+    response = client.post(
+        "/config",
+        json={"partial_results": False, "partial_interval_ms": 400},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["partial_results"] is False
+    assert body["partial_interval_ms"] == 400
+
+
+@pytest.mark.parametrize(
+    ("patch", "error_fragment"),
+    [
+        ({"partial_results": "yes"}, "partial_results must be a boolean"),
+        (
+            {"partial_interval_ms": 100},
+            "partial_interval_ms must be an integer between 200 and 5000",
+        ),
+        (
+            {"partial_interval_ms": True},
+            "partial_interval_ms must be an integer between 200 and 5000",
+        ),
+        (
+            {"partial_interval_ms": "fast"},
+            "partial_interval_ms must be an integer between 200 and 5000",
+        ),
+    ],
+)
+def test_config_rejects_invalid_partial_controls(client, patch, error_fragment):
+    response = client.post("/config", json=patch)
+    assert response.status_code == 400
+    assert error_fragment in response.get_json()["error"]
+
+
+def test_config_schema_exposes_partial_fields(client):
+    response = client.get("/config/schema")
+    assert response.status_code == 200
+    fields = response.get_json()["fields"]
+    assert fields["partial_results"]["type"] == "boolean"
+    assert fields["partial_interval_ms"] == {"type": "integer", "minimum": 200, "maximum": 5000}
 
 
 def test_config_schema_exposes_typing_and_decode_fields(client):

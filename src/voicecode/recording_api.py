@@ -33,6 +33,8 @@ class RecordingContext:
     get_cancel_token: Callable[[], int]
     bump_cancel_token: Callable[[], int]
     deliver_transcription: Callable[[str, int], None]
+    start_partial_worker: Callable[[int, str | None], None]
+    stop_partial_worker: Callable[[], None]
 
 
 def create_recording_blueprint(context: RecordingContext) -> Blueprint:
@@ -42,7 +44,7 @@ def create_recording_blueprint(context: RecordingContext) -> Blueprint:
     def record_start():
         try:
             payload = context.json_payload()
-            context.normalize_language(payload.get("language", "zh"))
+            language = context.normalize_language(payload.get("language", "zh"))
             reason = context.model_unavailable_reason()
             if reason:
                 return context.error(
@@ -53,6 +55,8 @@ def create_recording_blueprint(context: RecordingContext) -> Blueprint:
                 payload.get("audio_device", config.get("audio_device", ""))
             )
             started = context.recorder.start(device=device)
+            if started and config.get("partial_results", True):
+                context.start_partial_worker(int(config.get("partial_interval_ms", 600)), language)
             return jsonify({"status": "recording", "started": started})
         except ValueError as exc:
             return context.error(str(exc), 400)
@@ -69,6 +73,7 @@ def create_recording_blueprint(context: RecordingContext) -> Blueprint:
             language = context.normalize_language(payload.get("language"))
         except ValueError as exc:
             return context.error(str(exc), 400)
+        context.stop_partial_worker()
         audio = context.recorder.stop_and_get()
         if len(audio) == 0:
             return jsonify({"text": "", "language": language or "auto"})
@@ -99,6 +104,7 @@ def create_recording_blueprint(context: RecordingContext) -> Blueprint:
             context.json_payload()
         except ValueError as exc:
             return context.error(str(exc), 400)
+        context.stop_partial_worker()
         context.bump_cancel_token()
         context.recorder.stop_and_get()
         return jsonify({"status": "cancelled"})
