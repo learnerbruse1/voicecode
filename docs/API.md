@@ -125,7 +125,9 @@ Request:
   "device": "auto",
   "compute_type": "auto",
   "beam_size": 5,
-  "vad_filter": true
+  "vad_filter": true,
+  "condition_on_previous_text": false,
+  "decode_preset": "balanced"
 }
 ```
 

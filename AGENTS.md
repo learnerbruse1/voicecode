@@ -78,6 +78,7 @@ flowchart TD
 | Model reload state | `_model_state_lock` |
 | Cancellation token | `_cancel_lock` |
 | Global typing flag | `_typing_lock` |
+| Typing delivery serialization | `_delivery_lock` |
 | Dependency task map | dependency installer `_task_lock` |
 | pip install serialization | dependency installer `_install_lock` |
 | Hotkey modifier set | listener-local lock |
