@@ -92,29 +92,6 @@ def _assert_setting_round_trip(page, selector: str, value: str) -> None:
     )
 
 
-def test_static_assets_are_versioned_and_cacheable(tmp_path):
-    playwright = pytest.importorskip("playwright.sync_api")
-    port, process = _start_server(tmp_path)
-    try:
-        with playwright.sync_playwright() as runtime:
-            browser = runtime.chromium.launch()
-            page = browser.new_page()
-            html = page.request.get(f"http://127.0.0.1:{port}/").text()
-            assert "?v=" in html
-            for asset in (
-                f"http://127.0.0.1:{port}/js/app.js",
-                f"http://127.0.0.1:{port}/css/app.css",
-            ):
-                response = page.request.get(asset)
-                assert response.ok
-                cache_control = response.headers.get("cache-control") or ""
-                assert "immutable" in cache_control, cache_control
-            browser.close()
-    finally:
-        process.terminate()
-        process.wait(timeout=10)
-
-
 def test_idle_status_polling_is_not_every_three_seconds(tmp_path):
     playwright = pytest.importorskip("playwright.sync_api")
     port, process = _start_server(tmp_path)

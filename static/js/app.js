@@ -84,6 +84,7 @@ async function bootstrapVoiceCode() {
 var statusPollTimer = null;
 async function runStatusPoll() {
   if (recording) {
+    await pollModelStatus(false);
     scheduleStatusPolling();
     return;
   }
@@ -93,7 +94,7 @@ async function runStatusPoll() {
 
 function scheduleStatusPolling() {
   if (statusPollTimer) clearTimeout(statusPollTimer);
-  const delay = document.hidden ? 15000 : (statusActive ? 3000 : 10000);
+  const delay = document.hidden ? 15000 : (recording || modelStatusProgressVisible ? 3000 : 10000);
   statusPollTimer = setTimeout(runStatusPoll, delay);
 }
 

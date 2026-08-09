@@ -1,5 +1,11 @@
 var modelStatusProgressVisible = false;
-var statusActive = false;
+
+function setHtmlIfChanged(el, html) {
+  if (el && el.dataset.rendered !== html) {
+    el.innerHTML = html;
+    el.dataset.rendered = html;
+  }
+}
 
 async function pollModelStatus(force = false) {
   try {
@@ -9,7 +15,6 @@ async function pollModelStatus(force = false) {
     const state = data.model_state || {};
     const onboardingVisible = document.getElementById("onboarding-overlay")?.classList.contains("show");
     const active = ["checking", "downloading", "loading"].includes(state.status);
-    statusActive = Boolean(data.recording) || active;
     const errorKey = `${state.error_code || ""}:${state.technical_details || state.error || ""}`;
     if (state.status === "error" && !onboardingVisible && (force || !shownModelErrors.has(errorKey))) {
       shownModelErrors.add(errorKey);
@@ -67,7 +72,7 @@ async function updateStats() {
         `<span class="status-chip"><span>${t("stats_gpu")}</span><b>${gpu ? fmtPercent(gpu.util) : t("unavailable_short")}</b></span>`,
         `<span class="status-chip"><span>${t("stats_ram")}</span><b>${fmtPercent(s.system_memory_percent)}</b></span>`
       ].join("");
-      if (systemStatusEl.innerHTML !== chips) systemStatusEl.innerHTML = chips;
+      setHtmlIfChanged(systemStatusEl, chips);
     }
 
     if (perfEl) {
@@ -77,7 +82,7 @@ async function updateStats() {
         renderMetricCard(t("stats_ram"), fmtPercent(s.system_memory_percent), memoryDetail),
         renderMetricCard(t("stats_gpu"), gpu ? fmtPercent(gpu.util) : "n/a", `${gpuName} | ${gpuDriver}`)
       ].join("");
-      if (perfEl.innerHTML !== perfHtml) perfEl.innerHTML = perfHtml;
+      setHtmlIfChanged(perfEl, perfHtml);
     }
 
     if (homeMetricsEl) {
@@ -86,7 +91,7 @@ async function updateStats() {
         renderMetricCard(t("stats_app_memory"), fmtMb(s.process_memory_mb), `Process CPU: ${fmtPercent(s.process_cpu_percent)}`),
         renderMetricCard(t("stats_gpu_memory"), gpuMemory, gpuName)
       ].join("");
-      if (homeMetricsEl.innerHTML !== homeHtml) homeMetricsEl.innerHTML = homeHtml;
+      setHtmlIfChanged(homeMetricsEl, homeHtml);
     }
   } catch (e) {}
 }
