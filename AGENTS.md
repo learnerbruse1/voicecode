@@ -1,4 +1,4 @@
-# AGENTS.md
+﻿# AGENTS.md
 
 Repository-specific guidance for coding agents working on VoiceCode.
 
@@ -135,3 +135,17 @@ For metadata/runtime changes, also run or justify skipping:
 python -X utf8 -m py_compile app.py main.py src/voicecode/app.py src/voicecode/main.py src/voicecode/__init__.py src/voicecode/__main__.py src/voicecode/runtime.py
 python -m pip wheel . --no-deps -w dist
 ```
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs for this repo live as GitHub issues, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles map to `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
