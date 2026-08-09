@@ -1577,6 +1577,56 @@ def test_windows_installer_configuration_keeps_runtime_data_beside_the_app():
     assert "VOICECODE_DEP_DIR" in runtime_hook
 
 
+def test_model_download_starts_and_reports_loading(client):
+    response = client.post("/models/tiny/download", json={})
+    assert response.status_code == 202
+    body = response.get_json()
+    assert body["status"] == "loading"
+    assert body["model"] == "tiny"
+    assert "cache_dir" in body
+
+
+def test_model_download_rejects_unsupported_model(client):
+    response = client.post("/models/gpt-4/download", json={})
+    assert response.status_code == 400
+    assert "Unsupported model" in response.get_json()["error"]
+
+
+def test_model_download_disabled_by_skip_flag(client, monkeypatch):
+    monkeypatch.setenv("VOICECODE_SKIP_MODEL_LOAD", "1")
+    response = client.post("/models/tiny/download", json={})
+    assert response.status_code == 409
+    assert "VOICECODE_SKIP_MODEL_LOAD" in response.get_json()["error"]
+
+
+def test_models_cache_endpoint(client):
+    response = client.get("/models/cache")
+    assert response.status_code == 200
+    body = response.get_json()
+    assert "cache_dir" in body
+    assert "models" in body
+
+
+def test_reload_model_cache_dir_error_returns_500(client, app_module, monkeypatch):
+    def boom():
+        raise OSError("disk full")
+
+    monkeypatch.setattr(app_module, "_model_cache_dir", boom)
+    response = client.post("/reload_model", json={"model": "base"})
+    assert response.status_code == 500
+    assert response.get_json()["error"]
+
+
+def test_reload_model_config_save_failure_returns_500(client, app_module, monkeypatch):
+    def boom(patch):
+        raise RuntimeError("write failed")
+
+    monkeypatch.setattr(app_module, "update_config", boom)
+    response = client.post("/reload_model", json={"model": "base", "beam_size": 3})
+    assert response.status_code == 500
+    assert "Failed to save model configuration" in response.get_json()["error"]
+
+
 def test_skip_model_load_blocks_reload(client, app_module, monkeypatch):
     monkeypatch.setenv("VOICECODE_SKIP_MODEL_LOAD", "1")
 
@@ -2589,6 +2639,103 @@ def test_deliver_text_non_windows_routes_to_keystrokes(monkeypatch):
     monkeypatch.setattr(main_module, "_deliver_via_clipboard", lambda text: True)
     main_module._deliver_text("hello")
     assert controller.typed == ["hello"]
+
+
+def test_api_copy_text_guards(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    monkeypatch.setattr(main_module.os, "name", "posix")
+    api = main_module.Api()
+    assert api.copy_text("hello") is False
+    monkeypatch.setattr(main_module.os, "name", "nt")
+    assert api.copy_text("") is False
+
+
+def test_typing_config_readers_use_defaults_and_clamp(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    monkeypatch.setattr(
+        main_module.server,
+        "load_config",
+        lambda: {"typing_mode": "keystrokes", "typing_delay_ms": 5000},
+    )
+    assert main_module._typing_mode_from_config() == "keystrokes"
+    assert main_module._typing_delay_ms() == 5000
+    monkeypatch.setattr(
+        main_module.server,
+        "load_config",
+        lambda: {"typing_mode": "invalid", "typing_delay_ms": 99999},
+    )
+    assert main_module._typing_mode_from_config() == "clipboard"
+    assert main_module._typing_delay_ms() == 5000
+    monkeypatch.setattr(main_module.server, "load_config", lambda: {})
+    assert main_module._typing_mode_from_config() == "clipboard"
+    assert main_module._typing_delay_ms() == 150
+
+
+def test_deliver_text_without_controller_logs_and_returns(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    monkeypatch.setattr(main_module, "_type_controller", None)
+    monkeypatch.setattr(main_module, "_typing_delay_ms", lambda: 0)
+    main_module._deliver_text("hello")
+
+
+def test_global_hotkey_space_key_without_modifiers(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+
+    class FakeKey:
+        space = object()
+
+    class FakeListener:
+        def __init__(self, on_press, on_release):
+            self.on_press = on_press
+            self.on_release = on_release
+            self.started = False
+
+        def start(self):
+            self.started = True
+
+    class FakeWindow:
+        def __init__(self, scripts):
+            self.scripts = scripts
+
+        def evaluate_js(self, script):
+            self.scripts.append(script)
+
+    scripts: list[str] = []
+    monkeypatch.setattr(
+        main_module, "kb", types.SimpleNamespace(Key=FakeKey, Listener=FakeListener)
+    )
+    monkeypatch.setattr(main_module, "_MOD_MAP", {})
+    monkeypatch.setattr(main_module, "_window", FakeWindow(scripts))
+
+    listener = main_module._start_listener({"modifiers": [], "key": "space"})
+    listener.on_press(FakeKey.space)
+    listener.on_release(FakeKey.space)
+
+    assert listener.started is True
+    assert scripts == [
+        "window._recStart && window._recStart()",
+        "window._recStop && window._recStop()",
+    ]
+
+
+def test_on_transcription_skips_typing_when_not_global(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+
+    class FakeWindow:
+        def __init__(self, scripts):
+            self.scripts = scripts
+
+        def evaluate_js(self, script):
+            self.scripts.append(script)
+
+    scripts: list[str] = []
+    typed: list[str] = []
+    monkeypatch.setattr(main_module, "_window", FakeWindow(scripts))
+    monkeypatch.setattr(main_module, "_type_text", typed.append)
+    monkeypatch.setattr(main_module, "_consume_typing_from_global", lambda: False)
+    main_module._on_transcription("hello")
+    assert typed == []
+    assert "window._appendText" in scripts[-1]
 
 
 def test_desktop_window_api_fallbacks_and_hotkey_update(monkeypatch):
