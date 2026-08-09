@@ -45,6 +45,8 @@ from werkzeug.exceptions import BadRequest, HTTPException, UnsupportedMediaType 
 from . import dependencies as dependency_manager  # noqa: E402
 from . import __version__  # noqa: E402
 from .management_api import ManagementContext, create_management_blueprint  # noqa: E402
+from .config_api import ConfigContext, create_config_blueprint  # noqa: E402
+from .model_api import ModelContext, create_model_blueprint  # noqa: E402
 from .model_cache import ModelCacheService  # noqa: E402
 from .model_runtime import ModelRuntime  # noqa: E402
 from .recording_api import RecordingContext, create_recording_blueprint  # noqa: E402
@@ -982,77 +984,6 @@ def js_asset(filename: str):
     return send_from_directory(os.path.join(STATIC_DIR, "js"), filename)
 
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "ok", "pid": os.getpid()})
-
-
-@app.route("/status")
-def status():
-    with _model_state_lock:
-        model_state = dict(_model_state)
-    with model_lock:
-        model_loaded = model is not None
-    return jsonify(
-        {
-            "status": "ok",
-            "version": __version__,
-            "model": MODEL_SIZE,
-            "configured_model": load_config().get("model", MODEL_SIZE),
-            "recording": _recorder.is_recording(),
-            "partial_text": _partial_text(),
-            "partial_active": _partial_active(),
-            "model_loaded": model_loaded,
-            "model_state": model_state,
-            "missing_required_dependencies": dependency_manager.missing_dependencies(
-                required_only=True
-            ),
-        }
-    )
-
-
-@app.route("/config", methods=["GET"])
-def get_config():
-    return jsonify(load_config())
-
-
-@app.route("/config/schema")
-def get_config_schema():
-    return jsonify(settings_store.config_schema())
-
-
-@app.route("/config/reset", methods=["POST"])
-def reset_config():
-    try:
-        _json_payload()
-        cfg = settings_store.default_config()
-        save_config(cfg)
-        logger.info("Configuration reset to defaults: id=%s", getattr(g, "request_id", "unknown"))
-        return jsonify(cfg)
-    except ValueError as exc:
-        return _error(str(exc), 400)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to reset config.")
-        return _error(f"Failed to reset config: {exc}", 500)
-
-
-@app.route("/config", methods=["POST"])
-def post_config():
-    try:
-        patch = _validate_config_patch(_json_payload())
-        cfg = update_config(patch)
-        return jsonify(cfg)
-    except ValueError as exc:
-        return _error(str(exc), 400)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to save config.")
-        return _error(f"Failed to save config: {exc}", 500)
-
-
 def _model_reload_done(future: Future, size: str) -> None:
     if _application_shutdown_event.is_set():
         logger.info("Ignoring model completion during application shutdown: %s", size)
@@ -1088,96 +1019,6 @@ def _model_reload_done(future: Future, size: str) -> None:
             technical_details=None,
             suggestions=[],
         )
-
-
-@app.route("/reload_model", methods=["POST"])
-def reload_model():
-    try:
-        payload = _json_payload()
-        reload_patch = {
-            key: payload[key]
-            for key in (
-                "model",
-                "device",
-                "compute_type",
-                "beam_size",
-                "vad_filter",
-                "condition_on_previous_text",
-            )
-            if key in payload
-        }
-        validated_patch = _validate_config_patch(reload_patch)
-    except ValueError as exc:
-        return _error(str(exc), 400)
-
-    if _env_flag("VOICECODE_SKIP_MODEL_LOAD"):
-        return _error(
-            "Model reload is disabled while VOICECODE_SKIP_MODEL_LOAD is enabled.",
-            409,
-        )
-
-    current_cfg = load_config()
-    size = str(validated_patch.get("model", current_cfg.get("model", MODEL_SIZE)))
-    if size not in VALID_MODELS:
-        return _error(f"Unsupported model: {size}", 400)
-    if _model_operation_in_progress():
-        return _model_operation_busy_response(size)
-
-    try:
-        _model_cache_dir().mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        failure = _model_failure_details(exc, size)
-        _set_model_state("error", str(failure["user_message"]), **failure, phase="failed")
-        return _error(str(failure["user_message"]), 500, **failure)
-
-    if not _begin_model_operation(size):
-        return _model_operation_busy_response(size)
-    try:
-        current_cfg = update_config(validated_patch) if validated_patch else current_cfg
-    except HTTPException:
-        raise
-    except Exception as exc:
-        _set_model_state(
-            "error",
-            f"Failed to save model configuration: {exc}",
-            error_code="model_config_save_failed",
-            target_model=size,
-            retryable=True,
-            phase="failed",
-        )
-        logger.exception("Failed to save model configuration.")
-        return _error(f"Failed to save model configuration: {exc}", 500)
-
-    future = _model_runtime.submit(_load_model_sync, size)
-    future.add_done_callback(lambda f: _model_reload_done(f, size))
-    _start_model_download_monitor(size, future)
-    return jsonify(
-        {
-            "status": "loading",
-            "model": size,
-            "device": current_cfg.get("device", "auto"),
-            "compute_type": current_cfg.get("compute_type", "auto"),
-            "condition_on_previous_text": current_cfg.get("condition_on_previous_text", False),
-        }
-    )
-
-
-@app.route("/log", methods=["POST"])
-def client_log():
-    try:
-        payload = _json_payload()
-    except ValueError as exc:
-        return _error(str(exc), 400)
-    msg = str(payload.get("msg", ""))
-    component = str(payload.get("component", "frontend"))
-    level = str(payload.get("level", "info")).lower()
-    log_method = (
-        getattr(logger, level, logger.info)
-        if level in {"debug", "info", "warning", "error"}
-        else logger.info
-    )
-    log_method("Frontend log: component=%s message=%s", component, msg)
-    return "", 204
 
 
 def _append_history(entry: dict[str, Any]) -> None:
@@ -1497,86 +1338,6 @@ def _reset_dependency_runtime_cache(dependency_id: str) -> None:
             logger.debug("Failed to reset extension dependency cache: %s", exc)
 
 
-@app.route("/models")
-def models():
-    with _model_state_lock:
-        model_state = dict(_model_state)
-    with model_lock:
-        model_loaded = model is not None
-    return jsonify(
-        {
-            "current": MODEL_SIZE,
-            "configured": load_config().get("model", MODEL_SIZE),
-            "device": _device,
-            "compute_type": _compute_type,
-            "model_loaded": model_loaded,
-            "model_state": model_state,
-            "models": MODEL_INFO,
-            "cache_dir": str(_model_cache_dir()),
-            "cache": _all_model_cache_statuses(),
-            "compatibility": _model_compatibility(),
-            "device_options": sorted(VALID_DEVICES),
-            "compute_type_options": sorted(VALID_COMPUTE_TYPES),
-            "cuda_available": _cuda_device_count() > 0,
-            "cpu_threads": _cpu_threads,
-        }
-    )
-
-
-@app.route("/models/cache")
-def models_cache():
-    return jsonify({"cache_dir": str(_model_cache_dir()), "models": _all_model_cache_statuses()})
-
-
-@app.route("/models/<model_name>/download", methods=["POST"])
-def model_download(model_name: str):
-    try:
-        _json_payload()
-        if model_name not in VALID_MODELS:
-            return _error(f"Unsupported model: {model_name}", 400)
-    except ValueError as exc:
-        return _error(str(exc), 400)
-
-    if _env_flag("VOICECODE_SKIP_MODEL_LOAD"):
-        return _error("Model loading is disabled by VOICECODE_SKIP_MODEL_LOAD.", 409)
-
-    if _model_operation_in_progress():
-        return _model_operation_busy_response(model_name)
-
-    try:
-        _model_cache_dir().mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        failure = _model_failure_details(exc, model_name)
-        _set_model_state("error", str(failure["user_message"]), **failure, phase="failed")
-        return _error(str(failure["user_message"]), 500, **failure)
-
-    if not _begin_model_operation(model_name):
-        return _model_operation_busy_response(model_name)
-    future = _model_runtime.submit(_load_model_sync, model_name)
-    future.add_done_callback(lambda f: _model_reload_done(f, model_name))
-    _start_model_download_monitor(model_name, future)
-    return jsonify(
-        {"status": "loading", "model": model_name, "cache_dir": str(_model_cache_dir())}
-    ), 202
-
-
-@app.route("/models/<model_name>/cache", methods=["DELETE", "POST"])
-def model_cache_delete(model_name: str):
-    try:
-        payload = _json_payload()
-        result = _delete_model_cache(model_name, confirm=payload.get("confirm") is True)
-        return jsonify(result)
-    except ValueError as exc:
-        return _error(str(exc), 400)
-    except RuntimeError as exc:
-        return _error(str(exc), 409)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to delete model cache: %s", model_name)
-        return _error(f"Failed to delete model cache: {exc}", 500)
-
-
 def start_server() -> None:
     from waitress import create_server  # type: ignore[import-untyped]
 
@@ -1742,6 +1503,71 @@ app.register_blueprint(
             deliver_transcription=_deliver_transcription,
             start_partial_worker=_start_partial_worker,
             stop_partial_worker=_stop_partial_worker,
+        )
+    )
+)
+
+
+app.register_blueprint(
+    create_config_blueprint(
+        ConfigContext(
+            error=_error,
+            json_payload=_json_payload,
+            load_config=load_config,
+            save_config=save_config,
+            update_config=update_config,
+            validate_config_patch=_validate_config_patch,
+            request_id=lambda: str(getattr(g, "request_id", "unknown")),
+            config_schema=settings_store.config_schema,
+            default_config=settings_store.default_config,
+            model_state=_model_runtime.state_snapshot,
+            model_loaded=_model_is_loaded,
+            model_size=lambda: MODEL_SIZE,
+            recording=_recorder.is_recording,
+            partial_text=_partial_text,
+            partial_active=_partial_active,
+            missing_required_dependencies=lambda: dependency_manager.missing_dependencies(
+                required_only=True
+            ),
+            version=__version__,
+        )
+    )
+)
+
+
+app.register_blueprint(
+    create_model_blueprint(
+        ModelContext(
+            error=_error,
+            json_payload=_json_payload,
+            validate_config_patch=_validate_config_patch,
+            env_flag=_env_flag,
+            load_config=load_config,
+            update_config=update_config,
+            valid_models=VALID_MODELS,
+            valid_devices=VALID_DEVICES,
+            valid_compute_types=VALID_COMPUTE_TYPES,
+            model_size=lambda: MODEL_SIZE,
+            model_state=_model_runtime.state_snapshot,
+            model_loaded=_model_is_loaded,
+            model_info=MODEL_INFO,
+            device=lambda: _device,
+            compute_type=lambda: _compute_type,
+            cpu_threads=lambda: _cpu_threads,
+            cuda_device_count=_cuda_device_count,
+            model_cache_dir=_model_cache_dir,
+            model_operation_in_progress=_model_operation_in_progress,
+            model_operation_busy_response=_model_operation_busy_response,
+            model_failure_details=_model_failure_details,
+            set_model_state=_set_model_state,
+            begin_model_operation=_begin_model_operation,
+            model_runtime=_model_runtime,
+            load_model_sync=lambda size: _load_model_sync(size),
+            model_reload_done=_model_reload_done,
+            start_model_download_monitor=_start_model_download_monitor,
+            all_model_cache_statuses=_all_model_cache_statuses,
+            model_compatibility=_model_compatibility,
+            delete_model_cache=_delete_model_cache,
         )
     )
 )

@@ -26,7 +26,7 @@ Use PowerShell with UTF-8 enabled on Windows. The maintained Windows installer s
 - Root compatibility entry points: `app.py`, `main.py`
 - Installable package: `src/voicecode/`
 - Runtime path helper: `src/voicecode/runtime.py`
-- Route blueprints: `management_api.py`, `history_api.py`, `system_api.py`, `recording_api.py`
+- Route blueprints: `config_api.py`, `model_api.py`, `management_api.py`, `history_api.py`, `system_api.py`, `recording_api.py`
 - Model services: `model_runtime.py`, `model_cache.py`, `transcription_service.py`
 - Dependency services: `dependency_catalog.py`, `dependency_environment.py`, `dependency_installer.py`, facade `dependencies.py`
 - Static UI: `static/` and packaged copy `src/voicecode/static/`, including `i18n/*.json` catalogs
