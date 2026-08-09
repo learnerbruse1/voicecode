@@ -19,6 +19,10 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 - Model cache management page for downloading/loading models and deleting non-active local caches, with byte/speed/elapsed/stall progress and detailed retry guidance for network failures.
 - Searchable transcript history with language filters, single-entry deletion, and JSON/TXT/Markdown export.
 - Configurable inference device (`auto`, `cpu`, `cuda`) and compute type (`auto`, `int8`, `float16`, `float32`, `int8_float16`).
+- Live partial preview: the transcript panel shows a provisional draft while recording and finalizes when you stop.
+- Clipboard typing delivery: transcribed text is pasted into the active application, with a simulated-keystroke fallback and a configurable delay.
+- Decode presets: choose Fast, Balanced, or High quality, or keep full control over beam size and previous-text conditioning.
+- Transcript history is automatically trimmed to the configured limit.
 - Cross-platform Python package layout for Windows, macOS, and Linux development.
 - Local-only Flask/Waitress API bound to `127.0.0.1`, protected by a per-process mutation token, loopback Host/Origin validation, CSP, and defensive browser headers.
 - Desktop UI via `pywebview`, global hotkey via `pynput`, and isolated runtime dependency installs into `VOICE_DEP`.
@@ -157,6 +161,8 @@ voicecode/
 |   |-- transcription_service.py   # Extension-aware preprocessing/finalization
 |   |-- recording_api.py           # Recording and direct transcription routes
 |   |-- management_api.py          # Onboarding, extensions, dependencies
+|   |-- config_api.py              # Health, status, config, client-log routes
+|   |-- model_api.py               # Model list/cache/download/reload routes
 |   |-- history_api.py             # History query/export/mutation routes
 |   |-- system_api.py              # Hardware, audio test, diagnostics, stats
 |   |-- dependency_*.py            # Catalog, environment, installer, shared types
@@ -183,3 +189,5 @@ MIT. See [LICENSE](LICENSE).
 ## Recent desktop improvements
 
 VoiceCode now validates model caches before offering **Load**, loads verified snapshots directly from disk, distinguishes partial downloads, supports reliable error-detail copying, and recovers stale windowless instances that keep the local port occupied. The top bar shows compact CPU/GPU/memory summaries; detailed hardware information is available in Settings. Minesweeper includes Beginner, Intermediate, and Expert modes. All new UI text is maintained in English, Simplified Chinese, and Japanese.
+
+The current dev cycle added live partial-transcription previews while recording, clipboard-based typing delivery with a simulated-keystroke fallback, decode presets (fast / balanced / high quality / custom), automatic history trimming, adaptive status polling, and in-process caching for dependency status and the Hugging Face endpoint, plus a best-effort model warm-up after load (disable with `VOICECODE_SKIP_WARMUP`).

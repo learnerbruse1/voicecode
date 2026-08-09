@@ -12,6 +12,8 @@ flowchart TD
   Server --> Mgmt["management_api.py\nonboarding / extensions / dependencies"]
   Server --> HistoryAPI["history_api.py\nquery / export / delete"]
   Server --> SystemAPI["system_api.py\nhardware / audio test / diagnostics / stats"]
+  Server --> ConfigAPI["config_api.py\nhealth / status / config / log"]
+  Server --> ModelAPI["model_api.py\nmodels / reload / cache"]
   Server --> ModelRuntime["model_runtime.py\nstate / locks / executor"]
   Server --> Recording["recording_api.py\nrecord / upload routes"]
   Server --> Transcription["transcription_service.py\nVAD / normalization / diarization / punctuation"]
@@ -35,7 +37,9 @@ The HTTP server binds only to `127.0.0.1`. Startup polls `/health` and verifies 
 
 | Module | Responsibility |
 | --- | --- |
-| `app.py` | Flask construction, request/security policy, compatibility helpers, model load orchestration, model routes, blueprint wiring |
+| `app.py` | Flask construction, request/security policy, compatibility helpers, shared model/service state, shell routes, blueprint wiring |
+| `config_api.py` | health, status, config get/post/reset/schema, client-log routes |
+| `model_api.py` | model list, cache download/delete, reload routes |
 | `model_runtime.py` | model state lock, model lock, execution profile, single-worker executor lifecycle |
 | `model_cache.py` | cached model discovery, size caching, containment checks, safe deletion |
 | `transcription_service.py` | extension-aware audio preprocessing and transcript finalization |
@@ -122,7 +126,7 @@ The model manager only deletes known cache candidates below this root and refuse
 stateDiagram-v2
   [*] --> Idle
   Idle --> Loading: startup or reload
-  Loading --> Ready: model created
+  Loading --> Ready: model created + best-effort warm-up
   Loading --> Error: runtime/load failure
   Ready --> Loading: model/model-device change
   Ready --> CPUFallback: CUDA inference failure
@@ -142,6 +146,10 @@ Model state and the model object use separate locks. Reload work runs in the exe
 | Model reload state | `_model_state_lock` |
 | Cancellation token | `_cancel_lock` |
 | Global typing flag | `_typing_lock` |
+| Typing delivery serialization | `_delivery_lock` |
+| Partial draft state | `_partial_lock` |
+| Dependency status cache | `_dependency_cache_lock` |
+| Reachable HF endpoint cache | `_hf_endpoint_lock` |
 | Dependency task map | dependency installer `_task_lock` |
 | pip install serialization | dependency installer `_install_lock` |
 | Hotkey modifier set | listener-local lock |
@@ -169,3 +177,7 @@ Model operations expose terminal and active phases rather than a single ambiguou
 ## Desktop lifecycle additions
 
 The desktop layer owns the tray, hotkey listener, native clipboard bridge, single-instance mutex, stale-instance recovery, and final frozen-process exit. Model operations use verified cache snapshots and a daemon serial executor; the HTTP service remains bound to `127.0.0.1`.
+
+## Partial transcription and backend caches
+
+While recording, a daemon worker periodically re-transcribes the buffered audio and exposes a panel-only `partial_text` draft through `/status` (polled by the UI); drafts are never delivered to the target application or stored in history. Dependency status and the reachable Hugging Face endpoint are cached in-process (`_dependency_cache_lock`, `_hf_endpoint_lock`) with invalidation on install/uninstall, and a best-effort model warm-up runs after load (disable with `VOICECODE_SKIP_WARMUP`).

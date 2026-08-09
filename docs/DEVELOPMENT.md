@@ -78,7 +78,7 @@ Use `GET /hardware`, `GET /models`, and `GET /diagnostics` to inspect the resolv
 
 ## Backend route modules
 
-Route groups live in `management_api.py`, `history_api.py`, `system_api.py`, and `recording_api.py`. Model state, cache operations, and transcription finalization live in `model_runtime.py`, `model_cache.py`, and `transcription_service.py`. Pass mutable runtime state through context callables instead of importing app globals. Dependency management is split across catalog, environment, installer, and facade modules.
+Route groups live in `config_api.py`, `model_api.py`, `management_api.py`, `history_api.py`, `system_api.py`, and `recording_api.py`. Model state, cache operations, and transcription finalization live in `model_runtime.py`, `model_cache.py`, and `transcription_service.py`. Pass mutable runtime state through context callables instead of importing app globals. Dependency management is split across catalog, environment, installer, and facade modules.
 
 ## Static assets
 

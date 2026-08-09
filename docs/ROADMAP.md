@@ -138,6 +138,8 @@ Suggested design:
 
 Completed foundation work includes a persisted first-start guide, operable schema-driven extension settings, isolated one-click dependency tasks, external JSON i18n catalogs, split Flask route modules, and split dependency services. Silero preprocessing, pyannote diarization, and NeMo punctuation adapters are implemented with lazy model loading and explicit experimental/runtime states.
 
+The current dev cycle also added live partial-transcription previews, clipboard-based typing delivery with a simulated-keystroke fallback and configurable delay, decode presets (`fast` / `balanced` / `high_quality` / `custom`), automatic history trimming, adaptive status polling, and in-process caches for dependency status and the reachable Hugging Face endpoint, plus a best-effort model warm-up (`VOICECODE_SKIP_WARMUP`).
+
 Implemented extension framework and switchable modules:
 
 - `audio_io`: enabled by default, validates JSON samples and uploaded audio files.

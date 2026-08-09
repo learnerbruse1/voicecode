@@ -78,7 +78,21 @@ When adding a new UI language:
 
 When `history_enabled` is true, successful transcriptions are appended to a JSONL history file in the user-writable config area unless `VOICECODE_HISTORY_FILE` overrides it. The History page can search text, filter by language, export filtered results as JSON/TXT/Markdown, delete individual entries with confirmation, or clear all history.
 
-Each history entry stores a stable `id`, timestamp, transcription language, model, and final text. Older entries without an `id` receive a deterministic compatibility ID when read.
+Each history entry stores a stable `id`, timestamp, transcription language, model, and final text. Older entries without an `id` receive a deterministic compatibility ID when read. The history file is trimmed to `history_limit` (default 50) entries on each append so it does not grow without bound.
+
+## Transcription and typing settings
+
+| Config key | Values | Default | Purpose |
+| --- | --- | --- | --- |
+| `beam_size` | integer 1–10 | `5` | Decoding beam size |
+| `condition_on_previous_text` | boolean | `false` | Whether decoding conditions on the previous text |
+| `decode_preset` | `fast`, `balanced`, `high_quality`, `custom` | `balanced` | Named bundle of decoding parameters; changing `beam_size` or `condition_on_previous_text` switches it to `custom` |
+| `partial_results` | boolean | `true` | Show live partial-transcription previews while recording |
+| `partial_interval_ms` | integer 200–5000 | `600` | Minimum interval between partial re-transcriptions |
+| `typing_mode` | `clipboard`, `keystrokes` | `clipboard` | How transcribed text is delivered to the active application |
+| `typing_delay_ms` | integer 0–5000 | `150` | Delay before typed delivery |
+
+`decode_preset` is a derived layer: a named preset overrides individual decode settings, while `custom` honors `beam_size` and `condition_on_previous_text` as configured. Manually editing `beam_size` or `condition_on_previous_text` automatically switches `decode_preset` to `custom`.
 
 ## Resetting defaults
 

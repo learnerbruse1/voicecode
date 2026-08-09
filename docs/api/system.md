@@ -6,7 +6,7 @@ Returns status and process ID.
 
 ## `GET /status`
 
-Returns model load state and recorder state.
+Returns model load state, recorder state, and the live partial-preview text (`partial_text`, `partial_active`).
 
 ## `GET /stats`
 

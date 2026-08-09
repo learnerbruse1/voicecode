@@ -17,17 +17,19 @@ VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry 
 
 | Module | Public responsibility |
 | --- | --- |
-| `voicecode.app` | Flask setup, security/error policy, model load orchestration, model routes, blueprint registration |
+| `voicecode.app` | Flask setup, security/error policy, shared model/service state, shell routes, blueprint registration |
+| `voicecode.config_api` | health, status, config get/post/reset/schema, and client-log routes |
+| `voicecode.model_api` | model list, cache download/delete, and reload routes |
 | `voicecode.model_runtime` | model state/profile locks and executor ownership |
 | `voicecode.model_cache` | safe model cache discovery, cached size calculation, deletion |
-| `voicecode.transcription_service` | extension-aware VAD, normalization, punctuation, diarization finalization |
+| `voicecode.transcription_service` | extension-aware VAD, normalization, punctuation, diarization finalization, decode-preset mapping |
 | `voicecode.recording_api` | record and direct transcription routes |
 | `voicecode.management_api` | onboarding, extension update/install, dependency listing/install/task/uninstall |
 | `voicecode.history_api` | history filters, exports, entry deletion, clear route |
 | `voicecode.system_api` | hardware, audio device/test, diagnostics, stats routes |
-| `voicecode.settings` | defaults, validation, nested merge, config/log/history paths |
+| `voicecode.settings` | defaults, validation, nested merge, config/log/history paths, decode-preset constants |
 | `voicecode.audio` | `Recorder`, device normalization/enumeration, level test |
-| `voicecode.history` | append/read/filter/delete/clear JSONL persistence |
+| `voicecode.history` | append/read/filter/delete/clear JSONL persistence, append-time trimming to `history_limit` |
 | `voicecode.text_processing` | plain, coding, Markdown, and prompt post-processing |
 | `voicecode.runtime` | packaged runtime/cache path setup |
 | `voicecode.dependency_types` | dependency spec/task data classes |
@@ -35,7 +37,7 @@ VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry 
 | `voicecode.dependency_environment` | isolated path, import status, manifests, safe uninstall |
 | `voicecode.dependency_installer` | background pip task execution and retention |
 | `voicecode.dependencies` | compatibility facade over split dependency modules |
-| `voicecode.main` | desktop startup, PID health check, pywebview, hotkey typing |
+| `voicecode.main` | desktop startup, PID health check, pywebview, hotkey and clipboard/keystroke typing delivery |
 | `voicecode.extensions.base` | extension protocol and status shape |
 | `voicecode.extensions.registry` | discovery, effective config, config schema, required dependency mapping |
 
@@ -54,10 +56,10 @@ VoiceCode keeps `voicecode.app` as the core local API/model orchestration entry 
 | `static/js/extensions.js` | schema-driven extension forms, save, one-click dependencies |
 | `static/js/dependencies.js` | dependency cards, install/uninstall/task progress, install-all-required |
 | `static/js/models.js` | model list, load/download, cache deletion |
-| `static/js/settings.js` | settings events, model/hardware changes, microphone test |
-| `static/js/recorder.js` | recording and transcription interaction |
+| `static/js/settings.js` | settings events, model/hardware changes, decode-preset and partial-preview controls, microphone test |
+| `static/js/recorder.js` | recording, partial-preview polling, and transcription interaction |
 | `static/js/history.js` | history search/filter/export/copy/delete and diagnostics |
-| `static/js/status.js` | model and process status summaries |
+| `static/js/status.js` | model and process status summaries with change-diff DOM updates |
 | `static/js/games.js` | Minesweeper-only board generation, timer, flags, and localized state |
 | `static/css/app.css` | desktop layout, language-specific sizing, onboarding/extensions UI |
 
