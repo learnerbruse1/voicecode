@@ -13,6 +13,12 @@ from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from . import app as server
+from .settings import (
+    TYPING_DELAY_DEFAULT_MS,
+    TYPING_DELAY_MAX_MS,
+    TYPING_DELAY_MIN_MS,
+    VALID_TYPING_MODES,
+)
 
 webview: Any = None
 _webview_import_error: BaseException | None = None
@@ -112,18 +118,204 @@ def _eval_js_safe(script: str) -> None:
         logger.warning("Failed to evaluate JavaScript in the webview: %s", exc)
 
 
-def _type_text(text: str) -> None:
-    def _do() -> None:
-        time.sleep(0.15)
-        if _type_controller is None:
-            logger.warning("Global typing is unavailable because pynput could not be initialized.")
-            return
-        try:
-            _type_controller.type(text)
-        except Exception as exc:
-            logger.warning("Failed to type transcribed text: %s", exc)
+_CF_UNICODETEXT = 13
+_GMEM_MOVEABLE = 0x0002
+_CLIPBOARD_RESTORE_DELAY = 0.12
 
-    threading.Thread(target=_do, daemon=True).start()
+
+def _open_clipboard() -> bool:
+    """Open the Windows clipboard with a short retry loop."""
+    if os.name != "nt":
+        return False
+    user32 = getattr(ctypes, "windll").user32
+    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+    user32.OpenClipboard.restype = wintypes.BOOL
+    for _ in range(10):
+        if user32.OpenClipboard(None):
+            return True
+        time.sleep(0.03)
+    return False
+
+
+def _clipboard_clear() -> bool:
+    """Clear the Windows clipboard contents."""
+    if os.name != "nt":
+        return False
+    user32 = getattr(ctypes, "windll").user32
+    user32.EmptyClipboard.argtypes = []
+    user32.EmptyClipboard.restype = wintypes.BOOL
+    user32.CloseClipboard.argtypes = []
+    user32.CloseClipboard.restype = wintypes.BOOL
+    if not _open_clipboard():
+        return False
+    try:
+        user32.EmptyClipboard()
+        return True
+    except Exception as exc:
+        logger.debug("Failed to clear the Windows clipboard: %s", exc)
+        return False
+    finally:
+        user32.CloseClipboard()
+
+
+def _clipboard_set_text(text_value: str) -> bool:
+    """Replace the Windows clipboard contents with UTF-16 text."""
+    if os.name != "nt":
+        return False
+    user32 = getattr(ctypes, "windll").user32
+    kernel32 = getattr(ctypes, "windll").kernel32
+    kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+    kernel32.GlobalAlloc.restype = ctypes.c_void_p
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.restype = ctypes.c_void_p
+    kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+    user32.SetClipboardData.argtypes = [wintypes.UINT, ctypes.c_void_p]
+    user32.SetClipboardData.restype = ctypes.c_void_p
+    memory = None
+    try:
+        encoded = text_value.encode("utf-16-le") + b"\x00\x00"
+        memory = kernel32.GlobalAlloc(_GMEM_MOVEABLE, len(encoded))
+        if not memory:
+            return False
+        pointer = kernel32.GlobalLock(memory)
+        if not pointer:
+            return False
+        ctypes.memmove(pointer, encoded, len(encoded))
+        kernel32.GlobalUnlock(memory)
+        if not _open_clipboard():
+            return False
+        try:
+            user32.EmptyClipboard()
+            if not user32.SetClipboardData(_CF_UNICODETEXT, memory):
+                return False
+            memory = None
+            return True
+        finally:
+            user32.CloseClipboard()
+    except Exception as exc:
+        logger.warning("Failed to set the Windows clipboard: %s", exc)
+        return False
+    finally:
+        if memory:
+            kernel32.GlobalFree(memory)
+
+
+def _clipboard_get_text() -> str | None:
+    """Return the current Windows clipboard text, or None when unavailable."""
+    if os.name != "nt":
+        return None
+    user32 = getattr(ctypes, "windll").user32
+    kernel32 = getattr(ctypes, "windll").kernel32
+    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+    user32.OpenClipboard.restype = wintypes.BOOL
+    user32.GetClipboardData.argtypes = [wintypes.UINT]
+    user32.GetClipboardData.restype = ctypes.c_void_p
+    user32.CloseClipboard.argtypes = []
+    user32.CloseClipboard.restype = wintypes.BOOL
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.restype = wintypes.BOOL
+    kernel32.GlobalSize.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalSize.restype = ctypes.c_size_t
+    try:
+        if not _open_clipboard():
+            return None
+        try:
+            handle = user32.GetClipboardData(_CF_UNICODETEXT)
+            if not handle:
+                return None
+            pointer = kernel32.GlobalLock(handle)
+            if not pointer:
+                return None
+            try:
+                size = kernel32.GlobalSize(handle)
+                if size <= 0:
+                    return None
+                raw = ctypes.string_at(pointer, size)
+            finally:
+                kernel32.GlobalUnlock(handle)
+            text = raw.decode("utf-16-le", errors="replace")
+            return text.rstrip("\x00") or None
+        finally:
+            user32.CloseClipboard()
+    except Exception as exc:
+        logger.debug("Failed to read the Windows clipboard: %s", exc)
+        return None
+
+
+def _paste_clipboard(controller) -> None:
+    """Send Ctrl+V to the active application."""
+    if kb is None:
+        raise RuntimeError("Keyboard input is unavailable.")
+    controller.press(kb.Key.ctrl)
+    controller.press("v")
+    controller.release("v")
+    controller.release(kb.Key.ctrl)
+
+
+def _typing_mode_from_config() -> str:
+    try:
+        mode = str(server.load_config().get("typing_mode", "clipboard"))
+        return mode if mode in VALID_TYPING_MODES else "clipboard"
+    except Exception:
+        return "clipboard"
+
+
+def _typing_delay_ms() -> int:
+    try:
+        value = server.load_config().get("typing_delay_ms", TYPING_DELAY_DEFAULT_MS)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return TYPING_DELAY_DEFAULT_MS
+        return max(TYPING_DELAY_MIN_MS, min(TYPING_DELAY_MAX_MS, value))
+    except Exception:
+        return TYPING_DELAY_DEFAULT_MS
+
+
+def _deliver_via_clipboard(text: str) -> bool:
+    """Paste ``text`` through the clipboard, restoring the previous text contents."""
+    previous = _clipboard_get_text()
+    if not _clipboard_set_text(text):
+        return False
+    try:
+        _paste_clipboard(_type_controller)
+    except Exception as exc:
+        logger.warning("Clipboard paste failed; falling back to keystrokes: %s", exc)
+        return False
+    finally:
+        time.sleep(_CLIPBOARD_RESTORE_DELAY)
+        if previous is not None:
+            try:
+                _clipboard_set_text(previous)
+            except Exception:
+                logger.debug("Failed to restore the clipboard after paste.", exc_info=True)
+        else:
+            _clipboard_clear()
+    return True
+
+
+def _deliver_text(text: str) -> None:
+    """Deliver transcribed text to the active application in the configured mode."""
+    delay = _typing_delay_ms()
+    if delay > 0:
+        time.sleep(delay / 1000.0)
+    if _type_controller is None:
+        logger.warning("Global typing is unavailable because pynput could not be initialized.")
+        return
+    if os.name == "nt" and _typing_mode_from_config() == "clipboard":
+        if _deliver_via_clipboard(text):
+            return
+        logger.info("Clipboard typing is unavailable; falling back to simulated keystrokes.")
+    try:
+        _type_controller.type(text)
+    except Exception as exc:
+        logger.warning("Failed to type transcribed text: %s", exc)
+
+
+def _type_text(text: str) -> None:
+    threading.Thread(target=_deliver_text, args=(text,), daemon=True).start()
 
 
 def _start_listener(hotkey_cfg):
@@ -234,49 +426,7 @@ class Api:
         text_value = str(value or "")
         if os.name != "nt" or not text_value:
             return False
-        user32 = getattr(ctypes, "windll").user32
-        kernel32 = getattr(ctypes, "windll").kernel32
-        cf_unicode_text = 13
-        gmem_moveable = 0x0002
-        kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
-        kernel32.GlobalAlloc.restype = ctypes.c_void_p
-        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
-        kernel32.GlobalLock.restype = ctypes.c_void_p
-        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-        kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
-        user32.SetClipboardData.argtypes = [wintypes.UINT, ctypes.c_void_p]
-        user32.SetClipboardData.restype = ctypes.c_void_p
-        memory = None
-        try:
-            encoded = text_value.encode("utf-16-le") + b"\x00\x00"
-            memory = kernel32.GlobalAlloc(gmem_moveable, len(encoded))
-            if not memory:
-                return False
-            pointer = kernel32.GlobalLock(memory)
-            if not pointer:
-                return False
-            ctypes.memmove(pointer, encoded, len(encoded))
-            kernel32.GlobalUnlock(memory)
-            for _ in range(10):
-                if user32.OpenClipboard(None):
-                    break
-                time.sleep(0.03)
-            else:
-                return False
-            try:
-                user32.EmptyClipboard()
-                if not user32.SetClipboardData(cf_unicode_text, memory):
-                    return False
-                memory = None
-                return True
-            finally:
-                user32.CloseClipboard()
-        except Exception as exc:
-            logger.warning("Failed to copy text to the Windows clipboard: %s", exc)
-            return False
-        finally:
-            if memory:
-                kernel32.GlobalFree(memory)
+        return _clipboard_set_text(text_value)
 
     def open_log_folder(self):
         try:

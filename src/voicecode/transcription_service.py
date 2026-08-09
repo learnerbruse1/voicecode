@@ -42,7 +42,7 @@ class TranscriptionService:
             "task": "transcribe",
             "beam_size": int(config.get("beam_size", 5)),
             "best_of": 1,
-            "condition_on_previous_text": False,
+            "condition_on_previous_text": bool(config.get("condition_on_previous_text", False)),
             "initial_prompt": initial_prompt,
             "temperature": 0.0,
         }

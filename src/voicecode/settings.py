@@ -21,6 +21,10 @@ VALID_UI_LANGUAGES = {"en", "zh", "ja"}
 VALID_TEXT_MODES = {"plain", "coding", "markdown", "prompt"}
 VALID_DEVICES = {"auto", "cpu", "cuda"}
 VALID_COMPUTE_TYPES = {"auto", "default", "int8", "int8_float16", "int16", "float16", "float32"}
+VALID_TYPING_MODES = {"clipboard", "keystrokes"}
+TYPING_DELAY_DEFAULT_MS = 150
+TYPING_DELAY_MIN_MS = 0
+TYPING_DELAY_MAX_MS = 5000
 MODEL_INFO = {
     "tiny": {
         "size": "~75 MB",
@@ -80,6 +84,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": "base",
     "device": "auto",
     "compute_type": "auto",
+    "condition_on_previous_text": False,
     "beam_size": 5,
     "vad_filter": True,
     "language": "zh",
@@ -91,6 +96,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "font_size": "1rem",
     "theme": "system",
     "append_mode": "append",
+    "typing_delay_ms": TYPING_DELAY_DEFAULT_MS,
+    "typing_mode": "clipboard",
     "on_top": False,
     "onboarding": {"completed": False, "completed_version": "", "skipped": False},
     "extensions": copy.deepcopy(DEFAULT_EXTENSIONS),
@@ -390,6 +397,10 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("beam_size must be an integer between 1 and 10.")
     if "vad_filter" in patch and not isinstance(patch["vad_filter"], bool):
         raise ValueError("vad_filter must be a boolean.")
+    if "condition_on_previous_text" in patch and not isinstance(
+        patch["condition_on_previous_text"], bool
+    ):
+        raise ValueError("condition_on_previous_text must be a boolean.")
     if "language" in patch and patch["language"] not in VALID_LANGUAGES:
         raise ValueError("Unsupported language. Use one of: auto, zh, en, ja.")
     if "ui_language" in patch and patch["ui_language"] not in VALID_UI_LANGUAGES:
@@ -409,6 +420,12 @@ def validate_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("history_limit must be an integer between 1 and 500.")
     if "append_mode" in patch and patch["append_mode"] not in {"append", "replace"}:
         raise ValueError("Unsupported append mode. Use append or replace.")
+    if "typing_mode" in patch and patch["typing_mode"] not in VALID_TYPING_MODES:
+        raise ValueError("Unsupported typing mode. Use clipboard or keystrokes.")
+    if "typing_delay_ms" in patch:
+        patch["typing_delay_ms"] = _validate_positive_int(
+            patch["typing_delay_ms"], "typing_delay_ms", TYPING_DELAY_MIN_MS, TYPING_DELAY_MAX_MS
+        )
     if "font_size" in patch and patch["font_size"] not in {"0.85rem", "1rem", "1.2rem", "1.5rem"}:
         raise ValueError("Unsupported font size.")
     if "theme" in patch and patch["theme"] not in {"dark", "light", "system"}:
@@ -488,8 +505,15 @@ def config_schema() -> dict[str, Any]:
             "device": {"type": "select", "choices": sorted(VALID_DEVICES)},
             "compute_type": {"type": "select", "choices": sorted(VALID_COMPUTE_TYPES)},
             "beam_size": {"type": "integer", "minimum": 1, "maximum": 10},
+            "condition_on_previous_text": {"type": "boolean"},
             "language": {"type": "select", "choices": ["auto", "zh", "en", "ja"]},
             "ui_language": {"type": "select", "choices": sorted(VALID_UI_LANGUAGES)},
+            "typing_delay_ms": {
+                "type": "integer",
+                "minimum": TYPING_DELAY_MIN_MS,
+                "maximum": TYPING_DELAY_MAX_MS,
+            },
+            "typing_mode": {"type": "select", "choices": sorted(VALID_TYPING_MODES)},
             "history_limit": {"type": "integer", "minimum": 1, "maximum": 500},
         },
     }

@@ -1,11 +1,14 @@
 fsizeSel.onchange = () => { transcriptEl.style.fontSize = fsizeSel.value; saveConfig({font_size: fsizeSel.value}); };
 if (themeSel) themeSel.onchange = () => { applyTheme(themeSel.value); saveConfig({theme: themeSel.value}); };
 appendSel.onchange = () => saveConfig({append_mode: appendSel.value});
+typingModeSel.onchange = () => saveConfig({typing_mode: typingModeSel.value});
+typingDelaySel.onchange = () => saveConfig({typing_delay_ms: Number(typingDelaySel.value)});
 langSel.onchange = () => saveConfig({language: langSel.value});
 audioDeviceSel.onchange = () => saveConfig({audio_device: audioDeviceSel.value});
 textModeSel.onchange = () => saveConfig({text_mode: textModeSel.value});
 beamSizeSel.onchange = () => saveConfig({beam_size: Number(beamSizeSel.value)});
 vadFilterSel.onchange = () => saveConfig({vad_filter: vadFilterSel.value === "true"});
+conditionOnPreviousTextSel.onchange = () => saveConfig({condition_on_previous_text: conditionOnPreviousTextSel.value === "true"});
 historyEnabledSel.onchange = () => saveConfig({history_enabled: historyEnabledSel.value === "true"});
 async function refreshLanguageSensitiveContent() {
   modelInfoCache = null;
@@ -168,7 +171,8 @@ ${t("switching_model_detail")}`, null);
     device: deviceSel.value,
     compute_type: computeTypeSel.value,
     beam_size: Number(beamSizeSel.value),
-    vad_filter: vadFilterSel.value === "true"
+    vad_filter: vadFilterSel.value === "true",
+    condition_on_previous_text: conditionOnPreviousTextSel.value === "true"
   }, {errorTitle: t("failed_reload_model"), suppressPopup: true});
   if (!r.ok) {
     showError(t("failed_reload_model"), modelOperationErrorMessage(r));

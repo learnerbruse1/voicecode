@@ -114,6 +114,8 @@
               <select id="beam-size"><option value="1">1</option><option value="3">3</option><option value="5">5</option><option value="8">8</option><option value="10">10</option></select>
               <label for="vad-filter" data-i18n="label_vad_filter">VAD</label>
               <select id="vad-filter"><option value="true" data-i18n="vad_on">On</option><option value="false" data-i18n="vad_off">Off</option></select>
+              <label for="condition-on-previous-text" data-i18n="label_condition_on_previous_text">Previous text context</label>
+              <select id="condition-on-previous-text"><option value="false" data-i18n="vad_off">Off</option><option value="true" data-i18n="vad_on">On</option></select>
             </div>
           </section>
 
@@ -138,6 +140,10 @@
               <select id="text-mode"><option value="plain" data-i18n="text_plain">Plain</option><option value="coding" data-i18n="text_coding">Coding</option><option value="markdown" data-i18n="text_markdown">Markdown</option><option value="prompt" data-i18n="text_prompt">Prompt</option></select>
               <label for="appendmode" data-i18n="label_result_mode">Result</label>
               <select id="appendmode"><option value="append" data-i18n="mode_append">Append</option><option value="replace" data-i18n="mode_replace">Replace</option></select>
+              <label for="typing-mode" data-i18n="label_typing_mode">Typing method</label>
+              <select id="typing-mode"><option value="clipboard" data-i18n="typing_clipboard">Clipboard paste (fast)</option><option value="keystrokes" data-i18n="typing_keystrokes">Simulated keystrokes</option></select>
+              <label for="typing-delay" data-i18n="label_typing_delay_ms">Typing delay (ms)</label>
+              <input id="typing-delay" type="number" min="0" max="5000" step="10">
             </div>
           </section>
 

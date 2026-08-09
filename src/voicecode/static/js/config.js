@@ -12,6 +12,7 @@ async function loadConfig() {
     updateModelDescription();
     beamSizeSel.value = String(cfg.beam_size || 5);
     vadFilterSel.value = String(cfg.vad_filter !== false);
+    conditionOnPreviousTextSel.value = String(cfg.condition_on_previous_text === true);
     langSel.value = cfg.language || "zh";
     uiLanguage = ["en", "zh", "ja"].includes(cfg.ui_language) ? cfg.ui_language : "en";
     await ensureI18nCatalog(uiLanguage);
@@ -22,6 +23,8 @@ async function loadConfig() {
     if (themeSel) themeSel.value = cfg.theme || "system";
     applyTheme(cfg.theme || "system");
     appendSel.value = cfg.append_mode || "append";
+    typingModeSel.value = cfg.typing_mode || "clipboard";
+    typingDelaySel.value = String(cfg.typing_delay_ms == null ? 150 : cfg.typing_delay_ms);
     onTop = Boolean(cfg.on_top);
     transcriptEl.style.fontSize = fsizeSel.value;
     if (cfg.hotkey) currentHotkey = cfg.hotkey;

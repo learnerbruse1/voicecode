@@ -677,6 +677,48 @@ def test_config_accepts_inference_controls_and_hardware_endpoint(client):
     assert "cpu" in hardware["supported_devices"]
 
 
+def test_config_accepts_typing_and_decode_controls(client):
+    response = client.post(
+        "/config",
+        json={
+            "typing_mode": "clipboard",
+            "typing_delay_ms": 80,
+            "condition_on_previous_text": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["typing_mode"] == "clipboard"
+    assert body["typing_delay_ms"] == 80
+    assert body["condition_on_previous_text"] is True
+
+
+@pytest.mark.parametrize(
+    ("typing_patch", "error_fragment"),
+    [
+        ({"typing_mode": "paste"}, "Unsupported typing mode"),
+        ({"typing_delay_ms": -1}, "typing_delay_ms must be an integer between 0 and 5000"),
+        ({"typing_delay_ms": True}, "typing_delay_ms must be an integer between 0 and 5000"),
+        ({"typing_delay_ms": "fast"}, "typing_delay_ms must be an integer between 0 and 5000"),
+        ({"condition_on_previous_text": "yes"}, "condition_on_previous_text must be a boolean"),
+    ],
+)
+def test_config_rejects_invalid_typing_and_decode_controls(client, typing_patch, error_fragment):
+    response = client.post("/config", json=typing_patch)
+    assert response.status_code == 400
+    assert error_fragment in response.get_json()["error"]
+
+
+def test_config_schema_exposes_typing_and_decode_fields(client):
+    response = client.get("/config/schema")
+    assert response.status_code == 200
+    fields = response.get_json()["fields"]
+    assert fields["typing_mode"]["choices"] == ["clipboard", "keystrokes"]
+    assert fields["typing_delay_ms"] == {"type": "integer", "minimum": 0, "maximum": 5000}
+    assert fields["condition_on_previous_text"]["type"] == "boolean"
+
+
 def test_transcribe_endpoint_accepts_json_audio_samples(client):
     response = client.post("/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en"})
 
@@ -822,6 +864,23 @@ def test_hotwords_and_vad_extensions_feed_transcription_kwargs(client):
     assert "CTranslate2" in kwargs["initial_prompt"]
     assert kwargs["vad_filter"] is True
     assert kwargs["vad_parameters"] == {"min_silence_duration_ms": 1000}
+
+
+def test_condition_on_previous_text_config_feeds_transcription_kwargs(client):
+    response = client.post("/config", json={"condition_on_previous_text": True})
+    assert response.status_code == 200
+
+    response = client.post("/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en"})
+    assert response.status_code == 200
+    kwargs = DummyWhisperModel.last_transcribe_kwargs
+    assert kwargs is not None
+    assert kwargs["condition_on_previous_text"] is True
+
+    response = client.post("/config", json={"condition_on_previous_text": False})
+    assert response.status_code == 200
+    response = client.post("/transcribe", json={"audio": [0.0, 0.1, -0.1], "language": "en"})
+    assert response.status_code == 200
+    assert DummyWhisperModel.last_transcribe_kwargs["condition_on_previous_text"] is False
 
 
 def test_transcribe_endpoint_exports_text_formats(client):
@@ -2251,6 +2310,109 @@ def test_desktop_hotkey_listener_and_transcription_delivery(monkeypatch):
     assert typed == ['hello "VoiceCode"']
     assert "window._appendText" in scripts[-1]
     assert '\\"VoiceCode\\"' in scripts[-1]
+
+
+def test_clipboard_helpers_are_windows_only(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    monkeypatch.setattr(main_module.os, "name", "posix")
+    assert main_module._clipboard_set_text("x") is False
+    assert main_module._clipboard_get_text() is None
+
+
+def test_typing_delivery_clipboard_default_with_keystroke_fallback(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+
+    class FakeController:
+        def __init__(self):
+            self.typed = []
+
+        def type(self, text):
+            self.typed.append(text)
+
+    controller = FakeController()
+    monkeypatch.setattr(main_module, "_type_controller", controller)
+    monkeypatch.setattr(main_module, "_typing_delay_ms", lambda: 0)
+    monkeypatch.setattr(main_module.os, "name", "nt")
+
+    monkeypatch.setattr(main_module, "_typing_mode_from_config", lambda: "clipboard")
+    monkeypatch.setattr(main_module, "_deliver_via_clipboard", lambda text: True)
+    main_module._deliver_text("hello")
+    assert controller.typed == []
+
+    monkeypatch.setattr(main_module, "_deliver_via_clipboard", lambda text: False)
+    main_module._deliver_text("hello")
+    assert controller.typed == ["hello"]
+
+    monkeypatch.setattr(main_module, "_typing_mode_from_config", lambda: "keystrokes")
+    monkeypatch.setattr(main_module, "_deliver_via_clipboard", lambda text: True)
+    main_module._deliver_text("again")
+    assert controller.typed == ["hello", "again"]
+
+
+def test_deliver_via_clipboard_restores_previous_text(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    set_calls: list[str] = []
+    monkeypatch.setattr(main_module, "_clipboard_get_text", lambda: "old")
+    monkeypatch.setattr(
+        main_module, "_clipboard_set_text", lambda value: set_calls.append(value) or True
+    )
+    monkeypatch.setattr(main_module, "_paste_clipboard", lambda controller: None)
+    monkeypatch.setattr(main_module.os, "name", "nt")
+    assert main_module._deliver_via_clipboard("new") is True
+    assert set_calls == ["new", "old"]
+
+
+def test_deliver_via_clipboard_clears_when_previous_missing(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    set_calls: list[str] = []
+    cleared: list[bool] = []
+    monkeypatch.setattr(main_module, "_clipboard_get_text", lambda: None)
+    monkeypatch.setattr(
+        main_module, "_clipboard_set_text", lambda value: set_calls.append(value) or True
+    )
+    monkeypatch.setattr(main_module, "_clipboard_clear", lambda: cleared.append(True) or True)
+    monkeypatch.setattr(main_module, "_paste_clipboard", lambda controller: None)
+    monkeypatch.setattr(main_module.os, "name", "nt")
+    assert main_module._deliver_via_clipboard("new") is True
+    assert set_calls == ["new"]
+    assert cleared == [True]
+
+
+def test_deliver_via_clipboard_falls_back_on_paste_failure(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+    set_calls: list[str] = []
+
+    def boom(controller):
+        raise RuntimeError("paste blocked")
+
+    monkeypatch.setattr(main_module, "_clipboard_get_text", lambda: "old")
+    monkeypatch.setattr(
+        main_module, "_clipboard_set_text", lambda value: set_calls.append(value) or True
+    )
+    monkeypatch.setattr(main_module, "_paste_clipboard", boom)
+    monkeypatch.setattr(main_module.os, "name", "nt")
+    assert main_module._deliver_via_clipboard("new") is False
+    assert set_calls == ["new", "old"]
+
+
+def test_deliver_text_non_windows_routes_to_keystrokes(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+
+    class FakeController:
+        def __init__(self):
+            self.typed = []
+
+        def type(self, text):
+            self.typed.append(text)
+
+    controller = FakeController()
+    monkeypatch.setattr(main_module, "_type_controller", controller)
+    monkeypatch.setattr(main_module, "_typing_delay_ms", lambda: 0)
+    monkeypatch.setattr(main_module, "_typing_mode_from_config", lambda: "clipboard")
+    monkeypatch.setattr(main_module.os, "name", "posix")
+    monkeypatch.setattr(main_module, "_deliver_via_clipboard", lambda text: True)
+    main_module._deliver_text("hello")
+    assert controller.typed == ["hello"]
 
 
 def test_desktop_window_api_fallbacks_and_hotkey_update(monkeypatch):

@@ -26,11 +26,13 @@
   "label_audio_device": "麦克风",
   "audio_default": "系统默认",
   "label_text_mode": "文本模式",
+  "label_typing_mode": "上屏方式",
   "text_plain": "普通",
   "text_coding": "编程",
   "text_markdown": "Markdown",
   "text_prompt": "Prompt",
   "label_beam_size": "Beam",
+  "label_condition_on_previous_text": "结合上文",
   "label_vad_filter": "VAD",
   "vad_on": "On",
   "vad_off": "Off",
@@ -369,5 +371,8 @@
   "copy_failed": "复制失败",
   "model_cache_incomplete": "所选模型缓存不完整或已损坏。",
   "model_suggestion_delete_partial_cache": "删除不完整缓存后重新下载。",
-  "games_minesweeper_only_hint": "经典扫雷，提供初级、中级和高级三种难度。"
+  "games_minesweeper_only_hint": "经典扫雷，提供初级、中级和高级三种难度。",
+  "label_typing_delay_ms": "上屏延迟（毫秒）",
+  "typing_clipboard": "剪贴板粘贴（快）",
+  "typing_keystrokes": "模拟按键"
 }

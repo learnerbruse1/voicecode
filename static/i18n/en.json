@@ -70,11 +70,13 @@
   "label_audio_device": "Microphone",
   "audio_default": "System default",
   "label_text_mode": "Text mode",
+  "label_typing_mode": "Typing method",
   "text_plain": "Plain",
   "text_coding": "Coding",
   "text_markdown": "Markdown",
   "text_prompt": "Prompt",
   "label_beam_size": "Beam",
+  "label_condition_on_previous_text": "Previous text context",
   "label_vad_filter": "VAD",
   "vad_on": "On",
   "vad_off": "Off",
@@ -369,5 +371,8 @@
   "copy_failed": "Copy failed",
   "model_cache_incomplete": "The selected model cache is incomplete or damaged.",
   "model_suggestion_delete_partial_cache": "Delete the partial cache and download again.",
-  "games_minesweeper_only_hint": "Classic Minesweeper with Beginner, Intermediate, and Expert modes."
+  "games_minesweeper_only_hint": "Classic Minesweeper with Beginner, Intermediate, and Expert modes.",
+  "label_typing_delay_ms": "Typing delay (ms)",
+  "typing_clipboard": "Clipboard paste (fast)",
+  "typing_keystrokes": "Simulated keystrokes"
 }

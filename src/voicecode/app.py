@@ -1094,7 +1094,14 @@ def reload_model():
         payload = _json_payload()
         reload_patch = {
             key: payload[key]
-            for key in ("model", "device", "compute_type", "beam_size", "vad_filter")
+            for key in (
+                "model",
+                "device",
+                "compute_type",
+                "beam_size",
+                "vad_filter",
+                "condition_on_previous_text",
+            )
             if key in payload
         }
         validated_patch = _validate_config_patch(reload_patch)
