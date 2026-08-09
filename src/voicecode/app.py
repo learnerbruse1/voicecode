@@ -1317,6 +1317,7 @@ def _action_required_dependencies() -> list[dict[str, object]]:
 
 def _reset_dependency_runtime_cache(dependency_id: str) -> None:
     """Drop module-level runtime handles that may point at removed VOICE_DEP files."""
+    dependency_manager.invalidate_dependency_cache()
     global WhisperModel, ctranslate2, model
     if dependency_id == "whisper-runtime":
         WhisperModel = None

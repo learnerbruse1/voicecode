@@ -2004,6 +2004,49 @@ def test_reload_model_rejects_second_request_while_load_is_in_progress(
     assert calls == [("tiny", True)]
 
 
+def test_dependency_status_cache_reused_until_invalidated(monkeypatch):
+    from voicecode import dependency_environment as deps_env
+
+    calls = {"count": 0}
+    original = deps_env.dependency_status
+
+    def counting(spec):
+        calls["count"] += 1
+        return original(spec)
+
+    monkeypatch.setattr(deps_env, "dependency_status", counting)
+    deps_env.invalidate_dependency_cache()
+    first = deps_env.all_dependency_statuses()
+    assert calls["count"] == len(deps_env.DEPENDENCIES)
+    assert deps_env.all_dependency_statuses() == first
+    assert calls["count"] == len(deps_env.DEPENDENCIES)
+    deps_env.invalidate_dependency_cache()
+    deps_env.all_dependency_statuses()
+    assert calls["count"] == 2 * len(deps_env.DEPENDENCIES)
+    before = calls["count"]
+    deps_env.missing_dependencies(required_only=True)
+    assert calls["count"] == before
+
+
+def test_dependency_manifest_write_invalidates_cache(monkeypatch, tmp_path):
+    from voicecode import dependency_environment as deps_env
+
+    deps_env.invalidate_dependency_cache()
+    monkeypatch.setattr(
+        deps_env,
+        "dependency_status",
+        lambda spec: {"id": spec.id, "required": spec.required, "installed": True},
+    )
+    spec = deps_env.get_dependency_spec("jiwer")
+    deps_env.all_dependency_statuses()
+    with deps_env._dependency_cache_lock:
+        assert deps_env._dependency_status_cache is not None
+    monkeypatch.setattr(deps_env, "_manifest_root", lambda: tmp_path)
+    deps_env._write_manifest(spec, ["jiwer.py"], "pypi")
+    with deps_env._dependency_cache_lock:
+        assert deps_env._dependency_status_cache is None
+
+
 def test_dependency_install_uses_catalog_pypi_spec_and_writes_manifest(app_module, monkeypatch):
     from voicecode import dependencies as dependency_manager
 

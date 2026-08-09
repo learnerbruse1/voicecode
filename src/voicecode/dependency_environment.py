@@ -9,12 +9,16 @@ import logging
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 from .dependency_catalog import DEPENDENCIES, get_dependency_spec
 from .dependency_types import DependencySpec
+
+_dependency_cache_lock = threading.Lock()
+_dependency_status_cache: list[dict[str, Any]] | None = None
 
 logger = logging.getLogger("voicecode.dependency_environment")
 _MANIFEST_DIR_NAME = ".voicecode"
@@ -151,6 +155,7 @@ def _write_manifest(spec: DependencySpec, paths: list[str], source: str) -> None
     temp_path = path.with_suffix(".tmp")
     temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(temp_path, path)
+    invalidate_dependency_cache()
 
 
 def _read_manifest(spec: DependencySpec) -> dict[str, Any] | None:
@@ -246,16 +251,30 @@ def dependency_status(spec: DependencySpec) -> dict[str, object]:
     }
 
 
+def invalidate_dependency_cache() -> None:
+    """Drop cached dependency statuses so the next read re-scans the environment."""
+    global _dependency_status_cache
+    with _dependency_cache_lock:
+        _dependency_status_cache = None
+
+
 def all_dependency_statuses() -> list[dict[str, object]]:
-    return [dependency_status(spec) for spec in DEPENDENCIES]
+    global _dependency_status_cache
+    with _dependency_cache_lock:
+        cached = _dependency_status_cache
+    if cached is not None:
+        return cached
+    statuses = [dependency_status(spec) for spec in DEPENDENCIES]
+    with _dependency_cache_lock:
+        _dependency_status_cache = statuses
+    return statuses
 
 
 def missing_dependencies(*, required_only: bool = False) -> list[dict[str, object]]:
     return [
         status
-        for spec in DEPENDENCIES
-        if (not required_only or spec.required)
-        and not bool((status := dependency_status(spec))["installed"])
+        for status in all_dependency_statuses()
+        if (not required_only or status.get("required")) and not bool(status.get("installed"))
     ]
 
 
@@ -344,6 +363,7 @@ def uninstall_dependency(dependency_id: str, *, confirm: bool = False) -> dict[s
                 loaded_module = sys.modules.get(loaded_name)
                 if loaded_module is not None and _loaded_module_is_from_root(loaded_module, root):
                     sys.modules.pop(loaded_name, None)
+    invalidate_dependency_cache()
     return {
         "status": "uninstalled",
         "removed": removed,

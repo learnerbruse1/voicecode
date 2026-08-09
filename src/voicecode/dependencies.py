@@ -13,6 +13,7 @@ from .dependency_environment import (
     dependency_dir,
     dependency_status,
     ensure_dependency_path,
+    invalidate_dependency_cache,
     missing_dependencies,
     project_root,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "dependency_status",
     "ensure_dependency_path",
     "get_dependency_spec",
+    "invalidate_dependency_cache",
     "get_task",
     "list_tasks",
     "missing_dependencies",
