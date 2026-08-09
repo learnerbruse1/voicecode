@@ -966,6 +966,15 @@ STATIC_DIR = os.environ.get("VOICECODE_STATIC_DIR") or os.path.join(
 )
 
 
+def _version_static_assets(html: str) -> str:
+    """Append the app version to static asset URLs so upgrades invalidate caches."""
+    return re.sub(
+        '(?:src|href)="/(?:js|css)/[^"]+\\.(?:js|css)"',
+        lambda match: match.group(0)[:-1] + f'?v={__version__}"',
+        html,
+    )
+
+
 @app.route("/")
 def index():
     index_path = Path(STATIC_DIR) / "index.html"
@@ -978,6 +987,7 @@ def index():
     injected_meta = "\n".join((token_meta, version_meta))
     if "voicecode-api-token" not in html:
         html = html.replace("<head>", f"<head>\n{injected_meta}", 1)
+    html = _version_static_assets(html)
     response = Response(html, mimetype="text/html")
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -985,12 +995,16 @@ def index():
 
 @app.route("/css/<path:filename>")
 def css_asset(filename: str):
-    return send_from_directory(os.path.join(STATIC_DIR, "css"), filename)
+    response = send_from_directory(os.path.join(STATIC_DIR, "css"), filename)
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
 
 
 @app.route("/js/<path:filename>")
 def js_asset(filename: str):
-    return send_from_directory(os.path.join(STATIC_DIR, "js"), filename)
+    response = send_from_directory(os.path.join(STATIC_DIR, "js"), filename)
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
 
 
 def _model_reload_done(future: Future, size: str) -> None:

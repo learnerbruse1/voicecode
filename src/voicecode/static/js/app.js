@@ -83,13 +83,18 @@ async function bootstrapVoiceCode() {
 
 var statusPollTimer = null;
 async function runStatusPoll() {
+  if (recording) {
+    scheduleStatusPolling();
+    return;
+  }
   await Promise.allSettled([pollModelStatus(false), updateStats()]);
   scheduleStatusPolling();
 }
 
 function scheduleStatusPolling() {
   if (statusPollTimer) clearTimeout(statusPollTimer);
-  statusPollTimer = setTimeout(runStatusPoll, document.hidden ? 15000 : 3000);
+  const delay = document.hidden ? 15000 : (statusActive ? 3000 : 10000);
+  statusPollTimer = setTimeout(runStatusPoll, delay);
 }
 
 document.addEventListener("visibilitychange", () => {

@@ -92,6 +92,54 @@ def _assert_setting_round_trip(page, selector: str, value: str) -> None:
     )
 
 
+def test_static_assets_are_versioned_and_cacheable(tmp_path):
+    playwright = pytest.importorskip("playwright.sync_api")
+    port, process = _start_server(tmp_path)
+    try:
+        with playwright.sync_playwright() as runtime:
+            browser = runtime.chromium.launch()
+            page = browser.new_page()
+            html = page.request.get(f"http://127.0.0.1:{port}/").text()
+            assert "?v=" in html
+            for asset in (
+                f"http://127.0.0.1:{port}/js/app.js",
+                f"http://127.0.0.1:{port}/css/app.css",
+            ):
+                response = page.request.get(asset)
+                assert response.ok
+                cache_control = response.headers.get("cache-control") or ""
+                assert "immutable" in cache_control, cache_control
+            browser.close()
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+
+def test_idle_status_polling_is_not_every_three_seconds(tmp_path):
+    playwright = pytest.importorskip("playwright.sync_api")
+    port, process = _start_server(tmp_path)
+    try:
+        with playwright.sync_playwright() as runtime:
+            browser = runtime.chromium.launch()
+            page = browser.new_page()
+            status_times: list[float] = []
+
+            def record(request):
+                if request.url.endswith("/status"):
+                    status_times.append(time.monotonic())
+
+            page.on("request", record)
+            page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+            page.wait_for_timeout(13000)
+            gaps = [b - a for a, b in zip(status_times, status_times[1:], strict=False)]
+            assert gaps, "expected at least two /status requests"
+            assert max(gaps) >= 8.0, f"idle polling too frequent: {gaps}"
+            browser.close()
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+
 def test_settings_round_trip_persists_decode_preset(tmp_path):
     playwright = pytest.importorskip("playwright.sync_api")
     port, process = _start_server(tmp_path, complete_onboarding=True)
