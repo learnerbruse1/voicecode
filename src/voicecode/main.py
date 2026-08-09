@@ -1,5 +1,4 @@
 import ctypes
-from ctypes import wintypes
 import importlib
 import json
 import logging
@@ -7,6 +6,7 @@ import os
 import sys
 import threading
 import time
+from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -127,8 +127,8 @@ _CLIPBOARD_RESTORE_DELAY = 0.12
 
 def _setup_clipboard_api() -> None:
     """Declare the ctypes signatures used by the clipboard helpers."""
-    user32 = getattr(ctypes, "windll").user32
-    kernel32 = getattr(ctypes, "windll").kernel32
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
     user32.OpenClipboard.argtypes = [ctypes.c_void_p]
     user32.OpenClipboard.restype = wintypes.BOOL
     user32.GetClipboardData.argtypes = [wintypes.UINT]
@@ -155,7 +155,7 @@ def _open_clipboard() -> bool:
     if os.name != "nt":
         return False
     _setup_clipboard_api()
-    user32 = getattr(ctypes, "windll").user32
+    user32 = ctypes.windll.user32
     for _ in range(10):
         if user32.OpenClipboard(None):
             return True
@@ -168,7 +168,7 @@ def _clipboard_clear() -> bool:
     if os.name != "nt":
         return False
     _setup_clipboard_api()
-    user32 = getattr(ctypes, "windll").user32
+    user32 = ctypes.windll.user32
     if not _open_clipboard():
         return False
     try:
@@ -187,8 +187,8 @@ def _clipboard_set_text(text_value: str) -> bool:
     if os.name != "nt":
         return False
     _setup_clipboard_api()
-    user32 = getattr(ctypes, "windll").user32
-    kernel32 = getattr(ctypes, "windll").kernel32
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
     memory = None
     try:
         encoded = text_value.encode("utf-16-le") + b"\x00\x00"
@@ -227,8 +227,8 @@ def _clipboard_get_text() -> str | None:
     if os.name != "nt":
         return None
     _setup_clipboard_api()
-    user32 = getattr(ctypes, "windll").user32
-    kernel32 = getattr(ctypes, "windll").kernel32
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
     try:
         if not _open_clipboard():
             raise OSError("Clipboard is busy and could not be opened.")
@@ -514,9 +514,7 @@ def _set_windows_app_identity() -> None:
     if os.name != "nt":
         return
     try:
-        getattr(ctypes, "windll").shell32.SetCurrentProcessExplicitAppUserModelID(
-            _APP_USER_MODEL_ID
-        )
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_APP_USER_MODEL_ID)
     except Exception as exc:
         logger.debug("Failed to set Windows AppUserModelID: %s", exc)
 
@@ -524,7 +522,7 @@ def _set_windows_app_identity() -> None:
 def _find_voicecode_window() -> int | None:
     if os.name != "nt":
         return None
-    user32 = getattr(ctypes, "windll").user32
+    user32 = ctypes.windll.user32
     user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
     user32.FindWindowW.restype = ctypes.c_void_p
     user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
@@ -562,7 +560,7 @@ def _release_windows_window_icons() -> None:
     global _window_icon_handles
     if os.name != "nt":
         return
-    user32 = getattr(ctypes, "windll").user32
+    user32 = ctypes.windll.user32
     for handle in _window_icon_handles:
         try:
             user32.DestroyIcon(handle)
@@ -576,8 +574,8 @@ def _apply_windows_window_icon() -> bool:
     if os.name != "nt":
         return False
     try:
-        user32 = getattr(ctypes, "windll").user32
-        shell32 = getattr(ctypes, "windll").shell32
+        user32 = ctypes.windll.user32
+        shell32 = ctypes.windll.shell32
         user32.LoadImageW.argtypes = [
             ctypes.c_void_p,
             ctypes.c_wchar_p,
@@ -765,7 +763,7 @@ def _focus_existing_window() -> bool:
     if os.name != "nt":
         return False
     try:
-        user32 = getattr(ctypes, "windll").user32
+        user32 = ctypes.windll.user32
         hwnd = _find_voicecode_window()
         if not hwnd:
             return False
@@ -823,7 +821,7 @@ def _acquire_instance_mutex() -> bool:
     if os.name != "nt":
         return True
     try:
-        kernel32 = getattr(ctypes, "windll").kernel32
+        kernel32 = ctypes.windll.kernel32
         create_mutex = kernel32.CreateMutexW
         create_mutex.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
         create_mutex.restype = ctypes.c_void_p
@@ -852,7 +850,7 @@ def _release_instance_mutex() -> None:
     if _instance_mutex_handle is None:
         return
     try:
-        kernel32 = getattr(ctypes, "windll").kernel32
+        kernel32 = ctypes.windll.kernel32
         try:
             kernel32.ReleaseMutex(_instance_mutex_handle)
         except Exception:
@@ -868,7 +866,7 @@ def _hide_console() -> None:
     if os.name != "nt":
         return
     try:
-        windll = getattr(ctypes, "windll")
+        windll = ctypes.windll
         hwnd = windll.kernel32.GetConsoleWindow()
         if hwnd:
             windll.user32.ShowWindow(hwnd, 0)
@@ -881,7 +879,7 @@ def _show_existing_instance_message(message: str) -> None:
     if os.name != "nt":
         return
     try:
-        getattr(ctypes, "windll").user32.MessageBoxW(None, message, "VoiceCode", 0x40)
+        ctypes.windll.user32.MessageBoxW(None, message, "VoiceCode", 0x40)
     except Exception:
         pass
 
@@ -891,7 +889,7 @@ def _show_startup_error(exc: BaseException) -> None:
     logger.exception(message)
     if os.name == "nt":
         try:
-            windll = getattr(ctypes, "windll")
+            windll = ctypes.windll
             windll.user32.MessageBoxW(None, message, "VoiceCode startup failed", 0x10)
         except Exception:
             pass

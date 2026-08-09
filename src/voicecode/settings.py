@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
 import copy
 import json
 import logging
 import os
+from pathlib import Path
+from typing import Any
 
 from .extensions.registry import default_extension_config
 

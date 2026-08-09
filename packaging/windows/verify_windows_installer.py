@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen

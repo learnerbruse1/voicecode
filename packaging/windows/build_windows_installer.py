@@ -16,14 +16,14 @@ from __future__ import annotations
 import argparse
 import platform
 import re
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import time
-from typing import Iterable
-from urllib.request import urlopen
 import zipfile
+from collections.abc import Iterable
+from pathlib import Path
+from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 WINDOWS_DIR = Path(__file__).resolve().parent

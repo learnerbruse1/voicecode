@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 if getattr(sys, "frozen", False):
     runtime_dir = Path(sys.executable).resolve().parent / "runtime"

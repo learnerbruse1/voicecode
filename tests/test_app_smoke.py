@@ -1,13 +1,13 @@
-from concurrent.futures import Future, ThreadPoolExecutor
 import importlib
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
 import types
+from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import pytest

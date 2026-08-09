@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from concurrent.futures import Future
 from queue import Empty, Queue
-import threading
 from typing import Any
-
 
 ACTIVE_MODEL_STATES = {"checking", "downloading", "loading"}
 _Task = tuple[Future[Any], Callable[..., Any], tuple[Any, ...], dict[str, Any]]

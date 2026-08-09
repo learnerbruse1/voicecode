@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 from urllib.request import urlopen
 
 import pytest

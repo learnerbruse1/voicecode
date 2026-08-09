@@ -1,19 +1,19 @@
 import atexit
 import gc
-from pathlib import Path
 import logging
 import multiprocessing
+import os
 import platform
 import re
-import os
 import secrets
 import sys
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import Future
 from logging.handlers import RotatingFileHandler
-from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -42,23 +42,23 @@ import numpy as np  # noqa: E402
 from flask import Flask, Response, g, jsonify, request, send_from_directory  # noqa: E402
 from werkzeug.exceptions import BadRequest, HTTPException, UnsupportedMediaType  # noqa: E402
 
-from . import dependencies as dependency_manager  # noqa: E402
 from . import __version__  # noqa: E402
-from .management_api import ManagementContext, create_management_blueprint  # noqa: E402
+from . import dependencies as dependency_manager  # noqa: E402
+from . import history as history_store  # noqa: E402
+from . import settings as settings_store  # noqa: E402
 from .config_api import ConfigContext, create_config_blueprint  # noqa: E402
+from .history_api import HistoryContext, create_history_blueprint  # noqa: E402
+from .management_api import ManagementContext, create_management_blueprint  # noqa: E402
 from .model_api import ModelContext, create_model_blueprint  # noqa: E402
 from .model_cache import ModelCacheService  # noqa: E402
 from .model_runtime import ModelRuntime  # noqa: E402
 from .recording_api import RecordingContext, create_recording_blueprint  # noqa: E402
 from .runtime import migrate_legacy_model_cache  # noqa: E402
-from .history_api import HistoryContext, create_history_blueprint  # noqa: E402
 from .system_api import (  # noqa: E402
     SystemContext,
     create_system_blueprint,
     shutdown_gpu_monitoring,
 )
-from . import history as history_store  # noqa: E402
-from . import settings as settings_store  # noqa: E402
 
 dependency_manager.ensure_dependency_path()
 
@@ -84,8 +84,14 @@ else:
 
 from .audio import (  # noqa: E402
     Recorder,
+)
+from .audio import (  # noqa: E402
     normalize_audio_device as _normalize_audio_device,
+)
+from .audio import (  # noqa: E402
     query_input_devices as _query_input_devices,
+)
+from .audio import (  # noqa: E402
     test_input_level as _test_input_level,
 )
 from .extensions import registry as extension_registry  # noqa: E402
@@ -638,7 +644,7 @@ def _set_huggingface_endpoint(endpoint: str) -> None:
     os.environ["HF_ENDPOINT"] = endpoint
     try:
         constants = importlib.import_module("huggingface_hub.constants")
-        setattr(constants, "ENDPOINT", endpoint)
+        setattr(constants, "ENDPOINT", endpoint)  # noqa: B010 - dynamic module attribute
     except Exception as exc:
         logger.debug("Unable to update the loaded Hugging Face endpoint: %s", exc)
 

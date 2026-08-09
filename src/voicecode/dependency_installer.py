@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import fields
 import importlib
 import json
 import logging
 import os
-from queue import Empty, Queue
 import shutil
 import subprocess
 import threading
 import time
 import uuid
-from typing import Iterator
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import fields
+from queue import Empty, Queue
 
 from .dependency_catalog import get_dependency_spec
-from .runtime import pip_python_executable
 from .dependency_environment import (
     _write_manifest,
     changed_entries,
@@ -30,6 +29,7 @@ from .dependency_environment import (
     top_level_snapshot,
 )
 from .dependency_types import DependencySpec, DependencyTask
+from .runtime import pip_python_executable
 
 logger = logging.getLogger("voicecode.dependency_installer")
 _tasks: dict[str, DependencyTask] = {}
@@ -165,7 +165,7 @@ def _cross_process_install_lock(timeout_seconds: int) -> Iterator[None]:
                 "Another VoiceCode process is already modifying the dependency directory."
             ) from exc
     try:
-        os.write(descriptor, f"pid={os.getpid()} started={time.time()}\n".encode("utf-8"))
+        os.write(descriptor, f"pid={os.getpid()} started={time.time()}\n".encode())
         os.close(descriptor)
         yield
     finally:

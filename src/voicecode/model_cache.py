@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from pathlib import Path
 import shutil
 import threading
 import time
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 

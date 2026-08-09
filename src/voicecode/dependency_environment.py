@@ -7,10 +7,10 @@ import importlib.util
 import json
 import logging
 import os
-from pathlib import Path
 import shutil
-import time
 import sys
+import time
+from pathlib import Path
 from typing import Any
 
 from .dependency_catalog import DEPENDENCIES, get_dependency_spec

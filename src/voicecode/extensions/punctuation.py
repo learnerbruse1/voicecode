@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import importlib
 import threading
+from collections.abc import Mapping
 from typing import Any
 
 from .base import BaseExtension

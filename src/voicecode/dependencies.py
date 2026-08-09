@@ -4,6 +4,7 @@ Implementation is split across catalog, environment, and installer modules so ca
 small stable API while packaging/status logic and background pip orchestration evolve separately.
 """
 
+from . import dependency_installer as _installer
 from .dependency_catalog import DEPENDENCIES, dependencies_for_feature, get_dependency_spec
 from .dependency_environment import (
     _write_manifest,
@@ -14,9 +15,10 @@ from .dependency_environment import (
     ensure_dependency_path,
     missing_dependencies,
     project_root,
+)
+from .dependency_environment import (
     uninstall_dependency as _uninstall_dependency,
 )
-from . import dependency_installer as _installer
 from .dependency_installer import (
     cancel_task,
     dependency_operation_in_progress,
