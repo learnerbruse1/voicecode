@@ -1675,6 +1675,27 @@ def test_windows_installer_configuration_keeps_runtime_data_beside_the_app():
     assert "VOICECODE_DEP_DIR" in runtime_hook
 
 
+def test_model_warmup_runs_and_can_be_skipped(app_module, monkeypatch):
+    class FakeModel:
+        def __init__(self):
+            self.calls = []
+
+        def transcribe(self, audio, **kwargs):
+            self.calls.append(kwargs)
+            return iter([])
+
+    model = FakeModel()
+    monkeypatch.setattr(app_module, "_env_flag", lambda name: False)
+    app_module._warmup_model(model)
+    assert len(model.calls) == 1
+    assert model.calls[0]["vad_filter"] is False
+    assert model.calls[0]["beam_size"] == 1
+
+    monkeypatch.setattr(app_module, "_env_flag", lambda name: True)
+    app_module._warmup_model(model)
+    assert len(model.calls) == 1
+
+
 def test_model_download_starts_and_reports_loading(client):
     response = client.post("/models/tiny/download", json={})
     assert response.status_code == 202

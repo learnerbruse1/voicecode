@@ -693,6 +693,25 @@ def _whisper_model_kwargs(
     return kwargs
 
 
+def _warmup_model(model: Any) -> None:
+    """Run one tiny best-effort inference so the first dictation skips warm-up cost."""
+    if _env_flag("VOICECODE_SKIP_WARMUP"):
+        return
+    try:
+        samples = np.zeros(16000, dtype=np.float32)  # 1 s of silence at 16 kHz
+        list(
+            model.transcribe(
+                samples,
+                language=None,
+                task="transcribe",
+                beam_size=1,
+                vad_filter=False,
+            )
+        )
+    except Exception as exc:
+        logger.debug("Model warm-up skipped: %s", exc)
+
+
 def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True) -> Any:
     """Load a Whisper model with CUDA auto-detection and safe CPU fallback."""
     global MODEL_SIZE, _compute_type, _cpu_threads, _device, model
@@ -753,6 +772,8 @@ def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True
         model = loaded_model
         MODEL_SIZE = requested_size
     _sync_model_runtime()
+    with model_lock:
+        _warmup_model(loaded_model)
     logger.info("Whisper model is ready: %s/%s", _device, _compute_type)
     return loaded_model
 
