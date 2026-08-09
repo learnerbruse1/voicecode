@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 Repository-specific guidance for coding agents working on VoiceCode.
 

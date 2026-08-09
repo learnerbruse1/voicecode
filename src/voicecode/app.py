@@ -1155,6 +1155,7 @@ def reload_model():
             "model": size,
             "device": current_cfg.get("device", "auto"),
             "compute_type": current_cfg.get("compute_type", "auto"),
+            "condition_on_previous_text": current_cfg.get("condition_on_previous_text", False),
         }
     )
 

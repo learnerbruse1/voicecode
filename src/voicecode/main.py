@@ -14,6 +14,7 @@ from urllib.request import urlopen
 
 from . import app as server
 from .settings import (
+    DEFAULT_CONFIG,
     TYPING_DELAY_DEFAULT_MS,
     TYPING_DELAY_MAX_MS,
     TYPING_DELAY_MIN_MS,
@@ -79,6 +80,7 @@ _shutdown_requested = False
 _type_controller = kb.Controller() if kb is not None else None
 _typing_from_global = False
 _typing_lock = threading.Lock()
+_delivery_lock = threading.Lock()
 
 _MOD_MAP = (
     {
@@ -123,13 +125,37 @@ _GMEM_MOVEABLE = 0x0002
 _CLIPBOARD_RESTORE_DELAY = 0.12
 
 
+def _setup_clipboard_api() -> None:
+    """Declare the ctypes signatures used by the clipboard helpers."""
+    user32 = getattr(ctypes, "windll").user32
+    kernel32 = getattr(ctypes, "windll").kernel32
+    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+    user32.OpenClipboard.restype = wintypes.BOOL
+    user32.GetClipboardData.argtypes = [wintypes.UINT]
+    user32.GetClipboardData.restype = ctypes.c_void_p
+    user32.SetClipboardData.argtypes = [wintypes.UINT, ctypes.c_void_p]
+    user32.SetClipboardData.restype = ctypes.c_void_p
+    user32.EmptyClipboard.argtypes = []
+    user32.EmptyClipboard.restype = wintypes.BOOL
+    user32.CloseClipboard.argtypes = []
+    user32.CloseClipboard.restype = wintypes.BOOL
+    kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+    kernel32.GlobalAlloc.restype = ctypes.c_void_p
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.restype = wintypes.BOOL
+    kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalSize.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalSize.restype = ctypes.c_size_t
+
+
 def _open_clipboard() -> bool:
     """Open the Windows clipboard with a short retry loop."""
     if os.name != "nt":
         return False
+    _setup_clipboard_api()
     user32 = getattr(ctypes, "windll").user32
-    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
-    user32.OpenClipboard.restype = wintypes.BOOL
     for _ in range(10):
         if user32.OpenClipboard(None):
             return True
@@ -141,15 +167,13 @@ def _clipboard_clear() -> bool:
     """Clear the Windows clipboard contents."""
     if os.name != "nt":
         return False
+    _setup_clipboard_api()
     user32 = getattr(ctypes, "windll").user32
-    user32.EmptyClipboard.argtypes = []
-    user32.EmptyClipboard.restype = wintypes.BOOL
-    user32.CloseClipboard.argtypes = []
-    user32.CloseClipboard.restype = wintypes.BOOL
     if not _open_clipboard():
         return False
     try:
-        user32.EmptyClipboard()
+        if not user32.EmptyClipboard():
+            return False
         return True
     except Exception as exc:
         logger.debug("Failed to clear the Windows clipboard: %s", exc)
@@ -162,17 +186,9 @@ def _clipboard_set_text(text_value: str) -> bool:
     """Replace the Windows clipboard contents with UTF-16 text."""
     if os.name != "nt":
         return False
+    _setup_clipboard_api()
     user32 = getattr(ctypes, "windll").user32
     kernel32 = getattr(ctypes, "windll").kernel32
-    kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
-    kernel32.GlobalAlloc.restype = ctypes.c_void_p
-    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
-    kernel32.GlobalLock.restype = ctypes.c_void_p
-    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-    kernel32.GlobalUnlock.restype = ctypes.c_void_p
-    kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
-    user32.SetClipboardData.argtypes = [wintypes.UINT, ctypes.c_void_p]
-    user32.SetClipboardData.restype = ctypes.c_void_p
     memory = None
     try:
         encoded = text_value.encode("utf-16-le") + b"\x00\x00"
@@ -187,7 +203,8 @@ def _clipboard_set_text(text_value: str) -> bool:
         if not _open_clipboard():
             return False
         try:
-            user32.EmptyClipboard()
+            if not user32.EmptyClipboard():
+                return False
             if not user32.SetClipboardData(_CF_UNICODETEXT, memory):
                 return False
             memory = None
@@ -203,33 +220,25 @@ def _clipboard_set_text(text_value: str) -> bool:
 
 
 def _clipboard_get_text() -> str | None:
-    """Return the current Windows clipboard text, or None when unavailable."""
+    """Return clipboard text, or None when the clipboard holds no text.
+
+    Raises OSError when the clipboard cannot be read.
+    """
     if os.name != "nt":
         return None
+    _setup_clipboard_api()
     user32 = getattr(ctypes, "windll").user32
     kernel32 = getattr(ctypes, "windll").kernel32
-    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
-    user32.OpenClipboard.restype = wintypes.BOOL
-    user32.GetClipboardData.argtypes = [wintypes.UINT]
-    user32.GetClipboardData.restype = ctypes.c_void_p
-    user32.CloseClipboard.argtypes = []
-    user32.CloseClipboard.restype = wintypes.BOOL
-    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
-    kernel32.GlobalLock.restype = ctypes.c_void_p
-    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
-    kernel32.GlobalUnlock.restype = wintypes.BOOL
-    kernel32.GlobalSize.argtypes = [ctypes.c_void_p]
-    kernel32.GlobalSize.restype = ctypes.c_size_t
     try:
         if not _open_clipboard():
-            return None
+            raise OSError("Clipboard is busy and could not be opened.")
         try:
             handle = user32.GetClipboardData(_CF_UNICODETEXT)
             if not handle:
                 return None
             pointer = kernel32.GlobalLock(handle)
             if not pointer:
-                return None
+                raise OSError("Clipboard text could not be locked.")
             try:
                 size = kernel32.GlobalSize(handle)
                 if size <= 0:
@@ -242,8 +251,8 @@ def _clipboard_get_text() -> str | None:
         finally:
             user32.CloseClipboard()
     except Exception as exc:
-        logger.debug("Failed to read the Windows clipboard: %s", exc)
-        return None
+        logger.warning("Failed to read the Windows clipboard: %s", exc)
+        raise
 
 
 def _paste_clipboard(controller) -> None:
@@ -258,8 +267,9 @@ def _paste_clipboard(controller) -> None:
 
 def _typing_mode_from_config() -> str:
     try:
-        mode = str(server.load_config().get("typing_mode", "clipboard"))
-        return mode if mode in VALID_TYPING_MODES else "clipboard"
+        default_mode = str(DEFAULT_CONFIG.get("typing_mode", "clipboard"))
+        mode = str(server.load_config().get("typing_mode", default_mode))
+        return mode if mode in VALID_TYPING_MODES else default_mode
     except Exception:
         return "clipboard"
 
@@ -276,7 +286,11 @@ def _typing_delay_ms() -> int:
 
 def _deliver_via_clipboard(text: str) -> bool:
     """Paste ``text`` through the clipboard, restoring the previous text contents."""
-    previous = _clipboard_get_text()
+    try:
+        previous = _clipboard_get_text()
+    except Exception:
+        logger.info("Clipboard contents could not be read; using simulated keystrokes instead.")
+        return False
     if not _clipboard_set_text(text):
         return False
     try:
@@ -298,20 +312,21 @@ def _deliver_via_clipboard(text: str) -> bool:
 
 def _deliver_text(text: str) -> None:
     """Deliver transcribed text to the active application in the configured mode."""
-    delay = _typing_delay_ms()
-    if delay > 0:
-        time.sleep(delay / 1000.0)
-    if _type_controller is None:
-        logger.warning("Global typing is unavailable because pynput could not be initialized.")
-        return
-    if os.name == "nt" and _typing_mode_from_config() == "clipboard":
-        if _deliver_via_clipboard(text):
+    with _delivery_lock:
+        delay = _typing_delay_ms()
+        if delay > 0:
+            time.sleep(delay / 1000.0)
+        if _type_controller is None:
+            logger.warning("Global typing is unavailable because pynput could not be initialized.")
             return
-        logger.info("Clipboard typing is unavailable; falling back to simulated keystrokes.")
-    try:
-        _type_controller.type(text)
-    except Exception as exc:
-        logger.warning("Failed to type transcribed text: %s", exc)
+        if os.name == "nt" and _typing_mode_from_config() == "clipboard":
+            if _deliver_via_clipboard(text):
+                return
+            logger.info("Clipboard typing is unavailable; falling back to simulated keystrokes.")
+        try:
+            _type_controller.type(text)
+        except Exception as exc:
+            logger.warning("Failed to type transcribed text: %s", exc)
 
 
 def _type_text(text: str) -> None:

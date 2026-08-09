@@ -157,6 +157,16 @@ def test_config_reset_restores_defaults(client):
     assert body["extensions"]["hotwords"]["enabled"] is True
 
 
+def test_reload_model_response_includes_decode_setting(client):
+    response = client.post(
+        "/reload_model", json={"model": "base", "condition_on_previous_text": True}
+    )
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "loading"
+    assert body["condition_on_previous_text"] is True
+
+
 def test_reload_model_validates_input(client):
     response = client.post("/reload_model", json={"model": "bad-model"})
     assert response.status_code == 400
@@ -2312,6 +2322,30 @@ def test_desktop_hotkey_listener_and_transcription_delivery(monkeypatch):
     assert '\\"VoiceCode\\"' in scripts[-1]
 
 
+class _FakeTypeController:
+    def __init__(self):
+        self.typed: list[str] = []
+
+    def type(self, text):
+        self.typed.append(text)
+
+
+def test_deliver_via_clipboard_read_failure_falls_back(monkeypatch):
+    main_module = importlib.import_module("voicecode.main")
+
+    def boom():
+        raise OSError("clipboard busy")
+
+    set_called: list[str] = []
+    monkeypatch.setattr(main_module, "_clipboard_get_text", boom)
+    monkeypatch.setattr(
+        main_module, "_clipboard_set_text", lambda value: set_called.append(value) or True
+    )
+    monkeypatch.setattr(main_module.os, "name", "nt")
+    assert main_module._deliver_via_clipboard("new") is False
+    assert set_called == []
+
+
 def test_clipboard_helpers_are_windows_only(monkeypatch):
     main_module = importlib.import_module("voicecode.main")
     monkeypatch.setattr(main_module.os, "name", "posix")
@@ -2322,14 +2356,7 @@ def test_clipboard_helpers_are_windows_only(monkeypatch):
 def test_typing_delivery_clipboard_default_with_keystroke_fallback(monkeypatch):
     main_module = importlib.import_module("voicecode.main")
 
-    class FakeController:
-        def __init__(self):
-            self.typed = []
-
-        def type(self, text):
-            self.typed.append(text)
-
-    controller = FakeController()
+    controller = _FakeTypeController()
     monkeypatch.setattr(main_module, "_type_controller", controller)
     monkeypatch.setattr(main_module, "_typing_delay_ms", lambda: 0)
     monkeypatch.setattr(main_module.os, "name", "nt")
@@ -2398,14 +2425,7 @@ def test_deliver_via_clipboard_falls_back_on_paste_failure(monkeypatch):
 def test_deliver_text_non_windows_routes_to_keystrokes(monkeypatch):
     main_module = importlib.import_module("voicecode.main")
 
-    class FakeController:
-        def __init__(self):
-            self.typed = []
-
-        def type(self, text):
-            self.typed.append(text)
-
-    controller = FakeController()
+    controller = _FakeTypeController()
     monkeypatch.setattr(main_module, "_type_controller", controller)
     monkeypatch.setattr(main_module, "_typing_delay_ms", lambda: 0)
     monkeypatch.setattr(main_module, "_typing_mode_from_config", lambda: "clipboard")
