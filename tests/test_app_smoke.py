@@ -1524,6 +1524,8 @@ def test_record_stop_history_respects_limit(client, app_module):
         assert response.get_json()["text"] == "hello"
     history = client.get("/history").get_json()
     assert len(history["entries"]) == 2
+    raw_lines = app_module._history_file().read_text(encoding="utf-8").splitlines()
+    assert len(raw_lines) == 2
 
 
 def test_history_and_diagnostics_endpoints(client):

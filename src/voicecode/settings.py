@@ -22,6 +22,7 @@ VALID_TEXT_MODES = {"plain", "coding", "markdown", "prompt"}
 VALID_DEVICES = {"auto", "cpu", "cuda"}
 VALID_COMPUTE_TYPES = {"auto", "default", "int8", "int8_float16", "int16", "float16", "float32"}
 VALID_DECODE_PRESETS = {"fast", "balanced", "high_quality", "custom"}
+DECODE_PRESET_KEYS = ("beam_size", "condition_on_previous_text")
 VALID_TYPING_MODES = {"clipboard", "keystrokes"}
 TYPING_DELAY_DEFAULT_MS = 150
 TYPING_DELAY_MIN_MS = 0

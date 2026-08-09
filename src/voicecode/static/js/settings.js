@@ -8,10 +8,10 @@ partialIntervalSel.onchange = () => saveConfig({partial_interval_ms: Number(part
 langSel.onchange = () => saveConfig({language: langSel.value});
 audioDeviceSel.onchange = () => saveConfig({audio_device: audioDeviceSel.value});
 textModeSel.onchange = () => saveConfig({text_mode: textModeSel.value});
-beamSizeSel.onchange = () => saveConfig({beam_size: Number(beamSizeSel.value)});
+beamSizeSel.onchange = () => { decodePresetSel.value = "custom"; saveConfig({beam_size: Number(beamSizeSel.value), decode_preset: "custom"}); };
 decodePresetSel.onchange = () => saveConfig({decode_preset: decodePresetSel.value});
 vadFilterSel.onchange = () => saveConfig({vad_filter: vadFilterSel.value === "true"});
-conditionOnPreviousTextSel.onchange = () => saveConfig({condition_on_previous_text: conditionOnPreviousTextSel.value === "true"});
+conditionOnPreviousTextSel.onchange = () => { decodePresetSel.value = "custom"; saveConfig({condition_on_previous_text: conditionOnPreviousTextSel.value === "true", decode_preset: "custom"}); };
 historyEnabledSel.onchange = () => saveConfig({history_enabled: historyEnabledSel.value === "true"});
 async function refreshLanguageSensitiveContent() {
   modelInfoCache = null;

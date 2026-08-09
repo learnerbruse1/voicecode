@@ -23,19 +23,24 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _start_server(tmp_path) -> tuple[int, subprocess.Popen]:
-    config_path = tmp_path / "config.json"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        json.dumps(
-            {
-                "config_version": 2,
-                "onboarding": {"completed": True, "completed_version": "0.2.0", "skipped": False},
-                "ui_language": "en",
-            }
-        ),
-        encoding="utf-8",
-    )
+def _start_server(tmp_path, *, complete_onboarding: bool = False) -> tuple[int, subprocess.Popen]:
+    if complete_onboarding:
+        config_path = tmp_path / "config.json"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            json.dumps(
+                {
+                    "config_version": 2,
+                    "onboarding": {
+                        "completed": True,
+                        "completed_version": "0.2.0",
+                        "skipped": False,
+                    },
+                    "ui_language": "en",
+                }
+            ),
+            encoding="utf-8",
+        )
     port = _free_port()
     env = os.environ.copy()
     env.update(
@@ -74,24 +79,28 @@ def _start_server(tmp_path) -> tuple[int, subprocess.Popen]:
     raise AssertionError("VoiceCode test server did not start.")
 
 
+def _assert_setting_round_trip(page, selector: str, value: str) -> None:
+    page.click("button[data-view='settings']")
+    page.locator("#view-settings.active").wait_for(state="visible")
+    page.select_option(selector, value)
+    page.wait_for_timeout(500)
+    page.reload(wait_until="networkidle")
+    page.click("button[data-view='settings']")
+    page.wait_for_function(
+        f"() => document.getElementById('{selector.lstrip('#')}')?.value === '{value}'",
+        timeout=5000,
+    )
+
+
 def test_settings_round_trip_persists_decode_preset(tmp_path):
     playwright = pytest.importorskip("playwright.sync_api")
-    port, process = _start_server(tmp_path)
+    port, process = _start_server(tmp_path, complete_onboarding=True)
     try:
         with playwright.sync_playwright() as runtime:
             browser = runtime.chromium.launch()
             page = browser.new_page()
             page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-            page.click("button[data-view='settings']")
-            page.locator("#view-settings.active").wait_for(state="visible")
-            page.select_option("#decode-preset", "fast")
-            page.wait_for_timeout(500)
-            page.reload(wait_until="networkidle")
-            page.click("button[data-view='settings']")
-            page.wait_for_function(
-                "() => document.getElementById('decode-preset')?.value === 'fast'",
-                timeout=5000,
-            )
+            _assert_setting_round_trip(page, "#decode-preset", "fast")
             browser.close()
     finally:
         process.terminate()
@@ -100,22 +109,13 @@ def test_settings_round_trip_persists_decode_preset(tmp_path):
 
 def test_settings_round_trip_persists_partial_preview(tmp_path):
     playwright = pytest.importorskip("playwright.sync_api")
-    port, process = _start_server(tmp_path)
+    port, process = _start_server(tmp_path, complete_onboarding=True)
     try:
         with playwright.sync_playwright() as runtime:
             browser = runtime.chromium.launch()
             page = browser.new_page()
             page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-            page.click("button[data-view='settings']")
-            page.locator("#view-settings.active").wait_for(state="visible")
-            page.select_option("#partial-results", "false")
-            page.wait_for_timeout(500)
-            page.reload(wait_until="networkidle")
-            page.click("button[data-view='settings']")
-            page.wait_for_function(
-                "() => document.getElementById('partial-results')?.value === 'false'",
-                timeout=5000,
-            )
+            _assert_setting_round_trip(page, "#partial-results", "false")
             browser.close()
     finally:
         process.terminate()
@@ -124,43 +124,8 @@ def test_settings_round_trip_persists_partial_preview(tmp_path):
 
 def test_first_start_ui_loads_external_catalog_and_has_no_console_errors(tmp_path):
     playwright = pytest.importorskip("playwright.sync_api")
-    port = _free_port()
-    env = os.environ.copy()
-    env.update(
-        {
-            "PORT": str(port),
-            "VOICECODE_SKIP_MODEL_LOAD": "1",
-            "VOICECODE_CONFIG_FILE": str(tmp_path / "config.json"),
-            "VOICECODE_DEP_DIR": str(tmp_path / "dependencies"),
-            "VOICECODE_MODEL_DIR": str(tmp_path / "models"),
-            "PYTHONUTF8": "1",
-        }
-    )
-    source_dir = str(Path(__file__).resolve().parents[2] / "src")
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, (source_dir, env.get("PYTHONPATH"))))
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            "from voicecode.app import start_server; start_server()",
-        ],
-        env=env,
-        cwd=Path(__file__).resolve().parents[2],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    port, process = _start_server(tmp_path)
     try:
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            try:
-                with urlopen(f"http://127.0.0.1:{port}/health", timeout=1) as response:
-                    if response.status == 200:
-                        break
-            except Exception:
-                time.sleep(0.2)
-        else:
-            raise AssertionError("VoiceCode test server did not start.")
-
         errors: list[str] = []
         console_errors: list[str] = []
         http_errors: list[str] = []

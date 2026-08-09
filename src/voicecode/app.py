@@ -943,7 +943,7 @@ def update_config(patch: dict[str, Any]) -> dict[str, Any]:
     """Atomically merge and persist a validated configuration patch."""
     _sync_config_file()
     if "decode_preset" not in patch and any(
-        key in patch for key in ("beam_size", "condition_on_previous_text")
+        key in patch for key in settings_store.DECODE_PRESET_KEYS
     ):
         patch = {**patch, "decode_preset": "custom"}
     with _config_lock:
@@ -1026,7 +1026,9 @@ def _model_reload_done(future: Future, size: str) -> None:
 
 
 def _append_history(entry: dict[str, Any]) -> None:
-    limit = int(load_config().get("history_limit", 50))
+    limit = int(
+        load_config().get("history_limit", settings_store.DEFAULT_CONFIG.get("history_limit", 50))
+    )
     history_store.append_history(_history_file(), entry, limit=limit)
 
 
@@ -1548,6 +1550,8 @@ app.register_blueprint(
             validate_config_patch=_validate_config_patch,
             env_flag=_env_flag,
             load_config=load_config,
+            # These look up module globals at call time so tests can monkeypatch
+            # app_module attributes after blueprint creation.
             update_config=lambda patch: update_config(patch),
             valid_models=VALID_MODELS,
             valid_devices=VALID_DEVICES,
