@@ -241,6 +241,7 @@ def test_huggingface_endpoint_selector_falls_back_to_reachable_mirror(app_module
 
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
     monkeypatch.setattr(app_module.importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(app_module, "_reachable_hf_endpoint", None)
 
     endpoint = app_module._select_reachable_huggingface_endpoint()
 

@@ -25,6 +25,7 @@ from .dependency_environment import (
     dependency_status,
     ensure_dependency_path,
     install_lock_path,
+    invalidate_dependency_cache,
     task_state_path,
     top_level_snapshot,
 )
@@ -374,6 +375,7 @@ def _run_install_task(task_id: str, spec: DependencySpec) -> None:
                 _save_tasks_locked()
             except OSError as exc:
                 logger.warning("Failed to persist completed dependency task: %s", exc)
+        invalidate_dependency_cache()
 
 
 def start_install(dependency_id: str) -> DependencyTask:

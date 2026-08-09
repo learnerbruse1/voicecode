@@ -62,6 +62,7 @@ flowchart TD
   - Unix: `$XDG_CONFIG_HOME/voicecode/config.json` or `~/.config/voicecode/config.json`
 - Do not write config into the installed package directory.
 - Use `VOICECODE_CONFIG_FILE`, `VOICECODE_STATIC_DIR`, `VOICECODE_RUNTIME_DIR`, and `VOICECODE_MODEL_DIR` for test/release overrides.
+- Set `VOICECODE_SKIP_WARMUP` to skip the best-effort model warm-up after load.
 - Generated outputs under `dist/`, `build/`, `*.egg-info`, and cache directories must stay ignored.
 
 ## Thread Safety
@@ -70,6 +71,8 @@ flowchart TD
 | --- | --- |
 | Whisper model | `model_lock` (`threading.RLock`) |
 | Config file I/O | `_config_lock` |
+| Dependency status cache | `_dependency_cache_lock` |
+| Reachable HF endpoint cache | `_hf_endpoint_lock` |
 | Audio buffer + active flag | `Recorder._lock` (`threading.RLock`) |
 | Partial draft state | `_partial_lock` |
 | Model reload state | `_model_state_lock` |

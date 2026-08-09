@@ -263,7 +263,7 @@ def all_dependency_statuses() -> list[dict[str, object]]:
     with _dependency_cache_lock:
         cached = _dependency_status_cache
     if cached is not None:
-        return cached
+        return [dict(status) for status in cached]
     statuses = [dependency_status(spec) for spec in DEPENDENCIES]
     with _dependency_cache_lock:
         _dependency_status_cache = statuses

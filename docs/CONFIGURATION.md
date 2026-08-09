@@ -28,6 +28,7 @@ VoiceCode stores configuration in a user-writable path, never inside the install
 | `VOICECODE_DISABLE_API_TOKEN` | Disable mutating-request token checks for isolated tests only |
 | `VOICECODE_OFFLINE` | Load local cached models only |
 | `VOICECODE_SKIP_MODEL_LOAD` | Start UI/API without loading Whisper |
+| `VOICECODE_SKIP_WARMUP` | Skip the best-effort post-load model warm-up |
 | `WHISPER_MODEL` | Startup model |
 | `WHISPER_DEVICE` | `auto`, `cpu`, or `cuda` |
 | `WHISPER_COMPUTE_TYPE` | `auto`, `int8`, `float16`, `float32`, etc. |

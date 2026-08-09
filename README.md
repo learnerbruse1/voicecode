@@ -82,6 +82,7 @@ Environment overrides:
 | `VOICECODE_MODEL_DIR` | path | Model download/cache root for faster-whisper |
 | `VOICECODE_OFFLINE` | `1`, `true`, `yes`, `on` | Load cached models only |
 | `VOICECODE_SKIP_MODEL_LOAD` | `1`, `true`, `yes`, `on` | Start UI without loading Whisper |
+| `VOICECODE_SKIP_WARMUP` | `1`, `true`, `yes`, `on` | Skip the post-load model warm-up |
 
 Large models are more accurate but require more RAM/VRAM. Recommended defaults:
 
