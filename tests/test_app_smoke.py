@@ -1436,6 +1436,42 @@ def test_text_post_processing_modes(app_module):
     assert app_module._post_process_text("write better docs", "prompt") == "write better docs."
 
 
+def test_history_append_trims_file_to_limit(tmp_path):
+    from voicecode import history as history_store
+
+    history_file = tmp_path / "history.jsonl"
+    for index in range(1, 7):
+        history_store.append_history(
+            history_file, {"id": f"e{index}", "text": f"entry {index}"}, limit=3
+        )
+    entries = history_store.read_all_history(history_file)
+    assert [entry["id"] for entry in entries] == ["e4", "e5", "e6"]
+
+
+def test_history_append_without_limit_keeps_all(tmp_path):
+    from voicecode import history as history_store
+
+    history_file = tmp_path / "history.jsonl"
+    for index in range(1, 6):
+        history_store.append_history(history_file, {"id": f"e{index}", "text": f"entry {index}"})
+    assert len(history_store.read_all_history(history_file)) == 5
+
+
+def test_record_stop_history_respects_limit(client, app_module):
+    import numpy as np
+
+    client.post("/config", json={"history_limit": 2})
+    for _ in range(3):
+        response = client.post("/record/start", json={"language": "en"})
+        assert response.status_code == 200
+        app_module._recorder._cb(np.ones((1024, 1), dtype=np.float32), None, None, None)
+        response = client.post("/record/stop", json={"language": "en"})
+        assert response.status_code == 200
+        assert response.get_json()["text"] == "hello"
+    history = client.get("/history").get_json()
+    assert len(history["entries"]) == 2
+
+
 def test_history_and_diagnostics_endpoints(client):
     response = client.post("/record/start", json={"language": "auto"})
     assert response.status_code == 200

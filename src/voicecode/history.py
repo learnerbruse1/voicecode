@@ -37,14 +37,32 @@ def normalize_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def append_history(history_file: Path, entry: dict[str, Any]) -> None:
+def append_history(history_file: Path, entry: dict[str, Any], *, limit: int | None = None) -> None:
     with _history_lock:
         try:
             history_file.parent.mkdir(parents=True, exist_ok=True)
             with history_file.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(normalize_entry(entry), ensure_ascii=False) + "\n")
+            if limit is not None and limit > 0:
+                _trim_history(history_file, limit)
         except Exception as exc:
             logger.warning("Failed to append transcript history: %s", exc)
+
+
+def _trim_history(history_file: Path, limit: int) -> None:
+    """Rewrite the history file keeping only the most recent ``limit`` entries."""
+    with history_file.open("r", encoding="utf-8") as f:
+        lines = f.readlines()
+    if len(lines) <= limit:
+        return
+    kept = lines[-limit:]
+    tmp = history_file.with_name(f".{history_file.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as out:
+            out.writelines(kept)
+        tmp.replace(history_file)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def read_all_history(history_file: Path) -> list[dict[str, Any]]:

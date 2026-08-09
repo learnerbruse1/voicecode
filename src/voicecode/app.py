@@ -1022,7 +1022,8 @@ def _model_reload_done(future: Future, size: str) -> None:
 
 
 def _append_history(entry: dict[str, Any]) -> None:
-    history_store.append_history(_history_file(), entry)
+    limit = int(load_config().get("history_limit", 50))
+    history_store.append_history(_history_file(), entry, limit=limit)
 
 
 def _read_history(
