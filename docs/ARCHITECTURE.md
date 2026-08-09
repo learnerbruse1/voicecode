@@ -180,4 +180,4 @@ The desktop layer owns the tray, hotkey listener, native clipboard bridge, singl
 
 ## Partial transcription and backend caches
 
-While recording, a daemon worker periodically re-transcribes the buffered audio and exposes a panel-only `partial_text` draft through `/status` (polled by the UI); drafts are never delivered to the target application or stored in history. Dependency status and the reachable Hugging Face endpoint are cached in-process (`_dependency_cache_lock`, `_hf_endpoint_lock`) with invalidation on install/uninstall, and a best-effort model warm-up runs after load (disable with `VOICECODE_SKIP_WARMUP`).
+While recording, a daemon worker periodically re-transcribes the buffered audio and exposes a panel-only `partial_text` draft through `/status` (polled by the UI); drafts are never delivered to the target application or stored in history. Dependency status is cached in-process (`_dependency_cache_lock`) and invalidated on install/uninstall; the reachable Hugging Face endpoint is also cached in-process (`_hf_endpoint_lock`). A best-effort model warm-up runs after load (disable with `VOICECODE_SKIP_WARMUP`).

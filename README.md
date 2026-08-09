@@ -23,6 +23,8 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 - Clipboard typing delivery: transcribed text is pasted into the active application, with a simulated-keystroke fallback and a configurable delay.
 - Decode presets: choose Fast, Balanced, or High quality, or keep full control over beam size and previous-text conditioning.
 - Transcript history is automatically trimmed to the configured limit.
+- Adaptive status polling keeps local requests low when the app is idle.
+- In-process caches for dependency status and the reachable Hugging Face endpoint.
 - Cross-platform Python package layout for Windows, macOS, and Linux development.
 - Local-only Flask/Waitress API bound to `127.0.0.1`, protected by a per-process mutation token, loopback Host/Origin validation, CSP, and defensive browser headers.
 - Desktop UI via `pywebview`, global hotkey via `pynput`, and isolated runtime dependency installs into `VOICE_DEP`.
@@ -161,7 +163,7 @@ voicecode/
 |   |-- transcription_service.py   # Extension-aware preprocessing/finalization
 |   |-- recording_api.py           # Recording and direct transcription routes
 |   |-- management_api.py          # Onboarding, extensions, dependencies
-|   |-- config_api.py              # Health, status, config, client-log routes
+|   |-- config_api.py              # Health, status, config get/post/reset/schema, client-log routes
 |   |-- model_api.py               # Model list/cache/download/reload routes
 |   |-- history_api.py             # History query/export/mutation routes
 |   |-- system_api.py              # Hardware, audio test, diagnostics, stats

@@ -90,7 +90,7 @@ Each history entry stores a stable `id`, timestamp, transcription language, mode
 | `partial_results` | boolean | `true` | Show live partial-transcription previews while recording |
 | `partial_interval_ms` | integer 200–5000 | `600` | Minimum interval between partial re-transcriptions |
 | `typing_mode` | `clipboard`, `keystrokes` | `clipboard` | How transcribed text is delivered to the active application |
-| `typing_delay_ms` | integer 0–5000 | `150` | Delay before typed delivery |
+| `typing_delay_ms` | integer 0–5000 | `150` | Delay before clipboard or keystroke delivery |
 
 `decode_preset` is a derived layer: a named preset overrides individual decode settings, while `custom` honors `beam_size` and `condition_on_previous_text` as configured. Manually editing `beam_size` or `condition_on_previous_text` automatically switches `decode_preset` to `custom`.
 
