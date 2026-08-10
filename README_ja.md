@@ -110,7 +110,7 @@ dist/windows/installer/
 python -X utf8 packaging/windows/verify_windows_installer.py `
   --installer dist/windows/installer/VoiceCode-v0.3.1-Windows-x64-Setup.exe `
   --install-dir "$env:TEMP\VoiceCode-installer-smoke" `
-  --version 0.2.0 `
+  --version 0.3.1 `
   --skip-launch `
   --uninstall
 ```

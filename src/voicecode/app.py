@@ -731,6 +731,7 @@ def _warmup_model(model: Any) -> None:
             future.result(timeout=_TRANSCRIBE_WARMUP_TIMEOUT_SECONDS)
         except TimeoutError:
             executor.mark_stalled()
+            _mark_transcription_failure("timeout")
             logger.debug("Model warm-up skipped: timed out.")
     except Exception as exc:
         logger.debug("Model warm-up skipped: %s", exc)
@@ -1149,7 +1150,7 @@ def _fallback_to_cpu_model() -> Any:
     with model_lock:
         model = loaded_model
     _sync_model_runtime()
-    _set_model_state("ready", "GPU inference failed; VoiceCode fell back to CPU int8.")
+    _set_model_state("ready", "Whisper inference failed; VoiceCode reloaded the model on CPU int8.")
     return loaded_model
 
 
@@ -1175,7 +1176,7 @@ def _get_transcription_executor() -> TranscriptionExecutor:
         executor = _transcription_executor
         if executor is None or executor.stalled:
             if executor is not None:
-                executor.close(cancel_pending=True)
+                executor.close()
             executor = TranscriptionExecutor()
             _transcription_executor = executor
         return executor
@@ -1187,7 +1188,7 @@ def _close_transcription_executor() -> None:
         executor = _transcription_executor
         _transcription_executor = None
     if executor is not None:
-        executor.close(cancel_pending=True)
+        executor.close()
 
 
 def _mark_transcription_failure(reason: str) -> None:
@@ -1203,21 +1204,16 @@ def _consume_transcription_failure() -> str | None:
 
 
 def _recover_model_after_failure(reason: str) -> None:
-    """Reload a fresh model after a failed transcription.
+    """Reload a fresh model on CPU int8 after a failed transcription.
 
     A CTranslate2 model (or the process CUDA context) can be left in a broken
-    state by a failed inference call, and reusing it can hang forever.  GPU
-    failures always fall back to CPU int8 (matching the existing GPU fallback
-    semantics) so the next transcription is guaranteed to make progress.
+    state by a failed inference call, and reusing it can hang forever.  Recovery
+    always lands on CPU int8 and never re-resolves the configured device, so a
+    CUDA machine cannot oscillate back into a poisoned GPU model; the user can
+    switch back to GPU later through the model/hardware UI.
     """
-    if _device == "cuda":
-        logger.warning(
-            "Reloading Whisper model on CPU int8 after transcription failure (%s).", reason
-        )
-        _fallback_to_cpu_model()
-        return
-    logger.warning("Reloading Whisper model after transcription failure (%s).", reason)
-    _load_model_sync(MODEL_SIZE)
+    logger.warning("Reloading Whisper model on CPU int8 after transcription failure (%s).", reason)
+    _fallback_to_cpu_model()
 
 
 def _native_transcribe_job(
@@ -1236,16 +1232,17 @@ def _native_transcribe_job(
     try:
         segments, info = active_model.transcribe(prepared_audio, **kwargs)
         segment_list = list(segments)
-    except RuntimeError as exc:
-        if not _is_cuda_runtime_error(exc):
-            _mark_transcription_failure("error")
-            raise
-        logger.warning("GPU inference failed (%s). Falling back to CPU int8.", exc)
-        try:
-            active_model = _fallback_to_cpu_model()
-            segments, info = active_model.transcribe(prepared_audio, **kwargs)
-            segment_list = list(segments)
-        except RuntimeError:
+    except Exception as exc:
+        if isinstance(exc, RuntimeError) and _is_cuda_runtime_error(exc):
+            logger.warning("GPU inference failed (%s). Falling back to CPU int8.", exc)
+            try:
+                active_model = _fallback_to_cpu_model()
+                segments, info = active_model.transcribe(prepared_audio, **kwargs)
+                segment_list = list(segments)
+            except Exception:
+                _mark_transcription_failure("error")
+                raise
+        else:
             _mark_transcription_failure("error")
             raise
     text = " ".join(s.text for s in segment_list).strip()

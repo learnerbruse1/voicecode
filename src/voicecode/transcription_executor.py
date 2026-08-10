@@ -35,12 +35,12 @@ class TranscriptionExecutor:
     instance so a fresh executor (and model) is used for the next job.
     """
 
-    def __init__(self, *, thread_name: str = "voicecode-transcribe") -> None:
+    def __init__(self) -> None:
         self._queue: Queue[_Job | None] = Queue()
         self._lock = threading.Lock()
         self._stalled = False
         self._shutdown = False
-        self._worker = threading.Thread(target=self._run, daemon=True, name=thread_name)
+        self._worker = threading.Thread(target=self._run, daemon=True, name="voicecode-transcribe")
         self._worker.start()
 
     @property

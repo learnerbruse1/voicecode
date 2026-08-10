@@ -24,4 +24,8 @@ JSON example:
 
 `output_format` supports `json`, `txt`, `srt`, and `vtt` when exporters are enabled.
 
+## Transcription watchdog
+
+Transcriptions run on a single serial worker and are bounded by a 120-second watchdog (`VOICECODE_TRANSCRIBE_TIMEOUT`). If a native inference call hangs or fails, VoiceCode discards the model and reloads it on CPU int8, so the next request makes progress instead of freezing the app; GPU failures fall back to CPU automatically. `POST /record/stop` and `POST /transcribe` return `503` with a clear message when a timeout occurs.
+
 > v0.2.0 installed-artifact smoke revalidated this API area on July 24, 2026; contracts were unchanged. See [the final installer validation](../RELEASE_VALIDATION_0.2.0.md).

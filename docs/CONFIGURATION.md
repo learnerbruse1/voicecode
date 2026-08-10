@@ -17,7 +17,7 @@ VoiceCode stores configuration in a user-writable path, never inside the install
 | `VOICECODE_MODEL_DIR` | faster-whisper model download/cache root |
 | `VOICECODE_DEP_DIR` | Isolated optional dependency directory |
 | `PIP_CACHE_DIR` | pip download cache; packaged builds force this below `runtime/cache/pip` |
-| `HF_ENDPOINT` | Explicit Hugging Face endpoint; if unset, v0.2.0 probes the official endpoint and reachable mirror |
+| `HF_ENDPOINT` | Explicit Hugging Face endpoint; if unset, VoiceCode probes the official endpoint and reachable mirror |
 | `VOICECODE_HISTORY_FILE` | Override transcript history path |
 | `VOICECODE_LOG_FILE` | Override log file path |
 | `VOICECODE_LOG_LEVEL` | Python log level, for example `DEBUG` |

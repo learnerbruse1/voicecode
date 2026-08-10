@@ -3383,6 +3383,9 @@ def test_warmup_is_bounded_and_does_not_hold_model_lock(app_module, monkeypatch)
     # The model lock must be free once the bounded warm-up returns.
     with app_module.model_lock:
         pass
+    # A timed-out warm-up must mark the model as failed so the next
+    # transcription reloads a fresh model instead of reusing a hung one.
+    assert app_module._transcription_failure_reason == "timeout"
     release.set()
 
 
@@ -3395,6 +3398,42 @@ def test_status_polling_uses_bounded_fetch_helper():
     assert 'fetchJSONTimeout("/status"' in status_js
     assert 'fetchJSONTimeout("/stats"' in status_js
     assert 'fetchJSONTimeout("/status"' in recorder_js
+
+
+def test_recover_model_after_failure_is_sticky_cpu(app_module, monkeypatch):
+    calls = {"cpu": 0, "load": 0}
+
+    def fake_cpu():
+        calls["cpu"] += 1
+
+    def fake_load(size=None, **kwargs):
+        calls["load"] += 1
+
+    monkeypatch.setattr(app_module, "_fallback_to_cpu_model", fake_cpu)
+    monkeypatch.setattr(app_module, "_load_model_sync", fake_load)
+
+    app_module._device = "cuda"
+    app_module._recover_model_after_failure("timeout")
+    app_module._device = "cpu"
+    app_module._recover_model_after_failure("error")
+
+    # Recovery must always land on CPU int8 and never re-resolve the
+    # configured device (which could switch a CUDA machine back to a
+    # poisoned GPU model and re-trigger the freeze).
+    assert calls["cpu"] == 2
+    assert calls["load"] == 0
+
+
+def test_native_transcribe_job_marks_failure_on_non_runtime_error(app_module):
+    class BadModel:
+        def transcribe(self, audio, **kwargs):
+            raise ValueError("boom")
+
+    app_module.model = BadModel()
+    app_module._transcription_failure_reason = None
+    with pytest.raises(ValueError, match="boom"):
+        app_module._native_transcribe_job(np.zeros(16000, dtype=np.float32), {})
+    assert app_module._transcription_failure_reason == "error"
 
 
 def test_default_cpu_threads_guards_cpu_count_and_caps_override(app_module, monkeypatch):

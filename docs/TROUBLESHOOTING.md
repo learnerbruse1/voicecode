@@ -2,7 +2,7 @@
 
 ## The installed window shows "The requested URL was not found"
 
-Install or upgrade to VoiceCode v0.2.0 or later. Earlier desktop bundles could omit `voicecode/static`, causing `/` to return HTTP 404. A valid installation contains `<install-dir>\_internal\voicecode\static\index.html`. The v0.2.0 build now fails if this asset is missing.
+Install or upgrade to VoiceCode v0.3.1 or later. Earlier desktop bundles could omit `voicecode/static`, causing `/` to return HTTP 404. A valid installation contains `<install-dir>\_internal\voicecode\static\index.html`. The v0.2.0 build now fails if this asset is missing.
 
 ## Chinese or Japanese text displays as question marks
 
@@ -42,7 +42,18 @@ The current manual CUDA configuration does not meet the model's minimum VRAM req
 
 ## The UI is blocked by a progress overlay
 
-A long operation is running, usually model reload or transcription. Wait for it to finish. The close button hides the overlay, but the backend operation may still complete in the background.
+A long operation is running, usually model reload or transcription. Wait for it to finish. Closing the overlay aborts the in-flight request and resets the UI; the backend operation is bounded by the transcription watchdog (120 seconds) and cannot freeze the app permanently.
+
+## Recording freezes or the record button stays stuck after a GPU transcription
+
+Older builds could freeze after a failed or hung GPU inference because the poisoned model kept holding the transcription lock. Since v0.3.1 the app runs transcriptions on a serial worker with a watchdog timeout, never holds the model lock across a native inference call, and automatically discards the failed model and reloads it on CPU int8, so the next recording attempt recovers without a restart.
+
+If the UI is still unresponsive:
+
+1. Close the progress overlay (this aborts the in-flight request and resets the button).
+2. If that does not help, restart VoiceCode; the next launch loads a fresh model.
+3. Switch hardware to Auto and use a smaller model such as `base` or `small` to reduce GPU memory pressure.
+4. Check `%APPDATA%\VoiceCode\logs\voicecode.log` for `GPU inference failed` or `Transcription timed out` entries.
 
 ## The API returns a request ID
 
@@ -56,7 +67,7 @@ Open **Models** and check the cache directory shown at the top. Common causes:
 - offline mode is enabled and the model is not cached
 - the selected model is currently active, so its cache cannot be deleted
 - the cache directory is not writable
-- network access to the model host is blocked (v0.2.0 probes the official endpoint and falls back to `hf-mirror.com` when reachable)
+- network access to the model host is blocked (VoiceCode probes the official endpoint and falls back to `hf-mirror.com` when reachable)
 
 Try choosing a smaller model, switching hardware to Auto, confirming that `VOICECODE_MODEL_DIR` points to a writable folder, or deleting only non-active model caches.
 

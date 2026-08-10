@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Hardened GPU failure recovery after code review: model recovery always reloads on CPU int8 (sticky, so a CUDA machine cannot oscillate back into a poisoned GPU model), a timed-out model warm-up now marks the model as failed so the next transcription reloads instead of reusing a hung instance, and any native inference exception (not just `RuntimeError`) now triggers recovery.
+- Synced documentation: fixed stale `--version 0.2.0` in the localized README build commands, documented the transcription watchdog and the GPU-freeze recovery in Troubleshooting, and removed outdated version attributions.
+
 ## 0.3.1 - 2026-08-10
 
 - Fixed a hang that froze recording after a failed GPU transcription: transcriptions now run on a dedicated serial worker with a watchdog timeout, never hold the model lock across a native inference call, and automatically reload the model (with CPU int8 fallback) after an error or timeout, so the record button and HTTP API recover without restarting.
