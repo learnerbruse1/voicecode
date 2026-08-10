@@ -26,6 +26,9 @@ REQUIRED_FILES = (
     "_internal/voicecode/static/i18n/en.json",
     "_internal/voicecode/static/i18n/zh.json",
     "_internal/voicecode/static/i18n/ja.json",
+    "_internal/nvidia/bin/cublas64_12.dll",
+    "_internal/nvidia/bin/cublasLt64_12.dll",
+    "_internal/nvidia/bin/cudart64_12.dll",
     "runtime/python/python.exe",
 )
 

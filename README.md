@@ -51,7 +51,9 @@ VoiceCode **v0.3.1** adds a hardened transcription pipeline: failed or hung GPU 
 - Python 3.10+ (the Windows installer is built with CPython 3.12 x64)
 - A microphone supported by PortAudio / `sounddevice`
 - Network access for first model/dependency download unless models and runtime packages are already cached or installed
-- Optional NVIDIA GPU with a CUDA/CuDNN runtime compatible with CTranslate2
+- Optional NVIDIA GPU (GeForce RTX 20/30/40/50 series). The Windows installer bundles the
+  CUDA 12.4 runtime (cuBLAS + CUDA Runtime), so no separate CUDA installation is needed;
+  RTX 50 (Blackwell) automatically uses float16.
 
 ## Install from source
 
@@ -82,7 +84,7 @@ python -m voicecode
 
 ## CPU and NVIDIA GPU behavior
 
-By default, VoiceCode chooses `cuda/float16` when CTranslate2 can see a CUDA-capable NVIDIA GPU; otherwise it uses `cpu/int8`. If CUDA initialization or inference fails, VoiceCode falls back to `cpu/int8` and keeps the app usable.
+By default, VoiceCode chooses `cuda/float16` when CTranslate2 can see a CUDA-capable NVIDIA GPU; otherwise it uses `cpu/int8`. If CUDA initialization or inference fails, VoiceCode falls back to `cpu/int8` and keeps the app usable. On NVIDIA Blackwell (RTX 50 series), CTranslate2 cannot run int8 kernels, so VoiceCode automatically disables the int8 options and uses float16 instead.
 
 Environment overrides:
 

@@ -19,6 +19,7 @@ var modelDescriptionEl = $("model-description");
 var modelButtonListEl = $("model-button-list");
 var deviceSel = $("device");
 var computeTypeSel = $("compute-type");
+var computeTypeHintEl = $("compute-type-hint");
 var langSel = $("lang");
 var uiLangSel = $("uilang");
 var audioDeviceSel = $("audio-device");

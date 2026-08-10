@@ -124,6 +124,12 @@ def _nvml_gpu_info() -> dict[str, Any] | None:
         gpu_mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
         gpu_mem_used = round(gpu_mem_info.used / 1024**2)
         gpu_mem_total = round(gpu_mem_info.total / 1024**2)
+        try:
+            major, minor = pynvml.nvmlDeviceGetCudaComputeCapability(handle)
+            compute_capability = [int(major), int(minor)]
+        except Exception as exc:
+            logger.debug("Failed to query GPU compute capability: %s", exc)
+            compute_capability = None
         return {
             "index": 0,
             "util": gpu_util,
@@ -135,6 +141,7 @@ def _nvml_gpu_info() -> dict[str, Any] | None:
             "name": gpu_name,
             "driver": driver_version,
             "vendor": "NVIDIA",
+            "compute_capability": compute_capability,
             "source": "nvml",
         }
     except Exception as exc:

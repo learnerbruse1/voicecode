@@ -392,5 +392,8 @@
   "decode_fast": "高速",
   "decode_balanced": "バランス",
   "decode_high_quality": "高精度",
-  "decode_custom": "カスタム"
+  "decode_custom": "カスタム",
+  "gpu_cuda_unavailable_hint": "NVIDIA GPU を検出しましたが、CUDA ランタイムライブラリが利用できません。GPU 文字起こしは CPU にフォールバックする場合があります。VoiceCode を再インストールするか、Whisper 依存関係をインストールしてください。",
+  "gpu_blackwell_int8_hint": "この NVIDIA GPU（Blackwell アーキテクチャ）は int8 精度に対応していません。VoiceCode は自動的に float16 を使用します。",
+  "gpu_float16_recommended_hint": "GPU 文字起こしは速度と精度のバランスに優れた float16 を使用します。"
 }

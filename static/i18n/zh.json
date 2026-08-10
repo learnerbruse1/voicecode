@@ -392,5 +392,8 @@
   "decode_fast": "快速",
   "decode_balanced": "均衡",
   "decode_high_quality": "高准确",
-  "decode_custom": "自定义"
+  "decode_custom": "自定义",
+  "gpu_cuda_unavailable_hint": "检测到 NVIDIA 显卡，但 CUDA 运行库不可用。GPU 转写可能会回退到 CPU；请重新安装 VoiceCode 或安装 Whisper 依赖。",
+  "gpu_blackwell_int8_hint": "此 NVIDIA 显卡（Blackwell 架构）不支持 int8 精度；VoiceCode 将自动使用 float16。",
+  "gpu_float16_recommended_hint": "GPU 转写使用 float16，兼顾速度与准确率。"
 }

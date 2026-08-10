@@ -352,15 +352,38 @@ def _normalize_compute_type(value: Any) -> str:
     return settings_store.normalize_compute_type(value)
 
 
+def _gpu_compute_capability() -> tuple[int, int] | None:
+    """Return the primary NVIDIA GPU compute capability as (major, minor), if known."""
+    try:
+        pynvml = importlib.import_module("pynvml")
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        major, minor = pynvml.nvmlDeviceGetCudaComputeCapability(handle)
+        return int(major), int(minor)
+    except Exception as exc:
+        logger.debug("Failed to query GPU compute capability: %s", exc)
+        return None
+
+
+def _gpu_is_blackwell() -> bool:
+    """Blackwell (sm_120+) lacks working int8 kernels in CTranslate2 4.8.x."""
+    capability = _gpu_compute_capability()
+    return capability is not None and capability[0] >= 12
+
+
 def _supported_compute_types(device: str) -> set[str]:
     if device == "cpu":
         return {"auto", "int8", "float32"}
     try:
         runtime = _load_ctranslate2_runtime()
-        return {str(item) for item in runtime.get_supported_compute_types(device)}
+        supported = {str(item) for item in runtime.get_supported_compute_types(device)}
     except Exception as exc:
         logger.debug("Failed to query supported compute types for %s: %s", device, exc)
-        return {"auto", "float16", "int8_float16"}
+        supported = {"auto", "float16", "int8_float16"}
+    if device == "cuda" and _gpu_is_blackwell():
+        # CTranslate2 cannot run int8 quantized kernels on Blackwell GPUs.
+        supported -= {"int8", "int8_float16"}
+    return supported or {"auto", "float16"}
 
 
 def _auto_compute_type(device: str) -> str:
@@ -389,6 +412,16 @@ def _resolve_device_profile(
         actual_compute = _auto_compute_type(actual_device)
     else:
         actual_compute = requested_compute
+    if (
+        actual_device == "cuda"
+        and actual_compute in {"int8", "int8_float16"}
+        and _gpu_is_blackwell()
+    ):
+        logger.warning(
+            "Blackwell GPUs do not support %s precision in CTranslate2; using float16.",
+            actual_compute,
+        )
+        actual_compute = "float16"
     return actual_device, actual_compute, _default_cpu_threads()
 
 
@@ -1443,21 +1476,29 @@ def _model_compatibility() -> dict[str, dict[str, Any]]:
     configured_device = str(cfg.get("device", "auto"))
     total_vram_mb = _gpu_memory_total_mb()
     total_vram_gb = round(total_vram_mb / 1024, 1) if total_vram_mb is not None else None
+    gpu_detected = total_vram_mb is not None
+    cuda_runtime_available = _cuda_device_count() > 0
     compatibility: dict[str, dict[str, Any]] = {}
     for model_name, info in MODEL_INFO.items():
         min_vram_gb = _metadata_float(info, "vram_min_gb")
         recommended_vram_gb = _metadata_float(info, "vram_recommended_gb", min_vram_gb)
         cuda_selectable = True
-        reason = None
+        reasons: list[str] = []
         if (
             configured_device == "cuda"
             and total_vram_gb is not None
             and total_vram_gb < min_vram_gb
         ):
             cuda_selectable = False
-            reason = (
+            reasons.append(
                 f"Current NVIDIA GPU has {total_vram_gb:g}GB VRAM; "
                 f"{model_name} requires at least {min_vram_gb:g}GB."
+            )
+        if gpu_detected and not cuda_runtime_available:
+            reasons.append(
+                "An NVIDIA GPU was detected, but the CUDA runtime libraries could not be "
+                "loaded. GPU transcription may fall back to CPU until the CUDA libraries "
+                "are available."
             )
         compatibility[model_name] = {
             "configured_device": configured_device,
@@ -1465,7 +1506,7 @@ def _model_compatibility() -> dict[str, dict[str, Any]]:
             "vram_min_gb": min_vram_gb,
             "vram_recommended_gb": recommended_vram_gb,
             "selectable": cuda_selectable,
-            "reason": reason,
+            "reason": " ".join(reasons) or None,
         }
     return compatibility
 

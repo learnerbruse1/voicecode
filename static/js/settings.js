@@ -124,7 +124,38 @@ function renderDeviceMode() {
   updateAutoDeviceLabel();
 }
 
+async function updateComputeTypeHint() {
+  if (!computeTypeHintEl || !computeTypeSel) return;
+  computeTypeHintEl.textContent = "";
+  computeTypeHintEl.classList.remove("warning");
+  try {
+    const hardware = await fetch("/hardware").then(r => r.json());
+    const gpu = hardware.gpu || {};
+    const cap = gpu.compute_capability;
+    const blackwell = Array.isArray(cap) && Number(cap[0]) >= 12;
+    Array.from(computeTypeSel.options).forEach(opt => {
+      opt.disabled = Boolean(blackwell) && (opt.value === "int8" || opt.value === "int8_float16");
+    });
+    const messages = [];
+    if (gpu.name) {
+      if (!hardware.cuda_available) {
+        messages.push(t("gpu_cuda_unavailable_hint"));
+      } else {
+        messages.push(t("gpu_float16_recommended_hint"));
+      }
+    }
+    if (blackwell) messages.push(t("gpu_blackwell_int8_hint"));
+    if (messages.length) {
+      computeTypeHintEl.textContent = messages.join(" ");
+      computeTypeHintEl.classList.add("warning");
+    }
+  } catch (e) {
+    // Hints are best-effort; ignore hardware query failures.
+  }
+}
+
 async function updateAutoDeviceLabel() {
+  updateComputeTypeHint();
   if (!autoDeviceCurrent) return;
   try {
     const [models, hardware] = await Promise.all([

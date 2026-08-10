@@ -14,6 +14,7 @@ Requirements on the release machine:
 from __future__ import annotations
 
 import argparse
+import json
 import platform
 import re
 import shutil
@@ -53,6 +54,13 @@ CORE_PACKAGES = (
     "pystray",
     "PIL",
 )
+
+NVIDIA_RUNTIME_WHEELS = {
+    "nvidia-cublas-cu12": "12.4.5.8",
+    "nvidia-cuda-runtime-cu12": "12.4.127",
+}
+REQUIRED_NVIDIA_DLLS = ("cublas64_12.dll", "cublasLt64_12.dll", "cudart64_12.dll")
+NVIDIA_DLL_DIR = APP_DIR / "_internal" / "nvidia" / "bin"
 
 
 def version() -> str:
@@ -126,6 +134,54 @@ def download(
                 print(f"Download failed: {exc}. Retrying in {delay}s.")
                 time.sleep(delay)
     raise RuntimeError(f"Unable to download {url} after {attempts} attempts: {last_error}")
+
+
+def _pypi_wheel_url(package: str, version: str) -> str:
+    """Resolve the Windows x64 wheel URL for a pinned NVIDIA runtime package."""
+    metadata_url = f"https://pypi.org/pypi/{package}/{version}/json"
+    with urlopen(metadata_url, timeout=60) as response:
+        payload = json.load(response)
+    prefix = package.replace("-", "_") + "-"
+    for item in payload.get("urls", []):
+        filename = item.get("filename", "")
+        if filename.startswith(prefix) and filename.endswith("win_amd64.whl"):
+            return str(item["url"])
+    raise RuntimeError(f"No Windows x64 wheel found for {package}=={version}.")
+
+
+def bundle_nvidia_runtime() -> None:
+    """Bundle the CUDA libraries CTranslate2 loads at GPU inference time.
+
+    CTranslate2's Windows wheel delay-loads cuBLAS and the CUDA runtime
+    (cublas64_12.dll, cublasLt64_12.dll, cudart64_12.dll) only when GPU
+    inference starts. Those libraries are not part of the wheel, so without
+    them GPU mode fails on any machine without a system-wide CUDA install.
+    Bundle the matching CUDA 12.4 wheels so GPU dictation works out of the box.
+    """
+    NVIDIA_DLL_DIR.mkdir(parents=True, exist_ok=True)
+    wheel_dir = DOWNLOAD_CACHE_DIR / "nvidia"
+    wheel_dir.mkdir(parents=True, exist_ok=True)
+    for package, version in NVIDIA_RUNTIME_WHEELS.items():
+        wheel = wheel_dir / f"{package.replace('-', '_')}-{version}-py3-none-win_amd64.whl"
+        if not wheel.is_file():
+            download(_pypi_wheel_url(package, version), wheel)
+        if not zipfile.is_zipfile(wheel):
+            raise RuntimeError(f"NVIDIA runtime wheel is invalid: {wheel}")
+        with zipfile.ZipFile(wheel) as archive:
+            for member in archive.namelist():
+                name = Path(member).name
+                if name in REQUIRED_NVIDIA_DLLS:
+                    destination = NVIDIA_DLL_DIR / name
+                    if not destination.is_file():
+                        with archive.open(member) as source, destination.open("wb") as output:
+                            shutil.copyfileobj(source, output)
+    missing = [name for name in REQUIRED_NVIDIA_DLLS if not (NVIDIA_DLL_DIR / name).is_file()]
+    if missing:
+        raise RuntimeError("Bundled NVIDIA CUDA runtime is incomplete: " + ", ".join(missing))
+    total_mb = sum((NVIDIA_DLL_DIR / name).stat().st_size for name in REQUIRED_NVIDIA_DLLS) / (
+        1024 * 1024
+    )
+    print(f"Bundled NVIDIA CUDA runtime ({total_mb:.1f} MB): " + ", ".join(REQUIRED_NVIDIA_DLLS))
 
 
 def embedded_python_filename() -> str:
@@ -314,6 +370,7 @@ def main() -> int:
     require_modules(CORE_PACKAGES)
     archive, get_pip = ensure_embedded_python_assets()
     build_app()
+    bundle_nvidia_runtime()
     prepare_embedded_python(archive, get_pip)
     runtime = APP_DIR / "runtime"
     for directory in (runtime / "dependencies", runtime / "models", runtime / "cache"):
