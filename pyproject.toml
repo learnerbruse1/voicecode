@@ -38,7 +38,7 @@ dependencies = [
 
 [project.optional-dependencies]
 runtime = [
-  "faster-whisper>=1.1.1,<2",
+  "faster-whisper>=1.2.1,<2",
   "sounddevice>=0.5,<1",
   "nvidia-ml-py>=12.560.30",
   "pystray>=0.19.5",

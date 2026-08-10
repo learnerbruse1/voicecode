@@ -174,6 +174,18 @@ def test_reload_model_validates_input(client):
     assert response.get_json()["error"] == "Unsupported model: bad-model"
 
 
+def test_config_accepts_kotoba_model_id(client):
+    response = client.post("/config", json={"model": "kotoba-tech/kotoba-whisper-v2.0-faster"})
+    assert response.status_code == 200
+    assert response.get_json()["model"] == "kotoba-tech/kotoba-whisper-v2.0-faster"
+
+
+def test_config_accepts_distil_large_v3_5_model_id(client):
+    response = client.post("/config", json={"model": "distil-whisper/distil-large-v3.5-ct2"})
+    assert response.status_code == 200
+    assert response.get_json()["model"] == "distil-whisper/distil-large-v3.5-ct2"
+
+
 def test_models_endpoint_reports_cache_directory(client):
     response = client.get("/models")
 
@@ -942,6 +954,8 @@ def test_config_schema_exposes_typing_and_decode_fields(client):
     assert response.status_code == 200
     fields = response.get_json()["fields"]
     assert fields["typing_mode"]["choices"] == ["clipboard", "keystrokes"]
+    assert "kotoba-tech/kotoba-whisper-v2.0-faster" in fields["model"]["choices"]
+    assert "distil-whisper/distil-large-v3.5-ct2" in fields["model"]["choices"]
     assert fields["typing_delay_ms"] == {"type": "integer", "minimum": 0, "maximum": 5000}
     assert fields["condition_on_previous_text"]["type"] == "boolean"
 
@@ -1462,6 +1476,8 @@ def test_static_ui_exposes_three_language_controls():
     assert 'id="device-manual-options"' in html
     assert 'id="progress-overlay"' in html
     assert 'value="large-v3-turbo"' in html
+    assert 'value="kotoba-tech/kotoba-whisper-v2.0-faster"' in html
+    assert 'value="distil-whisper/distil-large-v3.5-ct2"' in html
     assert 'id="model-description"' in html
     assert 'id="model-button-list"' in html
     assert 'id="reset-defaults-btn"' in html
@@ -1489,6 +1505,36 @@ def test_models_endpoint_includes_latest_whisper_turbo_model(client):
     assert "large-v3-turbo" in models
     assert "Newest Whisper model" in models["large-v3-turbo"]["description"]
     assert body["compatibility"]["large-v3-turbo"]["vram_min_gb"] >= 1
+
+
+def test_models_endpoint_includes_kotoba_japanese_model(client):
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    models = body["models"]
+    kotoba = "kotoba-tech/kotoba-whisper-v2.0-faster"
+    assert kotoba in models
+    assert "Japanese" in models[kotoba]["description"]
+    assert models[kotoba]["label"] == "Kotoba Whisper v2.0"
+    assert models[kotoba]["hint_key"] == "model_hint_kotoba"
+    assert body["compatibility"][kotoba]["vram_min_gb"] >= 1
+    assert kotoba in body["cache"]
+
+
+def test_models_endpoint_includes_distil_large_v3_5_model(client):
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    models = body["models"]
+    distil = "distil-whisper/distil-large-v3.5-ct2"
+    assert distil in models
+    assert "distilled" in models[distil]["description"]
+    assert models[distil]["label"] == "Distil Whisper Large v3.5"
+    assert models[distil]["hint_key"] == "model_hint_distil_large_v3_5"
+    assert body["compatibility"][distil]["vram_min_gb"] >= 1
+    assert distil in body["cache"]
 
 
 def test_audio_devices_endpoint_lists_input_devices(client):
@@ -2221,6 +2267,8 @@ def test_i18n_catalogs_cover_supported_languages_and_layout_hooks():
     assert "ensureI18nCatalog" in loader
     english_keys = set(catalogs["en"])
     assert {"settings_language", "settings_language_hint", "onboarding_title"} <= english_keys
+    assert "model_hint_kotoba" in english_keys
+    assert "model_hint_distil_large_v3_5" in english_keys
     for language in ("zh", "ja"):
         assert english_keys <= set(catalogs[language])
         assert catalogs[language]["settings_language"] != catalogs["en"]["settings_language"]

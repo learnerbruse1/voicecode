@@ -15,7 +15,17 @@ logger = logging.getLogger("voicecode.settings")
 
 CONFIG_VERSION = 2
 
-VALID_MODELS = {"tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"}
+VALID_MODELS = {
+    "tiny",
+    "base",
+    "small",
+    "medium",
+    "large-v3",
+    "large-v3-turbo",
+    "distil-large-v3",
+    "kotoba-tech/kotoba-whisper-v2.0-faster",
+    "distil-whisper/distil-large-v3.5-ct2",
+}
 VALID_LANGUAGES = {"", "auto", "zh", "en", "ja", None}
 VALID_UI_LANGUAGES = {"en", "zh", "ja"}
 VALID_TEXT_MODES = {"plain", "coding", "markdown", "prompt"}
@@ -37,6 +47,7 @@ MODEL_INFO = {
         "vram_min_gb": 1,
         "vram_recommended_gb": 2,
         "recommendation": "Best for very old CPUs/GPUs and quick tests.",
+        "hint_key": "model_hint_tiny",
     },
     "base": {
         "size": "~150 MB",
@@ -44,6 +55,7 @@ MODEL_INFO = {
         "vram_min_gb": 1,
         "vram_recommended_gb": 2,
         "recommendation": "Good default for dictation on CPU or low VRAM GPUs.",
+        "hint_key": "model_hint_base",
     },
     "small": {
         "size": "~500 MB",
@@ -51,6 +63,7 @@ MODEL_INFO = {
         "vram_min_gb": 2,
         "vram_recommended_gb": 4,
         "recommendation": "Balanced option for most laptops and entry GPUs.",
+        "hint_key": "model_hint_small",
     },
     "medium": {
         "size": "~1.5 GB",
@@ -58,6 +71,7 @@ MODEL_INFO = {
         "vram_min_gb": 5,
         "vram_recommended_gb": 6,
         "recommendation": "Use with 6GB+ VRAM or strong CPUs.",
+        "hint_key": "model_hint_medium",
     },
     "large-v3": {
         "size": "~3 GB",
@@ -65,6 +79,7 @@ MODEL_INFO = {
         "vram_min_gb": 10,
         "vram_recommended_gb": 12,
         "recommendation": "Use on high VRAM GPUs when maximum accuracy matters.",
+        "hint_key": "model_hint_large_v3",
     },
     "large-v3-turbo": {
         "size": "~3 GB",
@@ -72,6 +87,7 @@ MODEL_INFO = {
         "vram_min_gb": 6,
         "vram_recommended_gb": 8,
         "recommendation": "Best speed/quality choice for 8GB+ NVIDIA GPUs.",
+        "hint_key": "model_hint_large_v3_turbo",
     },
     "distil-large-v3": {
         "size": "~1.5 GB",
@@ -79,6 +95,25 @@ MODEL_INFO = {
         "vram_min_gb": 6,
         "vram_recommended_gb": 8,
         "recommendation": "Fast large-style model for 8GB+ GPUs.",
+        "hint_key": "model_hint_distil_large_v3",
+    },
+    "kotoba-tech/kotoba-whisper-v2.0-faster": {
+        "label": "Kotoba Whisper v2.0",
+        "size": "~1.5 GB",
+        "description": "Japanese-optimized Whisper; more accurate than large-v3 on Japanese.",
+        "vram_min_gb": 6,
+        "vram_recommended_gb": 8,
+        "recommendation": "Best choice for Japanese dictation; select Japanese language for best results.",
+        "hint_key": "model_hint_kotoba",
+    },
+    "distil-whisper/distil-large-v3.5-ct2": {
+        "label": "Distil Whisper Large v3.5",
+        "size": "~1.5 GB",
+        "description": "Fast distilled large-v3.5; near large-v3 accuracy at ~6x speed.",
+        "vram_min_gb": 6,
+        "vram_recommended_gb": 8,
+        "recommendation": "Best speed/quality English dictation model for 6GB+ GPUs.",
+        "hint_key": "model_hint_distil_large_v3_5",
     },
 }
 DEFAULT_EXTENSIONS = default_extension_config()

@@ -69,7 +69,7 @@ Supported keys:
 | Key | Values |
 | --- | --- |
 | `hotkey` | object with `modifiers` (`alt`, `ctrl`, `shift`) and non-empty `key` |
-| `model` | `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, `distil-large-v3` |
+| `model` | `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, `distil-large-v3`, `distil-whisper/distil-large-v3.5-ct2`, `kotoba-tech/kotoba-whisper-v2.0-faster` |
 | `device` | `auto`, `cpu`, `cuda` |
 | `compute_type` | `auto`, `default`, `int8`, `int8_float16`, `int16`, `float16`, `float32` |
 | `beam_size` | integer from 1 to 10 |

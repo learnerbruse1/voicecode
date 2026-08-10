@@ -76,9 +76,11 @@ function renderModelButtons() {
     const active = name === modelSel.value;
     const itemCache = cache[name] || {};
     const actionLabel = itemCache.cached ? t("model_load") : t("model_download");
+    const label = info.label || name;
+    const hint = info.hint_key ? t(info.hint_key) : (info.recommendation || "");
     const latest = name === "large-v3-turbo" ? ` · ${t("latest_model")}` : "";
     const vram = `${t("vram_min")}: ${compat.vram_min_gb || info.vram_min_gb || "?"}GB / ${t("vram_rec")}: ${compat.vram_recommended_gb || info.vram_recommended_gb || "?"}GB`;
-    return `<button type="button" class="model-option-btn ${active ? "active" : ""} ${disabled ? "disabled" : ""}" data-model="${name}" data-disabled="${disabled}" data-reason="${(compat.reason || "").replace(/"/g, "&quot;")}"><strong>${name}${latest}</strong><small>${info.description || ""}</small><small>${vram}</small><em>${actionLabel}${itemCache.partial ? ` · ${t("model_cache_partial")}` : ""}</em></button>`;
+    return `<button type="button" class="model-option-btn ${active ? "active" : ""} ${disabled ? "disabled" : ""}" data-model="${htmlEscape(name)}" data-disabled="${disabled}" data-reason="${(compat.reason || "").replace(/"/g, "&quot;")}" title="${htmlEscape(hint)}"><strong>${htmlEscape(label)}${latest}</strong><small>${htmlEscape(info.description || "")}</small><small>${htmlEscape(vram)}</small>${hint ? `<small class="model-hint">${htmlEscape(hint)}</small>` : ""}<em>${actionLabel}${itemCache.partial ? ` · ${t("model_cache_partial")}` : ""}</em></button>`;
   }).join("");
   modelButtonListEl.querySelectorAll(".model-option-btn").forEach(btn => {
     btn.onclick = () => {
@@ -102,7 +104,8 @@ async function updateModelDescription(force = false) {
     const compat = (infoBundle.compatibility || {})[modelSel.value] || {};
     const latest = modelSel.value === "large-v3-turbo" ? ` <span class="model-latest">${t("latest_model")}</span>` : "";
     const vram = `${t("vram_min")}: ${compat.vram_min_gb || info.vram_min_gb || "?"}GB · ${t("vram_rec")}: ${compat.vram_recommended_gb || info.vram_recommended_gb || "?"}GB`;
-    modelDescriptionEl.innerHTML = `${info.size || ""} ${info.description || t("model_description_default")} ${vram}${latest}`;
+    const hint = info.hint_key ? t(info.hint_key) : (info.recommendation || "");
+    modelDescriptionEl.innerHTML = `${info.size || ""} ${info.description || t("model_description_default")} ${vram}${latest}${hint ? ` <span class="model-hint">${htmlEscape(hint)}</span>` : ""}`;
     renderModelButtons();
   } catch (e) {
     modelDescriptionEl.textContent = t("model_description_default");

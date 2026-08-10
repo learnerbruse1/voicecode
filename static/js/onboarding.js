@@ -8,6 +8,14 @@ function onboardingSelect(id, options, value) {
   return `<select id="${id}">${options.map(option => `<option value="${htmlEscape(option.value)}" ${option.value === value ? "selected" : ""}>${htmlEscape(t(option.label))}</option>`).join("")}</select>`;
 }
 
+let onboardingModelInfoCache = null;
+async function loadOnboardingModelInfo() {
+  if (onboardingModelInfoCache) return onboardingModelInfoCache;
+  const result = await requestJSON("GET", "/models", {}, {suppressPopup: true});
+  onboardingModelInfoCache = result.ok && result.models ? result.models : {};
+  return onboardingModelInfoCache;
+}
+
 function renderOnboarding() {
   const overlay = onboardingElement("onboarding-overlay");
   const body = onboardingElement("onboarding-body");
@@ -44,7 +52,20 @@ function renderOnboarding() {
     body.innerHTML = `<div class="setup-status ${audio.ready ? "ready" : "warning"}"><strong>${audio.ready ? t("onboarding_ready") : t("onboarding_not_ready")}</strong><span>${htmlEscape(audio.error || `${(audio.devices || []).length} device(s)`)}</span></div><label><span>${t("audio_device")}</span><select id="onboarding-audio-device">${options.map(option => `<option value="${htmlEscape(option.value)}" ${String(config.audio_device || "") === option.value ? "selected" : ""}>${htmlEscape(option.text || t(option.label))}</option>`).join("")}</select></label><button id="onboarding-mic-test" type="button">${t("mic_test_start")}</button><div class="mic-level"><div id="onboarding-mic-level"></div></div><p id="onboarding-mic-status" class="muted-text">${t("mic_test_idle")}</p>`;
     onboardingElement("onboarding-mic-test").onclick = testOnboardingMicrophone;
   } else if (step === "model") {
-    body.innerHTML = `<div class="onboarding-form-grid"><label><span>${t("model")}</span><select id="onboarding-model">${["tiny","base","small","medium","large-v3-turbo","large-v3","distil-large-v3"].map(model => `<option value="${model}" ${model === config.model ? "selected" : ""}>${model}</option>`).join("")}</select></label><label><span>${t("device")}</span><select id="onboarding-device"><option value="auto" ${config.device === "auto" ? "selected" : ""}>${t("device_auto")}</option><option value="cpu" ${config.device === "cpu" ? "selected" : ""}>CPU</option><option value="cuda" ${config.device === "cuda" ? "selected" : ""}>CUDA</option></select></label></div><p class="muted-text">${t("models_subtitle")}</p><p class="setup-recommendation">${t("onboarding_recommended_model")}: <strong>${htmlEscape((steps.model || {}).recommended_model || "base")}</strong></p>`;
+    const modelOptions = ["tiny","base","small","medium","large-v3-turbo","large-v3","distil-large-v3","distil-whisper/distil-large-v3.5-ct2","kotoba-tech/kotoba-whisper-v2.0-faster"];
+    const modelLabelKeys = {"tiny":"model_tiny","base":"model_base","small":"model_small","medium":"model_medium","large-v3-turbo":"model_large_v3_turbo","large-v3":"model_large_v3","distil-large-v3":"model_distil_large_v3","distil-whisper/distil-large-v3.5-ct2":"model_distil_whisper_large_v3_5","kotoba-tech/kotoba-whisper-v2.0-faster":"model_kotoba_whisper_v2_0"};
+    body.innerHTML = `<div class="onboarding-form-grid"><label><span>${t("model")}</span><select id="onboarding-model">${modelOptions.map(model => `<option value="${model}" ${model === config.model ? "selected" : ""}>${t(modelLabelKeys[model] || model)}</option>`).join("")}</select></label><label><span>${t("device")}</span><select id="onboarding-device"><option value="auto" ${config.device === "auto" ? "selected" : ""}>${t("device_auto")}</option><option value="cpu" ${config.device === "cpu" ? "selected" : ""}>CPU</option><option value="cuda" ${config.device === "cuda" ? "selected" : ""}>CUDA</option></select></label></div><p class="muted-text">${t("models_subtitle")}</p><p class="setup-recommendation">${t("onboarding_recommended_model")}: <strong>${htmlEscape((steps.model || {}).recommended_model || "base")}</strong></p><p id="onboarding-model-hint" class="model-hint muted-text"></p>`;
+    const onboardingModelSelect = onboardingElement("onboarding-model");
+    const onboardingModelHint = onboardingElement("onboarding-model-hint");
+    const updateOnboardingModelHint = async () => {
+      if (!onboardingModelSelect || !onboardingModelHint) return;
+      const models = await loadOnboardingModelInfo();
+      const info = models[onboardingModelSelect.value] || {};
+      const hint = info.hint_key ? t(info.hint_key) : (info.recommendation || "");
+      onboardingModelHint.textContent = hint || "";
+    };
+    onboardingModelSelect.onchange = updateOnboardingModelHint;
+    updateOnboardingModelHint();
   } else {
     const runtimeReady = Boolean(steps.runtime && steps.runtime.ready);
     const audioReady = Boolean(steps.audio && steps.audio.ready);

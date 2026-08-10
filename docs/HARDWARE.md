@@ -29,6 +29,8 @@ When `device=cuda`, VoiceCode validates VRAM before loading the selected model. 
 | `large-v3` | 10GB | 12GB | Maximum multilingual accuracy |
 | `large-v3-turbo` | 6GB | 8GB | Latest speed/quality option |
 | `distil-large-v3` | 6GB | 8GB | Fast large-style model |
+| `distil-whisper/distil-large-v3.5-ct2` | 6GB | 8GB | Fast distilled large-v3.5; near large-v3 accuracy |
+| `kotoba-tech/kotoba-whisper-v2.0-faster` | 6GB | 8GB | Japanese-optimized; beats large-v3 on Japanese |
 
 ## Diagnostics
 

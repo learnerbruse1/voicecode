@@ -55,6 +55,8 @@ Model cache root resolution:
 
 Deletion only removes matching model cache entries inside the managed cache root and is refused for the active model.
 
+Besides the official Whisper sizes, VoiceCode also supports community CTranslate2 Whisper models by using the full Hugging Face repo id as the model id, for example `kotoba-tech/kotoba-whisper-v2.0-faster` (Japanese-optimized). Model selection buttons and the Models page show localized hints and hardware guidance for every model.
+
 ## Language and localization
 
 VoiceCode separates two language settings:

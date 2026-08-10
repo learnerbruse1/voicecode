@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Upgraded faster-whisper to 1.2.x (Silero VAD v6) and added the Japanese-optimized `kotoba-tech/kotoba-whisper-v2.0-faster` and fast `distil-whisper/distil-large-v3.5-ct2` models to the supported whitelist, with hardware guidance and localized hints on model-selection buttons and the Models page.
 - Fixed the second CI pass by pinning mypy 1.18.2 and avoiding audio-device requests when onboarding reports the audio runtime unavailable.
 - Fixed GitHub Actions after Ruff 0.16 changed its default lint selection by making the project rule set explicit and bounding the development dependency.
 - Fixed UI E2E failures by moving theme bootstrap code into a CSP-compatible external script and avoiding disabled model reloads in skip-model test mode.

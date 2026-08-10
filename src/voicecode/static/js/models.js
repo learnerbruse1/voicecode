@@ -31,16 +31,19 @@ function renderManagedModels(data) {
     const isConfigured = name === configured;
     const vram = `${t("vram_min")}: ${compat.vram_min_gb || info.vram_min_gb || "?"}GB / ${t("vram_rec")}: ${compat.vram_recommended_gb || info.vram_recommended_gb || "?"}GB`;
     const reason = compat.reason ? `<small class="model-warning">${htmlEscape(compat.reason)}</small>` : "";
+    const label = info.label || name;
+    const hint = info.hint_key ? t(info.hint_key) : (info.recommendation || "");
     const status = itemCache.partial ? "partial" : itemCache.cached ? "cached" : "missing";
     const active = isCurrent && loaded ? `<span class="model-badge active">${t("model_active")}</span>` : "";
     const selected = isConfigured && !(isCurrent && loaded) ? `<span class="model-badge">${t("model_selected")}</span>` : "";
     return `<article class="managed-model-card ${status}" data-model="${htmlEscape(name)}">
       <div class="managed-model-main">
         <div>
-          <h4>${htmlEscape(name)} ${active}${selected}</h4>
+          <h4>${htmlEscape(label)} ${active}${selected}</h4>
           <p>${htmlEscape(info.description || t("model_description_default"))}</p>
           <small>${htmlEscape(info.size || "")} · ${htmlEscape(vram)}</small>
           <small>${htmlEscape(modelCacheSummary(itemCache))}</small>
+          ${hint ? `<small class="model-hint">${htmlEscape(hint)}</small>` : ""}
           ${reason}
         </div>
         <div class="managed-model-actions">

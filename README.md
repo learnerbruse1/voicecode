@@ -17,6 +17,7 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 - English, Chinese, and Japanese UI languages loaded from external JSON catalogs.
 - Operable extension cards with enable/disable controls, validated configuration, and one-click dependency installation.
 - Model cache management page for downloading/loading models and deleting non-active local caches, with byte/speed/elapsed/stall progress and detailed retry guidance for network failures.
+- Japanese-optimized Kotoba Whisper v2.0 and fast Distil Whisper Large v3.5 model support, plus localized hints on every model-selection button.
 - Searchable transcript history with language filters, single-entry deletion, and JSON/TXT/Markdown export.
 - Configurable inference device (`auto`, `cpu`, `cuda`) and compute type (`auto`, `int8`, `float16`, `float32`, `int8_float16`).
 - Live partial preview: the transcript panel shows a provisional draft while recording and finalizes when you stop.
@@ -81,7 +82,7 @@ Environment overrides:
 
 | Variable | Values | Purpose |
 | --- | --- | --- |
-| `WHISPER_MODEL` | `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, `distil-large-v3` | Startup model |
+| `WHISPER_MODEL` | `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, `distil-large-v3`, `distil-whisper/distil-large-v3.5-ct2`, `kotoba-tech/kotoba-whisper-v2.0-faster` | Startup model |
 | `WHISPER_DEVICE` | `auto`, `cpu`, `cuda` | Preferred inference device |
 | `WHISPER_COMPUTE_TYPE` | `auto`, `int8`, `float16`, `float32`, `int8_float16` | Preferred compute type |
 | `WHISPER_CPU_THREADS` | positive integer | CPU worker threads |
@@ -93,7 +94,7 @@ Environment overrides:
 Large models are more accurate but require more RAM/VRAM. Recommended defaults:
 
 - CPU-only: `base` or `small`, `device=cpu`, `compute_type=int8`.
-- NVIDIA GPU: `small`, `medium`, `large-v3`, or `distil-large-v3`, `device=auto`, `compute_type=auto`.
+- NVIDIA GPU: `small`, `medium`, `large-v3`, `large-v3-turbo`, `distil-large-v3`, `distil-whisper/distil-large-v3.5-ct2`, or `kotoba-tech/kotoba-whisper-v2.0-faster`, `device=auto`, `compute_type=auto`.
 
 ## Run checks
 
@@ -193,3 +194,5 @@ MIT. See [LICENSE](LICENSE).
 VoiceCode now validates model caches before offering **Load**, loads verified snapshots directly from disk, distinguishes partial downloads, supports reliable error-detail copying, and recovers stale windowless instances that keep the local port occupied. The top bar shows compact CPU/GPU/memory summaries; detailed hardware information is available in Settings. Minesweeper includes Beginner, Intermediate, and Expert modes. All new UI text is maintained in English, Simplified Chinese, and Japanese.
 
 The current dev cycle added live partial-transcription previews while recording, clipboard-based typing delivery with a simulated-keystroke fallback, decode presets (fast / balanced / high quality / custom), automatic history trimming, adaptive status polling, and in-process caching for dependency status and the Hugging Face endpoint, plus a best-effort model warm-up after load (disable with `VOICECODE_SKIP_WARMUP`).
+
+The latest update upgrades faster-whisper to 1.2.x (Silero VAD v6), adds the Japanese-optimized Kotoba Whisper v2.0 and fast Distil Whisper Large v3.5 models, and shows localized hints on model-selection buttons.

@@ -12,6 +12,8 @@ Only for the first download of a selected Whisper model. After the model is cach
 - `medium`: higher accuracy; GPU recommended for interactive use.
 - `large-v3`: best multilingual accuracy; GPU strongly recommended.
 - `distil-large-v3`: faster distilled large model; GPU recommended.
+- `distil-whisper/distil-large-v3.5-ct2`: fast distilled large-v3.5; near-`large-v3` accuracy at about 6x speed; strong for English; GPU recommended.
+- `kotoba-tech/kotoba-whisper-v2.0-faster`: Japanese-optimized Whisper; more accurate than `large-v3` on Japanese at about half the size; GPU recommended.
 
 ## How does GPU support work?
 

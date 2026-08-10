@@ -499,6 +499,8 @@ def _estimated_model_bytes(model_name: str) -> int:
         "large-v3": 3000,
         "large-v3-turbo": 3000,
         "distil-large-v3": 1500,
+        "kotoba-tech/kotoba-whisper-v2.0-faster": 1500,
+        "distil-whisper/distil-large-v3.5-ct2": 1500,
     }
     return estimates.get(model_name, 500) * 1024 * 1024
 
@@ -571,6 +573,8 @@ def _minimum_model_bytes(model_name: str) -> int:
         "large-v3": 2200,
         "large-v3-turbo": 1200,
         "distil-large-v3": 900,
+        "kotoba-tech/kotoba-whisper-v2.0-faster": 1000,
+        "distil-whisper/distil-large-v3.5-ct2": 1000,
     }
     return minimum_mb.get(model_name, 40) * 1024 * 1024
 
