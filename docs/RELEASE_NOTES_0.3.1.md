@@ -10,11 +10,11 @@ VoiceCode v0.3.1 是修复版：解决 GPU 转写失败后录音卡死的问题�
 
 `VoiceCode-v0.3.1-Windows-x64-Setup.exe`
 
-- 文件大小：`125,338,286` 字节
+- 文件大小：`125,338,121` 字节
 - SHA-256：
 
 ```text
-F5C24EBE2D3B6A3A23E7776B17FE0774FB3C0AB22A49E0ED3B44F75396DC71FA
+EC5878FDDFDA2970459FB184BD57788CEB00A0C3305AAFC3E024EB7E7CD570AA
 ```
 
 > **重要提示：** 当前构建尚未进行 Authenticode 代码签名，Windows 可能显示 SmartScreen 或“未知发布者”提示。正式发布前签名后，文件大小和 SHA-256 会变化，请重新生成校验值。
@@ -27,6 +27,7 @@ F5C24EBE2D3B6A3A23E7776B17FE0774FB3C0AB22A49E0ED3B44F75396DC71FA
 - 前端状态/统计/实时草稿轮询增加超时保护。
 - CPU 线程默认值加固（`WHISPER_CPU_THREADS` 封顶到逻辑核心数）；首启推荐模型按显存动态选择（低显存 GPU 推荐 `base`）。
 - 本版包含 v0.3.0 的全部新功能：faster-whisper 1.2.x、日语特化 Kotoba Whisper v2.0、Distil Whisper Large v3.5、模型选择按钮三语提示。
+- 代码审查后加固：模型恢复始终回退 CPU int8（粘滞，避免 CUDA 机器振荡回坏模型）；预热超时即标记坏模型，下次转写先重载；任意原生推理异常（不只 RuntimeError）都会触发恢复。
 
 ## 验证
 

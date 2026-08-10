@@ -10,11 +10,11 @@ VoiceCode v0.3.1 is a fix release: it resolves the recording freeze that could o
 
 `VoiceCode-v0.3.1-Windows-x64-Setup.exe`
 
-- File size: `125,338,286` bytes
+- File size: `125,338,121` bytes
 - SHA-256:
 
 ```text
-F5C24EBE2D3B6A3A23E7776B17FE0774FB3C0AB22A49E0ED3B44F75396DC71FA
+EC5878FDDFDA2970459FB184BD57788CEB00A0C3305AAFC3E024EB7E7CD570AA
 ```
 
 > **Important:** This build is not Authenticode code-signed yet, so Windows may show a SmartScreen or "Unknown publisher" prompt. If the installer is signed before release, the file size and SHA-256 will change; regenerate and replace the checksum above.
@@ -27,6 +27,7 @@ F5C24EBE2D3B6A3A23E7776B17FE0774FB3C0AB22A49E0ED3B44F75396DC71FA
 - Frontend status, stats, and partial-draft polling now use bounded request timeouts.
 - CPU thread defaults are hardened (`WHISPER_CPU_THREADS` is capped to logical cores) and the first-run model recommendation is VRAM-aware (low-VRAM GPUs are recommended `base`).
 - Includes all v0.3.0 features: faster-whisper 1.2.x, Japanese-optimized Kotoba Whisper v2.0, Distil Whisper Large v3.5, and localized hints on model-selection buttons.
+- Post-review hardening: model recovery always reloads on CPU int8 (sticky, so a CUDA machine cannot oscillate back into a poisoned GPU model), a timed-out warm-up marks the model as failed so the next transcription reloads first, and any native inference exception (not just `RuntimeError`) now triggers recovery.
 
 ## Validation
 
