@@ -8,6 +8,10 @@
 
 VoiceCode is a local-first desktop speech-to-text app for coding, writing, and prompt drafting. It records microphone audio, transcribes it with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) / CTranslate2, and can type the result into the active application with a push-to-talk hotkey.
 
+## User guide
+
+A detailed walkthrough of every feature and what each setting does is available in the [User Guide](docs/GUIDE.md) (English), [使用指南](docs/GUIDE_zh.md) (简体中文), and [ユーザーガイド](docs/GUIDE_ja.md) (日本語).
+
 ## Highlights
 
 - Local transcription powered by Whisper-compatible `faster-whisper` models.

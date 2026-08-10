@@ -8,6 +8,10 @@
 
 VoiceCode 是一款本地优先的桌面语音转文字工具，适合编程、写作和提示词输入。它使用 faster-whisper / CTranslate2 在本机完成转写，并可通过全局按住说话快捷键把结果输入到当前应用。
 
+## 使用指南
+
+每个功能与设置的详细说明，请参阅[使用指南](docs/GUIDE_zh.md)（简体中文）、[User Guide](docs/GUIDE.md)（English）和[ユーザーガイド](docs/GUIDE_ja.md)（日本語）。
+
 ## 主要功能
 
 - Windows 桌面界面，支持英语、简体中文和日语实时切换。
