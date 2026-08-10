@@ -2,9 +2,8 @@ var partialPollTimer = null;
 async function pollPartial() {
   if (!recording) return;
   try {
-    const resp = await fetch("/status");
-    const data = await resp.json();
-    partialDraft = data.partial_text || "";
+    const {data} = await fetchJSONTimeout("/status", 2000);
+    partialDraft = (data && data.partial_text) || "";
     renderDraft();
   } catch (e) { /* transient status failures are ignored */ }
   // 700 ms draft poll interval while recording

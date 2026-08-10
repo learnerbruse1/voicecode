@@ -4,7 +4,7 @@
 
 [English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
 
-**現在のバージョン：v0.2.0**
+**現在のバージョン：v0.3.1**
 
 VoiceCode は、プログラミング、文章作成、プロンプト入力向けのローカル優先デスクトップ音声入力アプリです。faster-whisper / CTranslate2 を使用して端末内で文字起こしを行い、グローバルなプッシュトゥトーク・ホットキーで現在のアプリへ入力できます。
 
@@ -29,7 +29,7 @@ VoiceCode は、プログラミング、文章作成、プロンプト入力向�
 一般ユーザーには次のインストーラーを推奨します。
 
 ```text
-VoiceCode-v0.2.0-Windows-x64-Setup.exe
+VoiceCode-v0.3.1-Windows-x64-Setup.exe
 ```
 
 セットアップ画面でインストール先を選択できます。既定値は次のとおりです。
@@ -108,7 +108,7 @@ dist/windows/installer/
 
 ```powershell
 python -X utf8 packaging/windows/verify_windows_installer.py `
-  --installer dist/windows/installer/VoiceCode-v0.2.0-Windows-x64-Setup.exe `
+  --installer dist/windows/installer/VoiceCode-v0.3.1-Windows-x64-Setup.exe `
   --install-dir "$env:TEMP\VoiceCode-installer-smoke" `
   --version 0.2.0 `
   --skip-launch `

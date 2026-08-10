@@ -70,6 +70,7 @@ flowchart TD
 | Resource | Guard |
 | --- | --- |
 | Whisper model | `model_lock` (`threading.RLock`) |
+| Native transcription calls | single `voicecode-transcribe` worker; `model_lock` held only for short model reads, never across inference |
 | Config file I/O | `_config_lock` |
 | Dependency status cache | `_dependency_cache_lock` |
 | Reachable HF endpoint cache | `_hf_endpoint_lock` |

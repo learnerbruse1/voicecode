@@ -2,7 +2,7 @@
 
 ![VoiceCode icon](assets/voicecode-icon.png)
 
-**Current release: v0.2.0**
+**Current release: v0.3.1**
 
 [English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
 
@@ -36,9 +36,11 @@ VoiceCode is a local-first desktop speech-to-text app for coding, writing, and p
 
 ## Windows installer
 
-For normal Windows use, install `VoiceCode-v0.2.0-Windows-x64-Setup.exe`. The setup wizard lets you choose the destination directory. Core dependencies and an embedded Python/pip runtime are included; future optional packages, models, and download caches stay under `<install-dir>\runtime`. The packaged UI includes the Minesweeper-only game panel and its `games.js` asset.
+For normal Windows use, install `VoiceCode-v0.3.1-Windows-x64-Setup.exe`. The setup wizard lets you choose the destination directory. Core dependencies and an embedded Python/pip runtime are included; future optional packages, models, and download caches stay under `<install-dir>\runtime`. The packaged UI includes the Minesweeper-only game panel and its `games.js` asset.
 
 The installer build configuration is maintained in `packaging/windows/`. Generated installers remain ignored under `dist/windows/` and are release artifacts rather than source files. The v0.2.0 functional installer pass completed on **July 24, 2026**, and the Minesweeper-only payload was rebuilt and revalidated on **July 25, 2026**, covering custom-path installation, multilingual assets, embedded pip, removal of card-game content, and uninstall. The earlier full pass also covered repair, single-instance behavior, cached-model reuse, transcription, and reinstall. See the [final validation record](docs/RELEASE_VALIDATION_0.2.0.md). The locally validated artifact was not signed; a timestamped Authenticode signature and post-signing smoke test remain release gates.
+
+VoiceCode **v0.3.1** adds a hardened transcription pipeline: failed or hung GPU transcriptions now recover automatically (CPU int8 fallback plus a watchdog timeout) instead of freezing recording, the model warm-up is bounded, and CPU/VRAM-aware defaults keep dictation smooth on low-end and CPU-only machines. It also keeps the v0.3.0 improvements (faster-whisper 1.2.x, Kotoba Whisper v2.0 and Distil Whisper Large v3.5 models, localized model-selection hints). See [RELEASE_NOTES_0.3.1.md](docs/RELEASE_NOTES_0.3.1.md).
 
 ## Source requirements
 
@@ -90,6 +92,7 @@ Environment overrides:
 | `VOICECODE_OFFLINE` | `1`, `true`, `yes`, `on` | Load cached models only |
 | `VOICECODE_SKIP_MODEL_LOAD` | `1`, `true`, `yes`, `on` | Start UI without loading Whisper |
 | `VOICECODE_SKIP_WARMUP` | `1`, `true`, `yes`, `on` | Skip the post-load model warm-up |
+| `VOICECODE_TRANSCRIBE_TIMEOUT` | positive integer | Transcription watchdog timeout in seconds (default 120) |
 
 Large models are more accurate but require more RAM/VRAM. Recommended defaults:
 

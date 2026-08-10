@@ -29,6 +29,7 @@ VoiceCode stores configuration in a user-writable path, never inside the install
 | `VOICECODE_OFFLINE` | Load local cached models only |
 | `VOICECODE_SKIP_MODEL_LOAD` | Start UI/API without loading Whisper |
 | `VOICECODE_SKIP_WARMUP` | Skip the best-effort post-load model warm-up |
+| `VOICECODE_TRANSCRIBE_TIMEOUT` | Transcription watchdog timeout in seconds (default 120) |
 | `WHISPER_MODEL` | Startup model |
 | `WHISPER_DEVICE` | `auto`, `cpu`, or `cuda` |
 | `WHISPER_COMPUTE_TYPE` | `auto`, `int8`, `float16`, `float32`, etc. |

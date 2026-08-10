@@ -1,8 +1,10 @@
-# Windows Installer Build (v0.2.0)
+# Windows Installer Build (v0.3.1)
 
 VoiceCode ships a standard Windows x64 installer built from a PyInstaller **one-folder** bundle and wrapped by Inno Setup. The setup wizard always displays the destination page; the default is `%LOCALAPPDATA%\Programs\VoiceCode`, which is writable without administrator rights.
 
 The v0.2.0 functional installer pass completed on **July 24, 2026**, and the Minesweeper-only payload was rebuilt and revalidated on **July 25, 2026**. See [RELEASE_VALIDATION_0.2.0.md](RELEASE_VALIDATION_0.2.0.md) for the tested artifact, environment, checks, and remaining signing gate.
+
+The **v0.3.1** build (August 10, 2026) passed the automated verifier (12 required files, embedded pip 26.2.1, 394 entries per catalog, Minesweeper-only payload, silent uninstall) plus a manual smoke (launch, `/health` PID, version meta 0.3.1, all 9 models in `/models`, tiny model CPU int8 `ready`, transcription HTTP 200). It remains unsigned; see [RELEASE_NOTES_0.3.1.md](RELEASE_NOTES_0.3.1.md).
 
 ## Installed layout
 
@@ -50,9 +52,9 @@ Run on a disposable Windows machine or clean CI runner:
 
 ```powershell
 python -X utf8 packaging/windows/verify_windows_installer.py `
-  --installer dist/windows/installer/VoiceCode-v0.2.0-Windows-x64-Setup.exe `
+  --installer dist/windows/installer/VoiceCode-v0.3.1-Windows-x64-Setup.exe `
   --install-dir "$env:TEMP\VoiceCode-installer-smoke" `
-  --version 0.2.0 `
+  --version 0.3.1 `
   --skip-launch `
   --uninstall `
   --report dist/windows/installer/verification.json

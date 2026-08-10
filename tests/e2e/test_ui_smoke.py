@@ -33,7 +33,7 @@ def _start_server(tmp_path, *, complete_onboarding: bool = False) -> tuple[int, 
                     "config_version": 2,
                     "onboarding": {
                         "completed": True,
-                        "completed_version": "0.2.0",
+                        "completed_version": "0.3.1",
                         "skipped": False,
                     },
                     "ui_language": "en",

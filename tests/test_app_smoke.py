@@ -89,6 +89,7 @@ def app_module(monkeypatch):
     module._recorder.stop_and_get()
     yield module
     module._stop_partial_worker()
+    module._close_transcription_executor()
     module._recorder.stop_and_get()
     sys.modules.pop("app", None)
 
@@ -568,7 +569,7 @@ def test_package_launcher_and_static_asset_are_importable():
     import voicecode
     import voicecode.__main__ as launcher
 
-    assert voicecode.__version__ == "0.2.0"
+    assert voicecode.__version__ == "0.3.1"
     assert callable(launcher.main)
     static_root = resources.files("voicecode").joinpath("static")
     assert static_root.joinpath("index.html").is_file()
@@ -2281,7 +2282,7 @@ def test_i18n_catalogs_cover_supported_languages_and_layout_hooks():
     for readme_name in ("README_zh.md", "README_ja.md"):
         readme = (repo_root / readme_name).read_text(encoding="utf-8")
         assert "??" not in readme
-        assert "v0.2.0" in readme
+        assert "v0.3.1" in readme
 
     css = (repo_root / "static" / "css" / "app.css").read_text(encoding="utf-8")
     assert 'html[data-ui-language="en"] .form-grid' in css
@@ -3273,3 +3274,157 @@ def test_dependency_process_termination_falls_back_to_kill(monkeypatch):
     installer._terminate_process(FakeProcess())
 
     assert calls == ["terminate", "kill"]
+
+
+def test_transcription_executor_runs_job_and_propagates_errors():
+    from voicecode.transcription_executor import TranscriptionExecutor
+
+    executor = TranscriptionExecutor()
+    try:
+        future = executor.submit(lambda: 42)
+        assert future.result(timeout=5) == 42
+
+        def boom():
+            raise ValueError("boom")
+
+        failed = executor.submit(boom)
+        with pytest.raises(ValueError, match="boom"):
+            failed.result(timeout=5)
+    finally:
+        executor.close()
+
+
+def test_transcription_executor_stall_is_detected_and_discarded():
+    from voicecode.transcription_executor import TranscriptionExecutor
+
+    executor = TranscriptionExecutor()
+    try:
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow():
+            started.set()
+            release.wait(5)
+            return "late"
+
+        future = executor.submit(slow)
+        assert started.wait(2)
+        with pytest.raises(TimeoutError):
+            future.result(timeout=0.2)
+        executor.mark_stalled()
+        assert executor.stalled is True
+        rejected = executor.submit(lambda: 1)
+        with pytest.raises(RuntimeError, match="unavailable"):
+            rejected.result(timeout=1)
+    finally:
+        release.set()
+        executor.close()
+
+
+def test_transcribe_audio_times_out_and_marks_recovery(app_module, monkeypatch):
+    class BlockingWhisperModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, audio, **kwargs):
+            time.sleep(30)
+            return [], type("Info", (), {"language": "en"})()
+
+    app_module.model = BlockingWhisperModel()
+    monkeypatch.setattr(app_module, "_transcribe_timeout_seconds", lambda: 1)
+    monkeypatch.setattr(app_module, "_recover_model_after_failure", lambda reason: None)
+    with pytest.raises(RuntimeError, match="timed out"):
+        app_module._transcribe_audio(np.zeros(16000, dtype=np.float32), "en")
+    assert app_module._transcription_failure_reason == "timeout"
+    stalled = app_module._transcription_executor
+    assert stalled is not None and stalled.stalled is True
+    fresh = app_module._get_transcription_executor()
+    assert fresh is not stalled and fresh.stalled is False
+
+
+def test_transcribe_audio_falls_back_to_cpu_on_cuda_error(app_module):
+    class FlakyGPUModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, audio, **kwargs):
+            raise RuntimeError("CUDA error: cublas failed")
+
+    app_module.model = FlakyGPUModel()
+    app_module._device = "cuda"
+    result = app_module._transcribe_audio(np.zeros(16000, dtype=np.float32), "en")
+    assert result["text"] == "hello"
+    assert app_module._transcription_failure_reason is None
+
+
+def test_progress_overlay_close_aborts_inflight_request():
+    repo_root = Path(__file__).resolve().parents[1]
+    dom_js = (repo_root / "static" / "js" / "dom.js").read_text(encoding="utf-8")
+    assert "progressClose.onclick" in dom_js
+    assert "currentRequest.abort()" in dom_js
+
+
+def test_warmup_is_bounded_and_does_not_hold_model_lock(app_module, monkeypatch):
+    release = threading.Event()
+    entered = threading.Event()
+
+    class HangingModel:
+        def transcribe(self, audio, **kwargs):
+            entered.set()
+            release.wait(30)
+            return iter([])
+
+    monkeypatch.setattr(app_module, "_TRANSCRIBE_WARMUP_TIMEOUT_SECONDS", 1)
+    started = time.time()
+    app_module._warmup_model(HangingModel())
+    elapsed = time.time() - started
+    assert entered.is_set()
+    assert elapsed < 10
+    # The model lock must be free once the bounded warm-up returns.
+    with app_module.model_lock:
+        pass
+    release.set()
+
+
+def test_status_polling_uses_bounded_fetch_helper():
+    repo_root = Path(__file__).resolve().parents[1]
+    dom_js = (repo_root / "static" / "js" / "dom.js").read_text(encoding="utf-8")
+    status_js = (repo_root / "static" / "js" / "status.js").read_text(encoding="utf-8")
+    recorder_js = (repo_root / "static" / "js" / "recorder.js").read_text(encoding="utf-8")
+    assert "async function fetchJSONTimeout" in dom_js
+    assert 'fetchJSONTimeout("/status"' in status_js
+    assert 'fetchJSONTimeout("/stats"' in status_js
+    assert 'fetchJSONTimeout("/status"' in recorder_js
+
+
+def test_default_cpu_threads_guards_cpu_count_and_caps_override(app_module, monkeypatch):
+    import multiprocessing as mp
+
+    def unavailable():
+        raise NotImplementedError("cpu_count unavailable")
+
+    monkeypatch.setattr(mp, "cpu_count", unavailable)
+    monkeypatch.delenv("WHISPER_CPU_THREADS", raising=False)
+    assert app_module._default_cpu_threads() >= 2
+
+    monkeypatch.setattr(mp, "cpu_count", lambda: 4)
+    monkeypatch.setenv("WHISPER_CPU_THREADS", "64")
+    assert app_module._default_cpu_threads() == 4
+
+    monkeypatch.setenv("WHISPER_CPU_THREADS", "not-a-number")
+    assert app_module._default_cpu_threads() == 2
+
+
+def test_recommended_model_is_vram_aware(app_module, monkeypatch):
+    monkeypatch.setattr(app_module, "_cuda_device_count", lambda: 0)
+    assert app_module._recommended_model() == "base"
+
+    monkeypatch.setattr(app_module, "_cuda_device_count", lambda: 1)
+    monkeypatch.setattr(app_module, "_gpu_memory_total_mb", lambda: 2048)  # 2 GB GPU
+    assert app_module._recommended_model() == "base"
+
+    monkeypatch.setattr(app_module, "_gpu_memory_total_mb", lambda: 8192)  # 8 GB GPU
+    assert app_module._recommended_model() == "small"
+
+    monkeypatch.setattr(app_module, "_gpu_memory_total_mb", lambda: None)
+    assert app_module._recommended_model() == "small"

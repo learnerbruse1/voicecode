@@ -4,7 +4,7 @@
 
 [English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
 
-**当前版本：v0.2.0**
+**当前版本：v0.3.1**
 
 VoiceCode 是一款本地优先的桌面语音转文字工具，适合编程、写作和提示词输入。它使用 faster-whisper / CTranslate2 在本机完成转写，并可通过全局按住说话快捷键把结果输入到当前应用。
 
@@ -29,7 +29,7 @@ VoiceCode 是一款本地优先的桌面语音转文字工具，适合编程、�
 普通用户推荐使用：
 
 ```text
-VoiceCode-v0.2.0-Windows-x64-Setup.exe
+VoiceCode-v0.3.1-Windows-x64-Setup.exe
 ```
 
 安装向导允许自主选择安装目录。默认路径为：
@@ -108,7 +108,7 @@ dist/windows/installer/
 
 ```powershell
 python -X utf8 packaging/windows/verify_windows_installer.py `
-  --installer dist/windows/installer/VoiceCode-v0.2.0-Windows-x64-Setup.exe `
+  --installer dist/windows/installer/VoiceCode-v0.3.1-Windows-x64-Setup.exe `
   --install-dir "$env:TEMP\VoiceCode-installer-smoke" `
   --version 0.2.0 `
   --skip-launch `

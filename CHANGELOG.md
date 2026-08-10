@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 - 2026-08-10
+
+- Fixed a hang that froze recording after a failed GPU transcription: transcriptions now run on a dedicated serial worker with a watchdog timeout, never hold the model lock across a native inference call, and automatically reload the model (with CPU int8 fallback) after an error or timeout, so the record button and HTTP API recover without restarting.
+- Closing the "processing" overlay now aborts the in-flight transcription request and resets the UI, so the record button cannot stay stuck after the user dismisses it.
+- Added the `VOICECODE_TRANSCRIBE_TIMEOUT` environment override (default 120 s) for the transcription watchdog.
+- Bounded the model warm-up: it now runs on the transcription executor with a 30 s timeout and no longer holds the model lock across the native call, so a hung warm-up can no longer freeze the app at startup or reload.
+- Frontend status, stats, and partial-draft polling now use bounded request timeouts, so a slow or stuck server can never leave the UI polls hanging.
+- Hardened CPU thread defaults: `WHISPER_CPU_THREADS` is capped to the machine's logical cores, and `multiprocessing.cpu_count()` failures fall back safely instead of crashing startup.
+- First-run model recommendation is now VRAM-aware: low-VRAM GPUs (below the small model's requirement plus a margin) are recommended `base` instead of `small` so dictation stays smooth on older hardware.
+
+## 0.3.0 - 2026-08-10
 
 - Upgraded faster-whisper to 1.2.x (Silero VAD v6) and added the Japanese-optimized `kotoba-tech/kotoba-whisper-v2.0-faster` and fast `distil-whisper/distil-large-v3.5-ct2` models to the supported whitelist, with hardware guidance and localized hints on model-selection buttons and the Models page.
 - Fixed the second CI pass by pinning mypy 1.18.2 and avoiding audio-device requests when onboarding reports the audio runtime unavailable.
@@ -8,6 +18,16 @@
 - Fixed UI E2E failures by moving theme bootstrap code into a CSP-compatible external script and avoiding disabled model reloads in skip-model test mode.
 - Removed card-game content and retained a single Minesweeper panel with Beginner, Intermediate, and Expert modes.
 - Updated the Windows builder and installer verifier to require the Minesweeper `games.js` payload and reject removed card-game markers.
+
+
+- Validate Whisper cache snapshots by required files and minimum model size; incomplete downloads remain marked partial and resume instead of being shown as loadable.
+- Load complete faster-whisper snapshots directly from disk and retain CUDA-to-CPU fallback.
+- Add robust Windows clipboard copying for error details.
+- Recover a stale, windowless VoiceCode process that still owns the local port.
+- Keep the top bar to compact CPU/GPU/memory summaries and move detailed hardware cards to Settings.
+- Unify model cards and hardware summary colors with the application theme.
+- Remove emoji-dependent status glyphs that could render as question marks on Windows.
+- Add Expert Minesweeper (16 x 30, 99 mines) and complete English, Chinese, and Japanese strings.
 
 ## 0.2.0 - 2026-07-24
 
@@ -48,14 +68,3 @@
 
 - Initial local desktop speech-to-text app with Flask/Waitress, pywebview UI, global hotkey, sounddevice recording, and faster-whisper transcription.
 - Added local config, transcript history, diagnostics, status, audio devices, and smoke tests.
-
-## Unreleased - desktop stability and UI consistency
-
-- Validate Whisper cache snapshots by required files and minimum model size; incomplete downloads remain marked partial and resume instead of being shown as loadable.
-- Load complete faster-whisper snapshots directly from disk and retain CUDA-to-CPU fallback.
-- Add robust Windows clipboard copying for error details.
-- Recover a stale, windowless VoiceCode process that still owns the local port.
-- Keep the top bar to compact CPU/GPU/memory summaries and move detailed hardware cards to Settings.
-- Unify model cards and hardware summary colors with the application theme.
-- Remove emoji-dependent status glyphs that could render as question marks on Windows.
-- Add Expert Minesweeper (16 x 30, 99 mines) and complete English, Chinese, and Japanese strings.

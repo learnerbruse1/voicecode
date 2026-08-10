@@ -58,6 +58,7 @@ from .system_api import (  # noqa: E402
     create_system_blueprint,
     shutdown_gpu_monitoring,
 )
+from .transcription_executor import TranscriptionExecutor  # noqa: E402
 
 dependency_manager.ensure_dependency_path()
 
@@ -322,14 +323,25 @@ def _gpu_has_enough_vram(size: str) -> tuple[bool, int | None, float]:
     return total_mb / 1024 >= required_gb, total_mb, required_gb
 
 
+def _available_cpu_count() -> int:
+    try:
+        return max(1, int(multiprocessing.cpu_count()))
+    except (NotImplementedError, ValueError, OSError):  # pragma: no cover - exotic platforms
+        return 4
+
+
 def _default_cpu_threads() -> int:
     configured = os.environ.get("WHISPER_CPU_THREADS")
     if configured:
         try:
-            return max(1, int(configured))
+            value = max(1, int(configured))
         except ValueError:
             logger.warning("Ignoring invalid WHISPER_CPU_THREADS value: %s", configured)
-    return max(2, multiprocessing.cpu_count() // 2)
+            value = 0
+        if value > 0:
+            # Never oversubscribe a small machine beyond its logical cores.
+            return min(value, _available_cpu_count())
+    return max(2, _available_cpu_count() // 2)
 
 
 def _normalize_device_preference(value: Any) -> str:
@@ -703,22 +715,38 @@ def _whisper_model_kwargs(
 
 
 def _warmup_model(model: Any) -> None:
-    """Run one tiny best-effort inference so the first dictation skips warm-up cost."""
+    """Run one tiny best-effort inference so the first dictation skips warm-up cost.
+
+    The inference runs on the transcription executor (serialized with real
+    transcriptions) and is bounded by a timeout, so a hung native call can never
+    block model reloads or the HTTP layer, and warm-up no longer holds the model
+    lock across a native call.
+    """
     if _env_flag("VOICECODE_SKIP_WARMUP"):
         return
     try:
-        samples = np.zeros(16000, dtype=np.float32)  # 1 s of silence at 16 kHz
-        list(
-            model.transcribe(
-                samples,
-                language=None,
-                task="transcribe",
-                beam_size=1,
-                vad_filter=False,
-            )
-        )
+        executor = _get_transcription_executor()
+        future = executor.submit(lambda: _warmup_inference(model))
+        try:
+            future.result(timeout=_TRANSCRIBE_WARMUP_TIMEOUT_SECONDS)
+        except TimeoutError:
+            executor.mark_stalled()
+            logger.debug("Model warm-up skipped: timed out.")
     except Exception as exc:
         logger.debug("Model warm-up skipped: %s", exc)
+
+
+def _warmup_inference(model: Any) -> None:
+    samples = np.zeros(16000, dtype=np.float32)  # 1 s of silence at 16 kHz
+    list(
+        model.transcribe(
+            samples,
+            language=None,
+            task="transcribe",
+            beam_size=1,
+            vad_filter=False,
+        )
+    )
 
 
 def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True) -> Any:
@@ -781,8 +809,7 @@ def _load_model_sync(size: str | None = None, *, allow_cpu_fallback: bool = True
         model = loaded_model
         MODEL_SIZE = requested_size
     _sync_model_runtime()
-    with model_lock:
-        _warmup_model(loaded_model)
+    _warmup_model(loaded_model)
     logger.info("Whisper model is ready: %s/%s", _device, _compute_type)
     return loaded_model
 
@@ -1119,15 +1146,113 @@ def _fallback_to_cpu_model() -> Any:
         )
     except Exception as load_exc:
         raise RuntimeError(_model_error_message(load_exc)) from load_exc
-    model = loaded_model
+    with model_lock:
+        model = loaded_model
     _sync_model_runtime()
     _set_model_state("ready", "GPU inference failed; VoiceCode fell back to CPU int8.")
     return loaded_model
 
 
-def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> dict[str, Any]:
-    global model
+TRANSCRIBE_TIMEOUT_SECONDS = 120  # matches the UI client request timeout
+_TRANSCRIBE_WARMUP_TIMEOUT_SECONDS = 30
+_transcription_executor: TranscriptionExecutor | None = None
+_transcription_executor_lock = threading.Lock()
+_transcription_failure_reason: str | None = None
 
+
+def _transcribe_timeout_seconds() -> int:
+    raw = os.environ.get("VOICECODE_TRANSCRIBE_TIMEOUT", "").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    return value if value > 0 else TRANSCRIBE_TIMEOUT_SECONDS
+
+
+def _get_transcription_executor() -> TranscriptionExecutor:
+    global _transcription_executor
+    with _transcription_executor_lock:
+        executor = _transcription_executor
+        if executor is None or executor.stalled:
+            if executor is not None:
+                executor.close(cancel_pending=True)
+            executor = TranscriptionExecutor()
+            _transcription_executor = executor
+        return executor
+
+
+def _close_transcription_executor() -> None:
+    global _transcription_executor
+    with _transcription_executor_lock:
+        executor = _transcription_executor
+        _transcription_executor = None
+    if executor is not None:
+        executor.close(cancel_pending=True)
+
+
+def _mark_transcription_failure(reason: str) -> None:
+    global _transcription_failure_reason
+    _transcription_failure_reason = reason
+
+
+def _consume_transcription_failure() -> str | None:
+    global _transcription_failure_reason
+    reason = _transcription_failure_reason
+    _transcription_failure_reason = None
+    return reason
+
+
+def _recover_model_after_failure(reason: str) -> None:
+    """Reload a fresh model after a failed transcription.
+
+    A CTranslate2 model (or the process CUDA context) can be left in a broken
+    state by a failed inference call, and reusing it can hang forever.  GPU
+    failures always fall back to CPU int8 (matching the existing GPU fallback
+    semantics) so the next transcription is guaranteed to make progress.
+    """
+    if _device == "cuda":
+        logger.warning(
+            "Reloading Whisper model on CPU int8 after transcription failure (%s).", reason
+        )
+        _fallback_to_cpu_model()
+        return
+    logger.warning("Reloading Whisper model after transcription failure (%s).", reason)
+    _load_model_sync(MODEL_SIZE)
+
+
+def _native_transcribe_job(
+    prepared_audio: np.ndarray | str, kwargs: dict[str, Any]
+) -> tuple[str, Any, list[Any]]:
+    """Run the native faster-whisper call on the executor worker.
+
+    The model reference is read under a short lock; the lock is deliberately not
+    held across the native call, so a hung inference can never block model
+    reloads or other requests.
+    """
+    with model_lock:
+        active_model = model
+        if active_model is None:
+            raise RuntimeError(_model_unavailable_reason() or "Whisper model is not available.")
+    try:
+        segments, info = active_model.transcribe(prepared_audio, **kwargs)
+        segment_list = list(segments)
+    except RuntimeError as exc:
+        if not _is_cuda_runtime_error(exc):
+            _mark_transcription_failure("error")
+            raise
+        logger.warning("GPU inference failed (%s). Falling back to CPU int8.", exc)
+        try:
+            active_model = _fallback_to_cpu_model()
+            segments, info = active_model.transcribe(prepared_audio, **kwargs)
+            segment_list = list(segments)
+        except RuntimeError:
+            _mark_transcription_failure("error")
+            raise
+    text = " ".join(s.text for s in segment_list).strip()
+    return text, info, segment_list
+
+
+def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> dict[str, Any]:
     cfg = load_config()
     prepared_audio, vad_metadata = _transcription_service.prepare_audio(audio, cfg)
     if isinstance(prepared_audio, np.ndarray) and prepared_audio.size == 0:
@@ -1139,22 +1264,27 @@ def _transcribe_audio(audio: np.ndarray | str, language: str | None = None) -> d
             "_audio_context": prepared_audio,
         }
     kwargs = _transcribe_kwargs(language, cfg)
-    with model_lock:
-        active_model = model
-        if active_model is None:
-            raise RuntimeError(_model_unavailable_reason() or "Whisper model is not available.")
-        try:
-            segments, info = active_model.transcribe(prepared_audio, **kwargs)
-            segment_list = list(segments)
-            text = " ".join(s.text for s in segment_list).strip()
-        except RuntimeError as exc:
-            if not _is_cuda_runtime_error(exc):
-                raise
-            logger.warning("GPU inference failed (%s). Reloading model on CPU int8.", exc)
-            active_model = _fallback_to_cpu_model()
-            segments, info = active_model.transcribe(prepared_audio, **kwargs)
-            segment_list = list(segments)
-            text = " ".join(s.text for s in segment_list).strip()
+
+    failure_reason = _consume_transcription_failure()
+    if failure_reason is not None:
+        _recover_model_after_failure(failure_reason)
+
+    timeout_seconds = _transcribe_timeout_seconds()
+    executor = _get_transcription_executor()
+    future = executor.submit(lambda: _native_transcribe_job(prepared_audio, kwargs))
+    try:
+        text, info, segment_list = future.result(timeout=timeout_seconds)
+    except TimeoutError:
+        executor.mark_stalled()
+        _mark_transcription_failure("timeout")
+        raise RuntimeError(
+            f"Transcription timed out after {timeout_seconds} seconds. The model will be "
+            "reloaded; please try again."
+        ) from None
+    except RuntimeError:
+        _mark_transcription_failure("error")
+        raise
+
     language_name = getattr(info, "language", language or "auto")
     probability = getattr(info, "language_probability", None)
     result: dict[str, Any] = {
@@ -1218,7 +1348,13 @@ def _run_partial_worker(interval_ms: int, language: str | None, generation: int)
             result = _transcribe_audio(audio, language)
             text = str(result.get("text", "")).strip()
         except Exception as exc:
-            logger.debug("Partial transcription failed: %s", exc)
+            logger.warning("Partial transcription failed: %s", exc)
+            failure_reason = _consume_transcription_failure()
+            if failure_reason is not None:
+                try:
+                    _recover_model_after_failure(failure_reason)
+                except Exception as recover_exc:  # noqa: BLE001 - keep the worker alive
+                    logger.warning("Model recovery after partial failure failed: %s", recover_exc)
             continue
         if not text:
             continue
@@ -1431,6 +1567,7 @@ def shutdown_application() -> None:
     logger.info("Stopping VoiceCode background services.")
     _bump_cancel_token()
     _stop_partial_worker()
+    _close_transcription_executor()
     try:
         _recorder.cancel()
     except Exception as exc:
@@ -1504,13 +1641,24 @@ def _system_diagnostics_snapshot() -> dict[str, Any]:
     }
 
 
+def _recommended_model() -> str:
+    """Pick a smooth default model for the current hardware."""
+    if _cuda_device_count() <= 0:
+        return "base"
+    total_mb = _gpu_memory_total_mb()
+    small_min_gb = _model_vram_requirement_gb("small")
+    if total_mb is not None and small_min_gb > 0 and total_mb / 1024 < small_min_gb + 0.5:
+        return "base"
+    return "small"
+
+
 def _management_model_summary() -> dict[str, Any]:
     with _model_state_lock:
         state = dict(_model_state)
     with model_lock:
         loaded = model is not None
     config = load_config()
-    recommended_model = "small" if _cuda_device_count() > 0 else "base"
+    recommended_model = _recommended_model()
     return {
         "ready": loaded and state.get("status") == "ready",
         "loaded": loaded,

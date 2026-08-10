@@ -9,9 +9,8 @@ function setHtmlIfChanged(el, html) {
 
 async function pollModelStatus(force = false) {
   try {
-    const resp = await fetch("/status");
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || resp.statusText || "Failed to read status");
+    const {response: resp, data} = await fetchJSONTimeout("/status", 8000);
+    if (!resp || !resp.ok) throw new Error((data && data.error) || "Failed to read status");
     const state = data.model_state || {};
     const onboardingVisible = document.getElementById("onboarding-overlay")?.classList.contains("show");
     const active = ["checking", "downloading", "loading"].includes(state.status);
@@ -59,7 +58,8 @@ function renderMetricCard(label, value, detail) {
 
 async function updateStats() {
   try {
-    const s = await fetch("/stats").then(r => r.json());
+    const {data: s} = await fetchJSONTimeout("/stats", 8000);
+    if (!s) return;
     const cpuName = (s.cpu && s.cpu.name) || "CPU";
     const gpu = s.gpu || null;
     const gpuName = gpu && gpu.name ? gpu.name : "No NVIDIA GPU telemetry";

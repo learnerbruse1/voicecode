@@ -135,6 +135,20 @@ function applyTranslations() {
   updateStats();
 }
 
+async function fetchJSONTimeout(url, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {signal: controller.signal});
+    const data = await response.json().catch(() => ({}));
+    return {response, data};
+  } catch (e) {
+    return {response: null, data: null, aborted: e.name === "AbortError"};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function setStatus(state, key) {
   dot.className = state;
   currentStatusKey = key;
@@ -305,7 +319,10 @@ function hideProgress() {
   deactivateDialog(progressOverlay);
 }
 
-if (progressClose) progressClose.onclick = hideProgress;
+if (progressClose) progressClose.onclick = () => {
+  if (currentRequest) currentRequest.abort();
+  hideProgress();
+};
 
 function renderText() {
   if (text) {
