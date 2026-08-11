@@ -395,5 +395,10 @@
   "decode_custom": "Custom",
   "gpu_cuda_unavailable_hint": "Detected an NVIDIA GPU, but the CUDA runtime libraries are unavailable. GPU dictation may fall back to CPU; reinstall VoiceCode or install the Whisper dependencies.",
   "gpu_blackwell_int8_hint": "This NVIDIA GPU (Blackwell) does not support int8 precision; VoiceCode will use float16 automatically.",
-  "gpu_float16_recommended_hint": "GPU transcription uses float16 for the best speed and accuracy balance."
+  "gpu_float16_recommended_hint": "GPU transcription uses float16 for the best speed and accuracy balance.",
+  "label_zh_script": "Chinese output script",
+  "zh_script_none": "No conversion",
+  "zh_script_simplified": "Simplified Chinese",
+  "zh_script_traditional": "Traditional Chinese",
+  "home_hotkey_hint": "In any app, hold {hotkey} and speak; release to insert the text at your cursor."
 }

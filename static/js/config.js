@@ -33,6 +33,8 @@ async function loadConfig() {
     if (cfg.hotkey) currentHotkey = cfg.hotkey;
     renderHotkey();
     updatePresetHighlight();
+    zhScriptSel.value = ((cfg.extensions || {}).zh_normalizer || {}).script || "none";
+    renderHomeHotkeyHint();
     applyTranslations();
   } catch (e) {
     showError(t("failed_load_settings"), e.message || String(e));

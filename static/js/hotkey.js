@@ -7,6 +7,12 @@ function renderHotkey() {
   hkDisplay.textContent = hotkeyLabel(currentHotkey);
 }
 
+function renderHomeHotkeyHint() {
+  if (!homeHotkeyHintEl) return;
+  const label = htmlEscape(hotkeyLabel(currentHotkey));
+  homeHotkeyHintEl.innerHTML = t("home_hotkey_hint").replace("{hotkey}", `<kbd>${label}</kbd>`);
+}
+
 function updatePresetHighlight() {
   document.querySelectorAll(".hk-preset").forEach(btn => {
     const mods = btn.dataset.mods.split(",").filter(Boolean).sort();
@@ -18,6 +24,7 @@ function updatePresetHighlight() {
 async function applyHotkey(hk) {
   currentHotkey = hk;
   renderHotkey();
+  renderHomeHotkeyHint();
   updatePresetHighlight();
   const saved = await saveConfig({hotkey: hk});
   if (!saved) return;

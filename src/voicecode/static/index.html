@@ -75,6 +75,7 @@
                 <small data-i18n="home_hint">Use push-to-talk for clean short dictation.</small>
               </div>
             </div>
+            <div id="home-hotkey-hint" class="home-hotkey-hint" role="note"></div>
             <div id="transcript"><span class="placeholder" data-i18n="transcript_placeholder">Transcription results will appear here...</span></div>
             <div id="dbg" class="debug"></div>
           </section>
@@ -84,7 +85,7 @@
 
       <section class="view" id="view-settings" data-title-key="nav_settings" data-subtitle-key="settings_subtitle">
         <div class="settings-grid">
-          <section class="panel">
+          <section class="panel model-runtime-panel">
             <h3 data-i18n="settings_model_runtime">Model & runtime</h3>
             <div class="form-grid">
               <label for="model" data-i18n="label_model">Model</label>
@@ -131,6 +132,8 @@
               <label for="lang" data-i18n="label_transcription_language">Transcription language</label>
               <select id="lang"><option value="auto" data-i18n="lang_auto">Auto detect</option><option value="zh" data-i18n="lang_zh">Chinese</option><option value="en" data-i18n="lang_en">English</option><option value="ja" data-i18n="lang_ja">Japanese</option></select>
             </div>
+              <label for="zh-script" data-i18n="label_zh_script">Chinese output script</label>
+              <select id="zh-script"><option value="none" data-i18n="zh_script_none">No conversion</option><option value="simplified" data-i18n="zh_script_simplified">Simplified</option><option value="traditional" data-i18n="zh_script_traditional">Traditional</option></select>
           </section>
 
           <section class="panel">

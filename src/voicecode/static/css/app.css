@@ -402,3 +402,14 @@ html[data-theme="light"] .download-center{
   opacity:.65;
   font-style:italic;
 }
+
+
+/* Selectable transcript for mouse copy-paste */
+#transcript{user-select:text;-webkit-user-select:text;cursor:text}
+
+/* Roomier model & runtime settings panel (spans both settings columns) */
+.model-runtime-panel{grid-column:1/-1}
+
+/* Home push-to-talk hotkey hint */
+.home-hotkey-hint{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 12px;padding:10px 14px;border:1px solid rgba(148,163,184,.16);border-radius:14px;background:rgba(15,23,42,.7);color:var(--muted);font-size:.82rem;line-height:1.5}
+.home-hotkey-hint kbd{font-family:inherit;font-size:.8rem;font-weight:700;color:#a5f3fc;background:rgba(6,182,212,.14);border:1px solid rgba(6,182,212,.35);border-radius:7px;padding:2px 8px;margin:0 2px}

@@ -6,6 +6,7 @@ typingDelaySel.onchange = () => saveConfig({typing_delay_ms: Number(typingDelayS
 partialResultsSel.onchange = () => saveConfig({partial_results: partialResultsSel.value === "true"});
 partialIntervalSel.onchange = () => saveConfig({partial_interval_ms: Number(partialIntervalSel.value)});
 langSel.onchange = () => saveConfig({language: langSel.value});
+zhScriptSel.onchange = () => saveConfig({extensions: {zh_normalizer: {enabled: zhScriptSel.value !== "none", script: zhScriptSel.value}}});
 audioDeviceSel.onchange = () => saveConfig({audio_device: audioDeviceSel.value});
 textModeSel.onchange = () => saveConfig({text_mode: textModeSel.value});
 beamSizeSel.onchange = () => { decodePresetSel.value = "custom"; saveConfig({beam_size: Number(beamSizeSel.value), decode_preset: "custom"}); };

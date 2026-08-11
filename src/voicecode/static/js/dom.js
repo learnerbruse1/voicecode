@@ -7,6 +7,7 @@ function htmlEscape(value) {
 var dot = $("dot");
 var slabel = $("slabel");
 var transcriptEl = $("transcript");
+var homeHotkeyHintEl = $("home-hotkey-hint");
 var dbgEl = $("dbg");
 var perfEl = $("perf");
 var recBtn = $("rec-btn");
@@ -21,6 +22,7 @@ var deviceSel = $("device");
 var computeTypeSel = $("compute-type");
 var computeTypeHintEl = $("compute-type-hint");
 var langSel = $("lang");
+var zhScriptSel = $("zh-script");
 var uiLangSel = $("uilang");
 var audioDeviceSel = $("audio-device");
 var micTestBtn = $("mic-test-btn");
