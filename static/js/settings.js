@@ -134,16 +134,20 @@ async function updateComputeTypeHint() {
     const gpu = hardware.gpu || {};
     const cap = gpu.compute_capability;
     const blackwell = Array.isArray(cap) && Number(cap[0]) >= 12;
+    const gpuUsable = Boolean(gpu.name) && Boolean(hardware.cuda_available);
     Array.from(computeTypeSel.options).forEach(opt => {
-      opt.disabled = Boolean(blackwell) && (opt.value === "int8" || opt.value === "int8_float16");
+      const value = opt.value;
+      const unsupported = blackwell && (value === "int8" || value === "int8_float16");
+      const cpuOnlyType = !gpuUsable && (value === "float16" || value === "int8_float16");
+      opt.disabled = unsupported || cpuOnlyType;
     });
     const messages = [];
-    if (gpu.name) {
-      if (!hardware.cuda_available) {
-        messages.push(t("gpu_cuda_unavailable_hint"));
-      } else {
-        messages.push(t("gpu_float16_recommended_hint"));
-      }
+    if (!gpu.name) {
+      messages.push(t("gpu_not_detected_hint"));
+    } else if (!hardware.cuda_available) {
+      messages.push(t("gpu_cuda_unavailable_hint"));
+    } else {
+      messages.push(t("gpu_float16_recommended_hint"));
     }
     if (blackwell) messages.push(t("gpu_blackwell_int8_hint"));
     if (messages.length) {

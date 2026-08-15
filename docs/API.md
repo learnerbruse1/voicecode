@@ -332,7 +332,7 @@ Downloads and loads a supported Whisper model. This reuses the normal model load
 
 ### `DELETE /models/<model_name>/cache`
 
-Deletes cached files for a supported model from the managed model cache directory. The body must include `{"confirm": true}`. Deletion is refused for the currently loaded model or while any model load is in progress.
+Deletes cached files for a supported model from the managed model cache directory. The body must include `{"confirm": true}`. Deletion is refused for the currently loaded model or while any model load is in progress. `POST` to the same path is accepted as an alias with identical behavior.
 
 ### `GET /hardware`
 

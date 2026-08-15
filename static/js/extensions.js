@@ -61,7 +61,7 @@ function renderExtensions(data) {
     const description = translatedEntity("extension", ext.id, "description", ext.description || "");
     const fields = (ext.config_schema || []).map(field => extensionFieldMarkup(ext.id, field, ext.config || {})).join("");
     const dependencyText = (ext.dependencies || []).length
-      ? (ext.dependencies || []).map(dep => `${dep.name}: ${dep.installed ? t("available") : t("missing_deps")}`).join(" ? ")
+      ? (ext.dependencies || []).map(dep => `${dep.name}: ${dep.installed ? t("available") : t("missing_deps")}`).join(", ")
       : t("extension_no_dependencies");
     const installButton = (ext.dependencies || []).some(dep => !dep.installed_in_voice_dep)
       ? `<button type="button" class="sm extension-install" data-extension-id="${htmlEscape(ext.id)}">${t("extension_install_dependencies")}</button>` : "";
@@ -93,8 +93,14 @@ async function saveExtension(extensionId) {
   if (!card) return;
   const result = await requestJSON("POST", `/extensions/${encodeURIComponent(extensionId)}`, {config: readExtensionConfig(card)}, {errorTitle: t("failed_save_settings")});
   if (!result.ok) return;
-  showError(t("extension_save"), t("extension_saved"));
-  await loadExtensionsPanel();
+  // Show an inline "Saved" confirmation on the button instead of an error-styled modal.
+  const button = card.querySelector(".extension-save");
+  if (button) {
+    button.textContent = t("extension_saved");
+    setTimeout(() => loadExtensionsPanel(), 800);
+  } else {
+    await loadExtensionsPanel();
+  }
 }
 
 async function installExtensionDependencies(extensionId) {

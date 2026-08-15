@@ -400,5 +400,6 @@
   "zh_script_none": "不转换",
   "zh_script_simplified": "简体中文",
   "zh_script_traditional": "繁體中文",
-  "home_hotkey_hint": "在任意应用中按住 {hotkey} 说话，松开后文字会直接输入到当前光标位置。"
+  "home_hotkey_hint": "在任意应用中按住 {hotkey} 说话，松开后文字会直接输入到当前光标位置。",
+  "gpu_not_detected_hint": "未检测到 NVIDIA 显卡；VoiceCode 将使用 CPU int8。"
 }

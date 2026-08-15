@@ -400,5 +400,6 @@
   "zh_script_none": "変換しない",
   "zh_script_simplified": "簡体字中国語",
   "zh_script_traditional": "繁体字中国語",
-  "home_hotkey_hint": "どのアプリでも {hotkey} を押しながら話し、離すと文字がカーソル位置に入力されます。"
+  "home_hotkey_hint": "どのアプリでも {hotkey} を押しながら話し、離すと文字がカーソル位置に入力されます。",
+  "gpu_not_detected_hint": "NVIDIA GPU が検出されませんでした。VoiceCode は CPU int8 を使用します。"
 }

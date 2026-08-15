@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import shutil
@@ -225,8 +226,9 @@ def prepare_embedded_python(archive: Path, get_pip: Path) -> None:
     )
 
     python = EMBEDDED_PYTHON_DIR / "python.exe"
+    pip_index = os.environ.get("VOICECODE_PIP_INDEX_URL") or "https://pypi.org/simple"
     subprocess.run(
-        [str(python), str(get_pip), "--no-warn-script-location"],
+        [str(python), str(get_pip), "--no-warn-script-location", "-i", pip_index],
         check=True,
         cwd=EMBEDDED_PYTHON_DIR,
     )

@@ -286,17 +286,34 @@ def _cuda_device_count() -> int:
         return 0
 
 
+_gpu_memory_cache: tuple[float, int | None] | None = None
+_gpu_memory_lock = threading.Lock()
+_GPU_MEMORY_TTL_SECONDS = 30.0
+
+
 def _gpu_memory_total_mb() -> int | None:
-    """Return physical NVIDIA VRAM even when the CUDA inference runtime is unavailable."""
+    """Return physical NVIDIA VRAM even when the CUDA inference runtime is unavailable.
+
+    Total VRAM never changes at runtime, and ``/models`` / ``/hardware`` poll it
+    frequently, so the NVML query is cached for a short TTL.
+    """
+    global _gpu_memory_cache
+    now = time.monotonic()
+    with _gpu_memory_lock:
+        if _gpu_memory_cache is not None and now - _gpu_memory_cache[0] < _GPU_MEMORY_TTL_SECONDS:
+            return _gpu_memory_cache[1]
     try:
         pynvml = importlib.import_module("pynvml")
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         gpu_mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        return round(gpu_mem_info.total / 1024**2)
+        total_mb = round(gpu_mem_info.total / 1024**2)
     except Exception as exc:
         logger.debug("Failed to query GPU total memory: %s", exc)
-        return None
+        total_mb = None
+    with _gpu_memory_lock:
+        _gpu_memory_cache = (time.monotonic(), total_mb)
+    return total_mb
 
 
 def _metadata_float(info: dict[str, Any], key: str, default: float = 0.0) -> float:
@@ -352,17 +369,37 @@ def _normalize_compute_type(value: Any) -> str:
     return settings_store.normalize_compute_type(value)
 
 
+_gpu_capability_cache: tuple[float, tuple[int, int] | None] | None = None
+_gpu_capability_lock = threading.Lock()
+_GPU_CAPABILITY_TTL_SECONDS = 30.0
+
+
 def _gpu_compute_capability() -> tuple[int, int] | None:
-    """Return the primary NVIDIA GPU compute capability as (major, minor), if known."""
+    """Return the primary NVIDIA GPU compute capability as (major, minor), if known.
+
+    NVML queries are cached for a short TTL because ``/models`` and ``/hardware``
+    poll them frequently while the underlying GPU topology never changes at runtime.
+    """
+    global _gpu_capability_cache
+    now = time.monotonic()
+    with _gpu_capability_lock:
+        if (
+            _gpu_capability_cache is not None
+            and now - _gpu_capability_cache[0] < _GPU_CAPABILITY_TTL_SECONDS
+        ):
+            return _gpu_capability_cache[1]
     try:
         pynvml = importlib.import_module("pynvml")
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         major, minor = pynvml.nvmlDeviceGetCudaComputeCapability(handle)
-        return int(major), int(minor)
+        capability = (int(major), int(minor))
     except Exception as exc:
         logger.debug("Failed to query GPU compute capability: %s", exc)
-        return None
+        capability = None
+    with _gpu_capability_lock:
+        _gpu_capability_cache = (time.monotonic(), capability)
+    return capability
 
 
 def _gpu_is_blackwell() -> bool:
@@ -373,7 +410,7 @@ def _gpu_is_blackwell() -> bool:
 
 def _supported_compute_types(device: str) -> set[str]:
     if device == "cpu":
-        return {"auto", "int8", "float32"}
+        return {"auto", "int8", "int16", "float32"}
     try:
         runtime = _load_ctranslate2_runtime()
         supported = {str(item) for item in runtime.get_supported_compute_types(device)}
@@ -412,6 +449,12 @@ def _resolve_device_profile(
         actual_compute = _auto_compute_type(actual_device)
     else:
         actual_compute = requested_compute
+    if actual_device == "cpu" and actual_compute not in _supported_compute_types("cpu"):
+        logger.warning(
+            "Compute type %s is not supported on CPU; using int8 instead.",
+            actual_compute,
+        )
+        actual_compute = _auto_compute_type("cpu")
     if (
         actual_device == "cuda"
         and actual_compute in {"int8", "int8_float16"}

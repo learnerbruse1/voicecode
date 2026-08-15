@@ -44,7 +44,9 @@ async function pollModelStatus(force = false) {
     }
     return false;
   } catch (e) {
-    showError(t("failed_load_settings"), e.message || String(e));
+    // Background polling failures are transient (e.g. server restart); keep the
+    // UI in an error state without spamming modal dialogs on every poll cycle.
+    setStatus("error", "model_unavailable");
     return true;
   }
 }

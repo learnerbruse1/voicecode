@@ -8,8 +8,7 @@ dynamic = ["version"]
 description = "Local-first speech-to-text desktop app for coding and writing"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
-license-files = ["LICENSE"]
+license = { text = "MIT" }
 authors = [{ name = "VoiceCode contributors" }]
 keywords = ["speech-to-text", "whisper", "desktop", "dictation", "offline"]
 classifiers = [
@@ -91,6 +90,7 @@ voicecode = "voicecode.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
+license-files = ["LICENSE"]
 
 [tool.setuptools.dynamic]
 version = { attr = "voicecode.__version__" }

@@ -73,6 +73,8 @@ Models ページには、サイズ・最小/推奨 VRAM・ローカライズさ�
 | `diarization` | pyannote による話者分離（モデル、`token_env` 例 `HF_TOKEN`、デバイス、最小/最大話者数）。 |
 | `punctuation` | NeMo による句読点復元（英語、`punctuation_en_bert`）。 |
 
+**中国語の出力字形** — 設定の「言語」パネルで、中国語の文字起こし結果の字形を選択できます：**変換しない**・**簡体字中国語**・**繁体字中国語**（設定キー `extensions.zh_normalizer.script`）。簡体字または繁体字を選ぶと OpenCC ベースの `zh_normalizer` 拡張機能が自動的に有効になります。初回使用時に「依存関係」ページで `opencc-python-reimplemented` のインストールを求められる場合があります。
+
 追加パッケージが必要な拡張機能（Silero VAD、pyannote、NeMo、OpenCC）は、依存関係ページから隔離されたランタイムディレクトリへインストールされ、システムの Python は汚染しません。
 
 ### セキュリティ

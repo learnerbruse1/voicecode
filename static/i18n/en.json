@@ -400,5 +400,6 @@
   "zh_script_none": "No conversion",
   "zh_script_simplified": "Simplified Chinese",
   "zh_script_traditional": "Traditional Chinese",
-  "home_hotkey_hint": "In any app, hold {hotkey} and speak; release to insert the text at your cursor."
+  "home_hotkey_hint": "In any app, hold {hotkey} and speak; release to insert the text at your cursor.",
+  "gpu_not_detected_hint": "No NVIDIA GPU detected; VoiceCode will use int8 on CPU."
 }

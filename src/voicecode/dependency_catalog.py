@@ -9,7 +9,7 @@ DEPENDENCIES: tuple[DependencySpec, ...] = (
         id="whisper-runtime",
         name="Whisper runtime",
         description="Core transcription engine powered by faster-whisper and CTranslate2.",
-        pip_spec="faster-whisper>=1.1.1,<2",
+        pip_spec="faster-whisper>=1.2.1,<2",
         import_modules=("faster_whisper", "ctranslate2"),
         distributions=("faster-whisper", "ctranslate2"),
         required=True,

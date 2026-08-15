@@ -73,6 +73,8 @@ Optional features enabled per-extension in Settings → Extensions:
 | `diarization` | Speaker diarization with pyannote (model, `token_env` e.g. `HF_TOKEN`, device, min/max speakers). |
 | `punctuation` | NeMo punctuation restoration (English, `punctuation_en_bert`). |
 
+**Chinese output script** — the Language panel in Settings lets you choose how Chinese transcriptions are output: **No conversion**, **Simplified Chinese**, or **Traditional Chinese** (config key `extensions.zh_normalizer.script`). Choosing Simplified or Traditional automatically enables the OpenCC-based `zh_normalizer` extension; the first use may ask you to install the `opencc-python-reimplemented` dependency from the Dependencies screen.
+
 Extensions that need extra packages (Silero VAD, pyannote, NeMo, OpenCC) install them into an isolated runtime directory from the Dependencies screen — no global Python changes.
 
 ### Security

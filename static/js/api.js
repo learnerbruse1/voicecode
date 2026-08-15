@@ -13,7 +13,7 @@ function apiErrorDetails(data, fallback) {
       const translated = t(`model_suggestion_${item}`);
       return translated === `model_suggestion_${item}` ? item.replaceAll("_", " ") : translated;
     });
-    lines.push("", `${t("suggestions")}:`, ...suggestions.map(item => `? ${item}`));
+    lines.push("", `${t("suggestions")}:`, ...suggestions.map(item => `- ${item}`));
   }
   if (data.request_id) lines.push("", `${t("request_id")}: ${data.request_id}`);
   return lines.join("\n");

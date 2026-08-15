@@ -59,8 +59,25 @@ logging.basicConfig(
 logger = logging.getLogger("voicecode.main")
 
 _INSTANCE_MUTEX_NAME = "Local\\VoiceCode.Desktop.SingleInstance"
-_APP_USER_MODEL_ID = "VoiceCode.Desktop.0.2"
 _INSTANCE_ALREADY_EXISTS = 183
+
+
+def _app_user_model_id() -> str:
+    """Windows AppUserModelID derived from the current VoiceCode version."""
+    version = str(getattr(server, "__version__", "") or "0")
+    safe_version = "".join(ch for ch in version if ch.isalnum() or ch in "._-") or "0"
+    return f"VoiceCode.Desktop.{safe_version}"
+
+
+def _set_windows_app_identity() -> None:
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_app_user_model_id())
+    except Exception as exc:
+        logger.debug("Failed to set Windows AppUserModelID: %s", exc)
+
+
 _instance_mutex_handle: int | None = None
 
 
@@ -505,15 +522,6 @@ def _application_icon_path(extension: str = ".png") -> Path | None:
         if candidate.is_file():
             return candidate
     return None
-
-
-def _set_windows_app_identity() -> None:
-    if os.name != "nt":
-        return
-    try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(_APP_USER_MODEL_ID)
-    except Exception as exc:
-        logger.debug("Failed to set Windows AppUserModelID: %s", exc)
 
 
 def _find_voicecode_window() -> int | None:

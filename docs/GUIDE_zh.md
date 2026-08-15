@@ -73,6 +73,8 @@ Models 页列出所有受支持模型，包含大小、最低/推荐显存、本
 | `diarization` | 基于 pyannote 的说话人分离（模型、`token_env` 如 `HF_TOKEN`、设备、最少/最多说话人）。 |
 | `punctuation` | 基于 NeMo 的标点恢复（英文，`punctuation_en_bert`）。 |
 
+**中文输出字形** —— 设置页的「语言」面板可选择中文转写结果的输出字形：**不转换**、**简体中文** 或 **繁體中文**（配置项 `extensions.zh_normalizer.script`）。选择简体或繁体会自动启用基于 OpenCC 的 `zh_normalizer` 扩展；首次使用可能提示在「依赖」页面安装 `opencc-python-reimplemented`。
+
 需要额外依赖的扩展（Silero VAD、pyannote、NeMo、OpenCC）会在「依赖」页面安装到隔离运行目录，不污染系统 Python。
 
 ### 安全

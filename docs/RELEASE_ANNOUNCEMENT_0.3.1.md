@@ -63,8 +63,8 @@ VoiceCode 是一款**本地优先**的桌面语音转文字（口述）软件：
 
 ## 文档
 
-- [用户指南（功能与设置详解）](docs/GUIDE.md) ｜ [使用指南（中文）](docs/GUIDE_zh.md) ｜ [ユーザーガイド（日本語）](docs/GUIDE_ja.md)
-- [API 参考](docs/API.md) ｜ [故障排查](docs/TROUBLESHOOTING.md) ｜ [更新日志](CHANGELOG.md)
+- [用户指南（功能与设置详解）](GUIDE.md) ｜ [使用指南（中文）](GUIDE_zh.md) ｜ [ユーザーガイド（日本語）](GUIDE_ja.md)
+- [API 参考](API.md) ｜ [故障排查](TROUBLESHOOTING.md) ｜ [更新日志](../CHANGELOG.md)
 
 ---
 # VoiceCode v0.3.1 Release Notes (English)
@@ -115,5 +115,5 @@ VoiceCode is a **local-first** desktop speech-to-text app: record your microphon
 
 ## Docs
 
-- [User Guide](docs/GUIDE.md) ｜ [使用指南（中文）](docs/GUIDE_zh.md) ｜ [ユーザーガイド（日本語）](docs/GUIDE_ja.md)
-- [API](docs/API.md) ｜ [Troubleshooting](docs/TROUBLESHOOTING.md) ｜ [Changelog](CHANGELOG.md)
+- [User Guide](GUIDE.md) ｜ [使用指南（中文）](GUIDE_zh.md) ｜ [ユーザーガイド（日本語）](GUIDE_ja.md)
+- [API](API.md) ｜ [Troubleshooting](TROUBLESHOOTING.md) ｜ [Changelog](../CHANGELOG.md)

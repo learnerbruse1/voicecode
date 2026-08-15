@@ -74,8 +74,18 @@ window._recStart = () => { if (!recording) startRec(); };
 window._recStop = () => { if (recording) stopRec(); };
 window._appendText = value => { text = appendSel.value === "append" ? (text ? text + "\n" + value : value) : value; renderText(); };
 
-document.addEventListener("keydown", e => { if (recordingKey) return; if (e.code === "Space" && !e.repeat) { e.preventDefault(); startRec(); } });
-document.addEventListener("keyup", e => { if (e.code === "Space") { e.preventDefault(); stopRec(); } });
+function spaceKeyInEditable(e) {
+  const t = e && e.target;
+  return Boolean(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable));
+}
+document.addEventListener("keydown", e => {
+  if (recordingKey || spaceKeyInEditable(e)) return;
+  if (e.code === "Space" && !e.repeat) { e.preventDefault(); startRec(); }
+});
+document.addEventListener("keyup", e => {
+  if (spaceKeyInEditable(e)) return;
+  if (e.code === "Space") { e.preventDefault(); stopRec(); }
+});
 recBtn.addEventListener("mousedown", startRec);
 recBtn.addEventListener("mouseup", stopRec);
 recBtn.addEventListener("mouseleave", () => { if (recording) stopRec(); });
